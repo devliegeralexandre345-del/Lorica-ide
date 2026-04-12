@@ -5,7 +5,7 @@
 NexusIDE is a next-generation IDE built with **Tauri 2 + Rust**.  
 Encrypted by default. AI-powered. Native performance.
 
-[**→ Download NexusIDE v1.0.0**](https://devliegeralexandre345-del.github.io/nexus-ide-releases/)
+[**→ Download NexusIDE v1.0.0**](https://github.com/devliegeralexandre345-del/nexus-ide/releases/tag/v1.0.0)
 
 ---
 
@@ -23,8 +23,8 @@ Encrypted by default. AI-powered. Native performance.
 
 | Platform | Link |
 |----------|------|
-| Windows (exe) | [NexusIDE_1.0.0_x64-setup.exe](https://github.com/devliegeralexandre345-del/nexus-ide-releases/releases/download/v1.0.0/NexusIDE_1.0.0_x64-setup.exe) |
-| Windows (msi) | [NexusIDE_1.0.0_x64_en-US.msi](https://github.com/devliegeralexandre345-del/nexus-ide-releases/releases/download/v1.0.0/NexusIDE_1.0.0_x64_en-US.msi) |
+| Windows (exe) | [NexusIDE_1.0.0_x64-setup.exe](https://github.com/devliegeralexandre345-del/nexus-ide/releases/download/v1.0.0/NexusIDE_1.0.0_x64-setup.exe) |
+| Windows (msi) | [NexusIDE_1.0.0_x64_en-US.msi](https://github.com/devliegeralexandre345-del/nexus-ide/releases/download/v1.0.0/NexusIDE_1.0.0_x64_en-US.msi) |
 
 ## License
 
