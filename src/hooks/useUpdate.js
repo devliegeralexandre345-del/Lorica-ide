@@ -14,7 +14,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
  * }}
  */
 export function useUpdate(dispatch) {
-  const currentVersion = '1.1.1'; // From tauri.conf.json
+  const currentVersion = '2.0.0'; // From tauri.conf.json
   const [latestVersion, setLatestVersion] = useState(null);
   const [releaseNotes, setReleaseNotes] = useState(null);
   const [downloadUrl, setDownloadUrl] = useState(null);

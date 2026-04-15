@@ -1,0 +1,182 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Default theme variables (spectre) ─────────────────────────── */
+:root {
+  --color-bg:        #060410;
+  --color-surface:   #0e0820;
+  --color-panel:     #160c30;
+  --color-border:    #2d1a50;
+  --color-accent:    #a855f7;
+  --color-accentDim: #7c3aed;
+  --color-danger:    #ef4444;
+  --color-warning:   #f59e0b;
+  --color-success:   #22c55e;
+  --color-text:      #ede8ff;
+  --color-textDim:   #5a3a8a;
+}
+
+/* ── Base resets ────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+body {
+  font-family: "Inter", "Segoe UI", sans-serif;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+/* ── Scrollbar ─────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-textDim); }
+
+/* ── Resize handles ────────────────────────────────────────────── */
+.resize-handle { transition: background-color 0.15s; }
+
+/* ── Zen mode ──────────────────────────────────────────────────── */
+.zen-mode { cursor: none; }
+.zen-mode:hover { cursor: default; }
+
+/* ── Animations ────────────────────────────────────────────────── */
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.45; }
+}
+.animate-pulse-glow { animation: pulse-glow 2.4s ease-in-out infinite; }
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fadeIn { animation: fadeIn 0.1s ease-out; }
+
+/* ── Lorica Dock ───────────────────────────────────────────────── */
+.lorica-dock-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 44px;
+  min-width: 44px;
+  height: 100%;
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-border);
+  padding: 6px 0 8px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.lorica-dock-logo {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 28%, transparent);
+  cursor: pointer;
+  transition: all 0.15s;
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+.lorica-dock-logo:hover {
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+
+.lorica-dock-items {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  width: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+  padding: 0 4px;
+}
+.lorica-dock-items::-webkit-scrollbar { display: none; }
+
+.lorica-dock-item-wrap {
+  position: relative;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.lorica-dock-item {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: var(--color-textDim);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+.lorica-dock-item:hover {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-text) 7%, transparent);
+}
+.lorica-dock-item.active {
+  color: var(--item-color, var(--color-accent));
+  background: color-mix(in srgb, var(--item-color, var(--color-accent)) 14%, transparent);
+  box-shadow: var(--item-glow, none);
+}
+
+.lorica-dock-ring {
+  position: absolute;
+  inset: -2px;
+  border-radius: 10px;
+  border-width: 1px;
+  border-style: solid;
+  pointer-events: none;
+}
+
+.lorica-dock-tooltip {
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--color-panel);
+  border: 1px solid color-mix(in srgb, var(--tip-color, var(--color-accent)) 35%, var(--color-border));
+  color: var(--color-text);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+  z-index: 200;
+  pointer-events: none;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  animation: fadeIn 0.1s ease-out;
+}
+.lorica-dock-tooltip::before {
+  content: '';
+  position: absolute;
+  left: -5px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  background: var(--color-panel);
+  border-left: 1px solid color-mix(in srgb, var(--tip-color, var(--color-accent)) 35%, var(--color-border));
+  border-bottom: 1px solid color-mix(in srgb, var(--tip-color, var(--color-accent)) 35%, var(--color-border));
+  transform: translateY(-50%) rotate(45deg);
+}

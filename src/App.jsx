@@ -1,5 +1,6 @@
 import React, { useReducer, useEffect, useCallback, useRef, useMemo } from 'react';
 import { appReducer, initialState } from './store/appReducer';
+import { THEMES } from './utils/themes';
 import { useFileSystem } from './hooks/useFileSystem';
 import { useAI } from './hooks/useAI';
 import { useSecurity } from './hooks/useSecurity';
@@ -60,6 +61,23 @@ export default function App() {
 
   useEffect(() => { stateRef.current = state; }, [state]);
   useEffect(() => { fsRef.current = fs; }, [fs]);
+
+  // Apply theme CSS variables whenever the theme changes
+  useEffect(() => {
+    const t = THEMES[state.theme] || THEMES.midnight;
+    const root = document.documentElement;
+    root.style.setProperty('--color-bg',        t.bg);
+    root.style.setProperty('--color-surface',   t.surface);
+    root.style.setProperty('--color-panel',      t.panel);
+    root.style.setProperty('--color-border',     t.border);
+    root.style.setProperty('--color-accent',     t.accent);
+    root.style.setProperty('--color-accentDim',  t.accentDim  || t.accent + 'cc');
+    root.style.setProperty('--color-danger',     t.danger  || '#ef4444');
+    root.style.setProperty('--color-warning',    t.warning || '#f59e0b');
+    root.style.setProperty('--color-success',    t.success || '#22c55e');
+    root.style.setProperty('--color-text',       t.text);
+    root.style.setProperty('--color-textDim',    t.textDim);
+  }, [state.theme]);
 
   // =============================================
   // ACTIONS (used by shortcuts AND command palette)
