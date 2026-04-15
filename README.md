@@ -4,6 +4,52 @@
 
 IDE nouvelle génération construit avec **Tauri 2 + Rust** (backend) et **React + CodeMirror** (frontend).
 
+---
+
+## ⬇️ Téléchargement
+
+**[→ Voir toutes les releases](https://github.com/devliegeralexandre345-del/Lorica-ide/releases)**
+
+| Plateforme | Format | Lien |
+|------------|--------|------|
+| 🪟 Windows | Installateur `.msi` | [Télécharger](https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/Lorica_2.0.0_x64_en-US.msi) |
+| 🪟 Windows | Executable `.exe` | [Télécharger](https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/Lorica_2.0.0_x64-setup.exe) |
+| 🐧 Linux | Package `.deb` (Debian/Ubuntu) | [Télécharger](https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/lorica_2.0.0_amd64.deb) |
+| 🐧 Linux | Package `.rpm` (Fedora/RHEL) | [Télécharger](https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/lorica-2.0.0-1.x86_64.rpm) |
+| 🐧 Linux | `.AppImage` (universel) | [Télécharger](https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/lorica_2.0.0_amd64.AppImage) |
+
+> Les liens ci-dessus pointent vers la **dernière release**. Pour une version spécifique, rendez-vous sur la [page des releases](https://github.com/devliegeralexandre345-del/Lorica-ide/releases).
+
+### Installation rapide
+
+**Windows**
+```powershell
+# MSI (recommandé)
+winget install --source winget Lorica
+
+# Ou télécharge le .msi / .exe ci-dessus et lance-le
+```
+
+**Debian / Ubuntu**
+```bash
+wget https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/lorica_2.0.0_amd64.deb
+sudo dpkg -i lorica_2.0.0_amd64.deb
+```
+
+**Fedora / RHEL**
+```bash
+sudo rpm -i https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/lorica-2.0.0-1.x86_64.rpm
+```
+
+**AppImage (toutes distros Linux)**
+```bash
+wget https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/lorica_2.0.0_amd64.AppImage
+chmod +x lorica_2.0.0_amd64.AppImage
+./lorica_2.0.0_amd64.AppImage
+```
+
+---
+
 ## Stack
 
 | Couche | Technologie |
@@ -16,7 +62,9 @@ IDE nouvelle génération construit avec **Tauri 2 + Rust** (backend) et **React
 | File watch | notify |
 | Large files | mmap + piece table |
 
-## Lancement rapide
+---
+
+## Lancement depuis les sources
 
 ### Prérequis
 
@@ -50,8 +98,11 @@ npm run tauri:dev
 
 ```bash
 npm run tauri:build
-# → Binaire dans src-tauri/target/release/
+# → Binaires dans src-tauri/target/release/
+# → Installateurs dans src-tauri/target/release/bundle/
 ```
+
+---
 
 ## Raccourcis clavier
 
@@ -59,13 +110,18 @@ npm run tauri:build
 |-----------|--------|
 | `Ctrl+P` | Command Palette |
 | `Ctrl+S` | Sauvegarder |
+| `Ctrl+Shift+S` | Tout sauvegarder |
 | `Ctrl+B` | Toggle Sidebar |
-| `Ctrl+`` ` | Toggle Terminal |
+| `Ctrl+\`` | Toggle Terminal |
 | `Ctrl+Shift+A` | Toggle AI Copilot |
+| `Ctrl+Shift+G` | Git Panel |
+| `Ctrl+Shift+F` | Recherche globale |
 | `Ctrl+K → Z` | Zen Mode |
 | `Ctrl+\` | Split Editor |
 | `Ctrl+L` | Verrouiller l'IDE |
 | `Escape` | Fermer / Quitter Zen |
+
+---
 
 ## Sécurité
 
@@ -75,16 +131,18 @@ npm run tauri:build
 - Audit log avec hash chaîné SHA-256 (anti-tamper)
 - Scan de secrets dans le code (API keys, tokens, passwords)
 
+---
+
 ## Structure
 
 ```
 lorica/
 ├── src/                      # Frontend React
 │   ├── index.jsx             # Entry point
-│   ├── loricaBridge.js        # Tauri ↔ React bridge
+│   ├── loricaBridge.js       # Tauri ↔ React bridge
 │   ├── App.jsx               # App principal
-│   ├── components/           # 17 composants React
-│   ├── hooks/                # 4 hooks custom
+│   ├── components/           # Composants React
+│   ├── hooks/                # Hooks custom
 │   ├── store/                # Reducer + state
 │   ├── utils/                # Languages, themes
 │   └── styles/               # CSS global
@@ -94,7 +152,9 @@ lorica/
 │   │   ├── filesystem.rs     # File I/O natif
 │   │   ├── security.rs       # Vault chiffré
 │   │   ├── terminal.rs       # PTY natif
-│   │   ├── buffer.rs         # Helix Buffer (mmap + piece table)
+│   │   ├── extensions.rs     # Debuggers & outils
+│   │   ├── dap.rs            # Debug Adapter Protocol
+│   │   ├── buffer.rs         # mmap + piece table
 │   │   └── watcher.rs        # File watcher
 │   ├── Cargo.toml
 │   └── tauri.conf.json
