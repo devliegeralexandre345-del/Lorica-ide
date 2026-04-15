@@ -1,34 +1,36 @@
-# ⚡ NexusIDE
+# Lorica — Site vitrine
 
-**The Future of Code.**
+Site de présentation de l'IDE Lorica.  
+Servi via **GitHub Pages** depuis la branche `site` du dépôt [Lorica-ide](https://github.com/devliegeralexandre345-del/Lorica-ide).
 
-NexusIDE is a next-generation IDE built with **Tauri 2 + Rust**.  
-Encrypted by default. AI-powered. Native performance.
+## Contenu
 
-[**→ Download NexusIDE v2.0.0**](https://github.com/devliegeralexandre345-del/nexus-ide/releases/tag/v2.0.0)
+```
+lorica-site/
+├── index.html      # Page principale (hero, features, comparaison, download)
+├── 404.html        # Redirect automatique vers /
+└── assets/
+    └── favicon.png # Logo Lorica
+```
 
----
+## Déploiement
 
-## Features
+Le site se déploie automatiquement depuis la branche `site` via GitHub Pages.
 
-- 🔐 **Obsidian Vault** — XChaCha20 + Argon2id encryption with mlock()
-- 🤖 **AI Copilot** — Integrated chat + AI Lens code actions
-- 🌿 **Git** — Stage, commit, push, pull, branches, log — all native
-- 🐛 **Debug** — Python, C/C++, Rust, C#, Go, Node.js
-- 🔍 **Global Search** — Project-wide search & replace in Rust
-- 📦 **Extensions** — Auto-detect + install debuggers & tools
-- ⚡ **~30MB RAM** | **~8MB binary** | **<500ms startup**
+Pour mettre à jour :
 
-## Download
+```bash
+# Modifier index.html puis :
+git add .
+git commit -m "Update site"
+git push origin site
+```
 
-| Platform | Format | Link |
-|----------|--------|------|
-| Windows 10/11 (x64) | `.exe` | [NexusIDE_2.0.0_x64-setup.exe](https://github.com/devliegeralexandre345-del/nexus-ide/releases/download/v2.0.0/NexusIDE_2.0.0_x64-setup.exe) |
-| Windows 10/11 (x64) | `.msi` | [NexusIDE_2.0.0_x64_en-US.msi](https://github.com/devliegeralexandre345-del/nexus-ide/releases/download/v2.0.0/NexusIDE_2.0.0_x64_en-US.msi) |
-| Linux Debian/Ubuntu | `.deb` | [NexusIDE_2.0.0_amd64.deb](https://github.com/devliegeralexandre345-del/nexus-ide/releases/download/v2.0.0/NexusIDE_2.0.0_amd64.deb) |
-| Linux Fedora/RHEL | `.rpm` | [NexusIDE_2.0.0-1.x86_64.rpm](https://github.com/devliegeralexandre345-del/nexus-ide/releases/download/v2.0.0/NexusIDE_2.0.0-1.x86_64.rpm) |
-| Linux universel | `.AppImage` | [NexusIDE_2.0.0_amd64.AppImage](https://github.com/devliegeralexandre345-del/nexus-ide/releases/download/v2.0.0/NexusIDE_2.0.0_amd64.AppImage) |
+## Lien
 
-## License
+→ https://devliegeralexandre345-del.github.io/Lorica-ide/
 
-Proprietary. All rights reserved.
+## Dépôt IDE
+
+Le code source de l'IDE Lorica est sur la branche `main` du même dépôt.  
+→ [Lorica-ide/tree/main](https://github.com/devliegeralexandre345-del/Lorica-ide/tree/main)

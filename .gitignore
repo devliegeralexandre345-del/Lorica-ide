@@ -1,2 +1,6 @@
 .DS_Store
 BUILD_AND_DEPLOY.md
+.superpowers/
+*.swp
+*.swo
+Thumbs.db

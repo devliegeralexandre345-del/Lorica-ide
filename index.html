@@ -3,23 +3,25 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>NexusIDE — The Future of Code</title>
-  <meta name="description" content="NexusIDE: next-gen IDE built with Rust. Encrypted vault, AI copilot, Git, debugging. 30MB RAM. 8MB binary.">
-  <meta name="theme-color" content="#00d4ff">
-  <meta property="og:title" content="NexusIDE — The Future of Code">
+  <title>Lorica — The Future of Code</title>
+  <meta name="description" content="Lorica: next-gen IDE built with Rust. Encrypted vault, AI copilot, Git, debugging. 30MB RAM. 8MB binary.">
+  <meta name="theme-color" content="#a855f7">
+  <meta property="og:title" content="Lorica — The Future of Code">
   <meta property="og:description" content="Secure. AI-Powered. Native. The IDE that doesn't copy anyone.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
   <style>
-    :root{--bg:#04060c;--surface:#0a0f1a;--accent:#00d4ff;--accent2:#a78bfa;--accent3:#34d399;--text:#e2e8f0;--dim:#4a5568;--glow:rgba(0,212,255,0.15)}
+    :root{--bg:#060410;--surface:#0e0820;--accent:#a855f7;--accent2:#00d4ff;--accent3:#34d399;--text:#ede8ff;--dim:#4a3a6a;--glow:rgba(168,85,247,0.15)}
     *{margin:0;padding:0;box-sizing:border-box}html{scroll-behavior:smooth}
     body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);overflow-x:hidden;-webkit-font-smoothing:antialiased}
-    .grid-bg{position:fixed;inset:0;z-index:0;background-image:linear-gradient(rgba(0,212,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,212,255,.03) 1px,transparent 1px);background-size:60px 60px;mask-image:radial-gradient(ellipse 80% 50% at 50% 0%,black 40%,transparent 100%)}
+    .grid-bg{position:fixed;inset:0;z-index:0;background-image:linear-gradient(rgba(168,85,247,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(168,85,247,.025) 1px,transparent 1px);background-size:60px 60px;mask-image:radial-gradient(ellipse 80% 50% at 50% 0%,black 40%,transparent 100%)}
     .content{position:relative;z-index:1}
     .hero{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:2rem;position:relative}
-    .hero-orb{position:absolute;width:500px;height:500px;border-radius:50%;background:radial-gradient(circle,var(--accent) 0%,transparent 70%);opacity:.06;top:10%;left:50%;transform:translateX(-50%);filter:blur(80px);animation:orb 6s ease-in-out infinite}
-    @keyframes orb{0%,100%{opacity:.04;transform:translateX(-50%) scale(1)}50%{opacity:.08;transform:translateX(-50%) scale(1.1)}}
-    .logo-mark{width:80px;height:80px;border-radius:20px;background:linear-gradient(135deg,var(--accent),#0088aa);display:flex;align-items:center;justify-content:center;font-size:36px;font-weight:800;color:var(--bg);margin-bottom:2rem;box-shadow:0 0 40px rgba(0,212,255,.3),0 0 80px rgba(0,212,255,.1);animation:float 4s ease-in-out infinite}
+    .hero-orb{position:absolute;width:600px;height:600px;border-radius:50%;background:radial-gradient(circle,#7c3aed 0%,transparent 70%);opacity:.07;top:5%;left:30%;transform:translateX(-50%);filter:blur(100px);animation:orb 7s ease-in-out infinite}
+    .hero-orb2{position:absolute;width:400px;height:400px;border-radius:50%;background:radial-gradient(circle,#00d4ff 0%,transparent 70%);opacity:.04;top:20%;right:15%;filter:blur(80px);animation:orb2 9s ease-in-out infinite}
+    @keyframes orb{0%,100%{opacity:.05;transform:translateX(-50%) scale(1)}50%{opacity:.09;transform:translateX(-50%) scale(1.15)}}
+    @keyframes orb2{0%,100%{opacity:.03;transform:scale(1)}50%{opacity:.06;transform:scale(1.2)}}
+    .logo-mark{width:88px;height:88px;display:flex;align-items:center;justify-content:center;margin-bottom:2rem;filter:drop-shadow(0 0 20px rgba(168,85,247,.5)) drop-shadow(0 0 50px rgba(168,85,247,.2));animation:float 4s ease-in-out infinite}
     @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
     .hero h1{font-size:clamp(3rem,8vw,6rem);font-weight:800;line-height:1.05;margin-bottom:1rem;letter-spacing:-.03em}
     .hero h1 span{color:var(--accent)}
@@ -29,10 +31,10 @@
     .stat-label{font-size:.75rem;color:var(--dim);text-transform:uppercase;letter-spacing:.1em;margin-top:.25rem}
     .cta-group{display:flex;gap:1rem;flex-wrap:wrap;justify-content:center}
     .btn{padding:.9rem 2.5rem;border-radius:12px;font-size:.95rem;font-weight:600;text-decoration:none;transition:all .3s cubic-bezier(.34,1.56,.64,1);display:inline-flex;align-items:center;gap:.5rem;cursor:pointer;border:none;font-family:'Outfit',sans-serif}
-    .btn-primary{background:var(--accent);color:var(--bg);box-shadow:0 4px 20px rgba(0,212,255,.3)}
-    .btn-primary:hover{transform:translateY(-2px) scale(1.02);box-shadow:0 8px 30px rgba(0,212,255,.4)}
-    .btn-secondary{background:rgba(255,255,255,.05);color:var(--text);border:1px solid rgba(255,255,255,.1)}
-    .btn-secondary:hover{background:rgba(255,255,255,.1);border-color:var(--accent);transform:translateY(-2px)}
+    .btn-primary{background:linear-gradient(135deg,#7c3aed,#a855f7);color:#fff;box-shadow:0 4px 20px rgba(168,85,247,.35)}
+    .btn-primary:hover{transform:translateY(-2px) scale(1.02);box-shadow:0 8px 30px rgba(168,85,247,.5)}
+    .btn-secondary{background:rgba(255,255,255,.04);color:var(--text);border:1px solid rgba(168,85,247,.2)}
+    .btn-secondary:hover{background:rgba(168,85,247,.1);border-color:var(--accent);transform:translateY(-2px)}
     .scroll-hint{position:absolute;bottom:2rem;left:50%;transform:translateX(-50%);color:var(--dim);font-size:.7rem;text-transform:uppercase;letter-spacing:.2em;animation:bounce 2s ease-in-out infinite}
     @keyframes bounce{0%,100%{transform:translateX(-50%) translateY(0)}50%{transform:translateX(-50%) translateY(6px)}}
     section{padding:6rem 2rem;max-width:1200px;margin:0 auto}
@@ -52,21 +54,21 @@
     .comparison th,.comparison td{padding:1rem 1.5rem;text-align:left;border-bottom:1px solid rgba(255,255,255,.05)}
     .comparison th{font-family:'JetBrains Mono',monospace;font-size:.75rem;color:var(--dim);text-transform:uppercase;letter-spacing:.1em}
     .comparison td:first-child{color:var(--dim)}
-    .nexus-col{color:var(--accent);font-weight:600}
-    .comparison tr:hover td{background:rgba(0,212,255,.03)}
+    .lorica-col{color:var(--accent);font-weight:600}
+    .comparison tr:hover td{background:rgba(168,85,247,.03)}
     .check{color:var(--accent3)}.cross{color:#ff3b5c}
     .cta-section{text-align:center;padding:8rem 2rem;position:relative}
     .cta-section::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at center,var(--glow),transparent 70%);pointer-events:none}
     .dl-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1rem;max-width:900px;margin:0 auto 2rem;text-align:left}
     .dl-card{background:var(--surface);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:1.4rem 1.6rem;display:flex;flex-direction:column;gap:.6rem;transition:all .25s}
-    .dl-card:hover{border-color:var(--accent);transform:translateY(-3px);box-shadow:0 12px 30px rgba(0,0,0,.3)}
+    .dl-card:hover{border-color:var(--accent);transform:translateY(-3px);box-shadow:0 12px 30px rgba(168,85,247,.15)}
     .dl-os{font-size:.65rem;font-family:'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.12em;color:var(--dim)}
     .dl-name{font-size:.95rem;font-weight:600}
     .dl-links{display:flex;gap:.6rem;flex-wrap:wrap;margin-top:.2rem}
     .dl-btn{font-family:'JetBrains Mono',monospace;font-size:.7rem;padding:.35rem .8rem;border-radius:7px;text-decoration:none;border:1px solid rgba(255,255,255,.1);color:var(--text);background:rgba(255,255,255,.04);transition:all .2s;white-space:nowrap}
-    .dl-btn:hover{background:var(--accent);color:var(--bg);border-color:var(--accent)}
-    .dl-btn.primary{background:var(--accent);color:var(--bg);border-color:var(--accent)}
-    .dl-btn.primary:hover{box-shadow:0 0 18px rgba(0,212,255,.4)}
+    .dl-btn:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
+    .dl-btn.primary{background:linear-gradient(135deg,#7c3aed,#a855f7);color:#fff;border-color:#a855f7}
+    .dl-btn.primary:hover{box-shadow:0 0 18px rgba(168,85,247,.5)}
     footer{text-align:center;padding:3rem 2rem;border-top:1px solid rgba(255,255,255,.05);color:var(--dim);font-size:.75rem}
     footer a{color:var(--accent);text-decoration:none}footer a:hover{text-decoration:underline}
     .tech-badges{display:flex;gap:.75rem;flex-wrap:wrap;justify-content:center;margin-top:2rem}
@@ -84,8 +86,23 @@
 
   <section class="hero">
     <div class="hero-orb"></div>
-    <div class="logo-mark fade-in">&#9889;</div>
-    <h1 class="fade-in">Nexus<span>IDE</span></h1>
+    <div class="hero-orb2"></div>
+    <div class="logo-mark fade-in">
+      <svg width="88" height="88" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="lg1" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stop-color="#a855f7"/>
+            <stop offset="100%" stop-color="#00d4ff"/>
+          </linearGradient>
+        </defs>
+        <rect x="10" y="14" width="60" height="11" rx="3" fill="url(#lg1)" opacity="0.96"/>
+        <rect x="16" y="29" width="60" height="11" rx="3" fill="url(#lg1)" opacity="0.78"/>
+        <rect x="22" y="44" width="60" height="11" rx="3" fill="url(#lg1)" opacity="0.60"/>
+        <rect x="10" y="59" width="60" height="11" rx="3" fill="url(#lg1)" opacity="0.42"/>
+        <rect x="16" y="74" width="60" height="11" rx="3" fill="url(#lg1)" opacity="0.24"/>
+      </svg>
+    </div>
+    <h1 class="fade-in">Lorica<span>IDE</span></h1>
     <p class="hero-sub fade-in">L'IDE nouvelle g&eacute;n&eacute;ration. Construit en Rust, chiffr&eacute; par d&eacute;faut, propuls&eacute; par l'IA. Pas un clone &mdash; quelque chose de nouveau.</p>
     <div class="hero-stats fade-in">
       <div class="stat"><div class="stat-value">~30MB</div><div class="stat-label">RAM</div></div>
@@ -122,14 +139,14 @@
 
   <section>
     <div class="section-label">Comparaison</div>
-    <h2 class="section-title">NexusIDE vs. le reste</h2>
+    <h2 class="section-title">Lorica vs. le reste</h2>
     <div class="comparison"><table>
-      <thead><tr><th>M&eacute;trique</th><th>VS Code</th><th>Cursor</th><th class="nexus-col">NexusIDE</th></tr></thead>
+      <thead><tr><th>M&eacute;trique</th><th>VS Code</th><th>Cursor</th><th class="lorica-col">Lorica</th></tr></thead>
       <tbody>
-        <tr><td>Backend</td><td>Electron</td><td>Electron</td><td class="nexus-col">Tauri 2 (Rust)</td></tr>
-        <tr><td>RAM</td><td>300MB</td><td>350MB</td><td class="nexus-col">~30MB</td></tr>
-        <tr><td>Binaire</td><td>300MB+</td><td>400MB+</td><td class="nexus-col">~8MB</td></tr>
-        <tr><td>Startup</td><td>2-3s</td><td>3-4s</td><td class="nexus-col"><500ms</td></tr>
+        <tr><td>Backend</td><td>Electron</td><td>Electron</td><td class="lorica-col">Tauri 2 (Rust)</td></tr>
+        <tr><td>RAM</td><td>300MB</td><td>350MB</td><td class="lorica-col">~30MB</td></tr>
+        <tr><td>Binaire</td><td>300MB+</td><td>400MB+</td><td class="lorica-col">~8MB</td></tr>
+        <tr><td>Startup</td><td>2-3s</td><td>3-4s</td><td class="lorica-col"><500ms</td></tr>
         <tr><td>Chiffrement</td><td class="cross">&#10007;</td><td class="cross">&#10007;</td><td class="check">&#10003; XChaCha20</td></tr>
         <tr><td>Git</td><td>Extension</td><td>Partiel</td><td class="check">&#10003; Natif</td></tr>
         <tr><td>Debug</td><td>Extension</td><td>Extension</td><td class="check">&#10003; Int&eacute;gr&eacute;</td></tr>
@@ -142,15 +159,15 @@
   <section class="cta-section" id="download">
     <div class="section-label">Download</div>
     <h2 class="section-title">Pr&ecirc;t &agrave; coder autrement ?</h2>
-    <p class="section-desc" style="margin:0 auto 2rem">NexusIDE v2.0.0 &mdash; Windows & Linux (x64)</p>
+    <p class="section-desc" style="margin:0 auto 2rem">Lorica v2.0.0 &mdash; Windows & Linux (x64)</p>
     <div class="dl-grid">
 
       <div class="dl-card">
         <div class="dl-os">Windows 10 / 11 &mdash; x64</div>
         <div class="dl-name">&#129695; Windows</div>
         <div class="dl-links">
-          <a href="https://github.com/devliegeralexandre345-del/nexus-ide/releases/download/v2.0.0/NexusIDE_2.0.0_x64-setup.exe" class="dl-btn primary">&#11015; .exe</a>
-          <a href="https://github.com/devliegeralexandre345-del/nexus-ide/releases/download/v2.0.0/NexusIDE_2.0.0_x64_en-US.msi" class="dl-btn">.msi</a>
+          <a href="https://github.com/devliegeralexandre345-del/lorica/releases/download/v2.0.0/Lorica_2.0.0_x64-setup.exe" class="dl-btn primary">&#11015; .exe</a>
+          <a href="https://github.com/devliegeralexandre345-del/lorica/releases/download/v2.0.0/Lorica_2.0.0_x64_en-US.msi" class="dl-btn">.msi</a>
         </div>
       </div>
 
@@ -158,7 +175,7 @@
         <div class="dl-os">Debian / Ubuntu &mdash; x64</div>
         <div class="dl-name">&#128032; Linux .deb</div>
         <div class="dl-links">
-          <a href="https://github.com/devliegeralexandre345-del/nexus-ide/releases/download/v2.0.0/NexusIDE_2.0.0_amd64.deb" class="dl-btn primary">&#11015; .deb</a>
+          <a href="https://github.com/devliegeralexandre345-del/lorica/releases/download/v2.0.0/Lorica_2.0.0_amd64.deb" class="dl-btn primary">&#11015; .deb</a>
         </div>
       </div>
 
@@ -166,7 +183,7 @@
         <div class="dl-os">Fedora / RHEL &mdash; x64</div>
         <div class="dl-name">&#128032; Linux .rpm</div>
         <div class="dl-links">
-          <a href="https://github.com/devliegeralexandre345-del/nexus-ide/releases/download/v2.0.0/NexusIDE_2.0.0-1.x86_64.rpm" class="dl-btn primary">&#11015; .rpm</a>
+          <a href="https://github.com/devliegeralexandre345-del/lorica/releases/download/v2.0.0/Lorica_2.0.0-1.x86_64.rpm" class="dl-btn primary">&#11015; .rpm</a>
         </div>
       </div>
 
@@ -174,7 +191,7 @@
         <div class="dl-os">Toutes distributions &mdash; x64</div>
         <div class="dl-name">&#128032; Linux universel</div>
         <div class="dl-links">
-          <a href="https://github.com/devliegeralexandre345-del/nexus-ide/releases/download/v2.0.0/NexusIDE_2.0.0_amd64.AppImage" class="dl-btn primary">&#11015; .AppImage</a>
+          <a href="https://github.com/devliegeralexandre345-del/lorica/releases/download/v2.0.0/Lorica_2.0.0_amd64.AppImage" class="dl-btn primary">&#11015; .AppImage</a>
         </div>
       </div>
 
@@ -182,7 +199,7 @@
     <p style="color:var(--dim);font-size:.75rem;margin-top:.5rem">macOS &mdash; bient&ocirc;t.</p>
   </section>
 
-  <footer><p>&copy; 2025 NexusIDE &mdash; Built with &#9889; Rust + Tauri 2</p></footer>
+  <footer><p>&copy; 2026 Lorica &mdash; Built with &#9889; Rust + Tauri 2</p></footer>
 </div>
 <script>
 const o=new IntersectionObserver(e=>{e.forEach(e=>{e.isIntersecting&&(e.target.style.animationPlayState='running')})},{threshold:.1});
