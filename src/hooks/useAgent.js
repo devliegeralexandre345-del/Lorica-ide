@@ -143,7 +143,7 @@ export function useAgent(state, dispatch) {
         }
         case 'fetch_url': {
           try {
-            const resp = await fetch(toolCall.input.url);
+            const resp = await tauriFetch(toolCall.input.url);
             const text = await resp.text();
             result = text.length > 8000 ? text.slice(0, 8000) + '\n[truncated]' : text;
           } catch (e) {
