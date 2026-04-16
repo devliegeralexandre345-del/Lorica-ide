@@ -42,12 +42,18 @@ export const initialState = {
   securityAlerts: [],
   autoLockMinutes: 5,
 
-  // AI
+  // AI (legacy copilot — conservé pour compatibilité)
   aiMessages: [],
   aiLoading: false,
   aiApiKey: '',
   aiProvider: 'anthropic',     // 'anthropic' | 'deepseek'
   aiDeepseekKey: '',
+
+  // Agent Copilot
+  agentMessages: [],        // [{ id, role, content, toolCalls }]
+  agentLoading: false,
+  agentConfig: null,        // { context, permissions, autoApprove }
+  agentSessionActive: false,
 
   // Spotify
   spotifyTrack: null,
@@ -145,6 +151,50 @@ export function appReducer(state, action) {
       return { ...state, aiMessages: [...state.aiMessages, action.message] };
     case 'SET_AI_LOADING':
       return { ...state, aiLoading: action.value };
+    case 'AGENT_SET_CONFIG':
+      return {
+        ...state,
+        agentConfig: action.config,
+        agentSessionActive: true,
+        agentMessages: [],
+      };
+    case 'AGENT_ADD_MESSAGE': {
+      const msg = { ...action.message, id: Date.now() + Math.random(), toolCalls: action.message.toolCalls || [] };
+      return { ...state, agentMessages: [...state.agentMessages, msg] };
+    }
+    case 'AGENT_APPEND_STREAM': {
+      const msgs = [...state.agentMessages];
+      const last = msgs[msgs.length - 1];
+      if (last && last.role === 'assistant') {
+        msgs[msgs.length - 1] = { ...last, content: last.content + action.text };
+      }
+      return { ...state, agentMessages: msgs };
+    }
+    case 'AGENT_ADD_TOOL_CALL': {
+      const msgs = [...state.agentMessages];
+      const last = msgs[msgs.length - 1];
+      if (last && last.role === 'assistant') {
+        msgs[msgs.length - 1] = {
+          ...last,
+          toolCalls: [...(last.toolCalls || []), action.toolCall],
+        };
+      }
+      return { ...state, agentMessages: msgs };
+    }
+    case 'AGENT_UPDATE_TOOL_CALL': {
+      const msgs = state.agentMessages.map((msg) => {
+        if (!msg.toolCalls) return msg;
+        const updated = msg.toolCalls.map((tc) =>
+          tc.id === action.id ? { ...tc, ...action.updates } : tc
+        );
+        return { ...msg, toolCalls: updated };
+      });
+      return { ...state, agentMessages: msgs };
+    }
+    case 'AGENT_SET_LOADING':
+      return { ...state, agentLoading: action.value };
+    case 'AGENT_CLEAR':
+      return { ...state, agentMessages: [], agentLoading: false, agentSessionActive: false, agentConfig: null };
     case 'SET_AI_KEY':
       return { ...state, aiApiKey: action.key };
     case 'SET_AI_PROVIDER':
