@@ -3,43 +3,50 @@ import { useCallback, useRef } from 'react';
 import { buildToolsForPermissions, NON_DESTRUCTIVE_TOOLS } from '../utils/agentTools';
 
 const ANTHROPIC_ENDPOINT = 'https://api.anthropic.com/v1/messages';
+const DEEPSEEK_ENDPOINT = 'https://api.deepseek.com/chat/completions';
+
+// Convert Anthropic-style tool defs to OpenAI/DeepSeek format
+function toOpenAITools(anthropicTools) {
+  return anthropicTools.map((t) => ({
+    type: 'function',
+    function: {
+      name: t.name,
+      description: t.description,
+      parameters: t.input_schema,
+    },
+  }));
+}
 
 export function useAgent(state, dispatch) {
   const abortRef = useRef(null);
-  // Map of toolCallId -> { resolve } — used to wait for user approval
   const approvalRef = useRef({});
 
-  // Called by AgentCopilot when user clicks "Approuver"
   const approveToolCall = useCallback((id) => {
     approvalRef.current[id]?.resolve(true);
     delete approvalRef.current[id];
   }, []);
 
-  // Called by AgentCopilot when user clicks "Rejeter"
   const rejectToolCall = useCallback((id) => {
     approvalRef.current[id]?.resolve(false);
     delete approvalRef.current[id];
   }, []);
 
-  // Stop the running agent
   const stop = useCallback(() => {
     abortRef.current?.abort();
     dispatch({ type: 'AGENT_SET_LOADING', value: false });
   }, [dispatch]);
 
-  // Wait for user to approve or reject a tool call
   function waitForApproval(id) {
     return new Promise((resolve) => {
       approvalRef.current[id] = { resolve };
     });
   }
 
-  // Execute a single tool call
+  // Execute a single tool call (provider-agnostic)
   async function executeTool(toolCall, config, projectPath) {
     const isDestructive = !NON_DESTRUCTIVE_TOOLS.has(toolCall.name);
 
     if (isDestructive && !config.autoApprove) {
-      // For write_file: try to read old content before asking approval
       if (toolCall.name === 'write_file' && toolCall.input?.path) {
         try {
           const r = await window.lorica.fs.readFile(toolCall.input.path);
@@ -75,7 +82,6 @@ export function useAgent(state, dispatch) {
           const r = await window.lorica.fs.writeFile(toolCall.input.path, toolCall.input.content);
           if (r.success) {
             result = 'File written successfully.';
-            // Open file in editor tab
             const name = toolCall.input.path.split(/[\\/]/).pop();
             const ext = name.includes('.') ? name.split('.').pop() : '';
             dispatch({
@@ -138,7 +144,6 @@ export function useAgent(state, dispatch) {
           try {
             const resp = await fetch(toolCall.input.url);
             const text = await resp.text();
-            // Truncate to 8000 chars to avoid flooding context
             result = text.length > 8000 ? text.slice(0, 8000) + '\n[truncated]' : text;
           } catch (e) {
             result = `Fetch error: ${e.message}`;
@@ -158,7 +163,6 @@ export function useAgent(state, dispatch) {
     }
   }
 
-  // Build the initial context injection based on config
   async function buildInitialContext(config, activeFile, projectPath) {
     if (config.context === 'none' || !projectPath) return null;
 
@@ -171,7 +175,7 @@ export function useAgent(state, dispatch) {
       if (!r.success) return null;
       const flatten = (entries, indent = '') =>
         entries.map((e) =>
-          `${indent}${e.isDirectory ? '📁' : '📄'} ${e.name}${e.children ? '\n' + flatten(e.children, indent + '  ') : ''}`
+          `${indent}${e.isDirectory ? '[D]' : '[F]'} ${e.name}${e.children ? '\n' + flatten(e.children, indent + '  ') : ''}`
         ).join('\n');
       let ctx = `Project structure (${projectPath}):\n${flatten(r.data)}`;
 
@@ -189,14 +193,14 @@ export function useAgent(state, dispatch) {
     return null;
   }
 
-  // Parse SSE stream and return { textContent, toolUses, stopReason }
-  async function parseStream(response, dispatch) {
+  // --- Anthropic SSE parser ---
+  async function parseAnthropicStream(response) {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
 
     let textContent = '';
-    const toolUses = []; // { id, name, inputAccum, input }
+    const toolUses = [];
     let stopReason = null;
     let activeToolIdx = -1;
 
@@ -208,7 +212,7 @@ export function useAgent(state, dispatch) {
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
-      buffer = lines.pop(); // keep incomplete line
+      buffer = lines.pop();
 
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue;
@@ -264,11 +268,112 @@ export function useAgent(state, dispatch) {
     return { textContent, toolUses, stopReason };
   }
 
+  // --- OpenAI/DeepSeek SSE parser ---
+  async function parseOpenAIStream(response) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    let textContent = '';
+    const toolUses = []; // keyed by index
+    const toolByIndex = {}; // index -> toolUses entry
+    let finishReason = null;
+
+    dispatch({ type: 'AGENT_ADD_MESSAGE', message: { role: 'assistant', content: '', toolCalls: [] } });
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const raw = line.slice(6).trim();
+        if (raw === '[DONE]') continue;
+        let ev;
+        try { ev = JSON.parse(raw); } catch { continue; }
+
+        const choice = ev.choices?.[0];
+        if (!choice) continue;
+
+        const delta = choice.delta || {};
+
+        if (delta.content) {
+          textContent += delta.content;
+          dispatch({ type: 'AGENT_APPEND_STREAM', text: delta.content });
+        }
+
+        if (delta.tool_calls) {
+          for (const tcDelta of delta.tool_calls) {
+            const idx = tcDelta.index ?? 0;
+            let entry = toolByIndex[idx];
+            if (!entry) {
+              entry = {
+                id: tcDelta.id || `call_${idx}_${Date.now()}`,
+                name: tcDelta.function?.name || '',
+                inputAccum: '',
+                input: null,
+                status: 'pending',
+              };
+              toolByIndex[idx] = entry;
+              toolUses.push(entry);
+              dispatch({
+                type: 'AGENT_ADD_TOOL_CALL',
+                toolCall: { id: entry.id, name: entry.name, input: {}, status: 'pending' },
+              });
+            }
+            if (tcDelta.id && !entry.idEmitted) {
+              entry.id = tcDelta.id;
+              entry.idEmitted = true;
+            }
+            if (tcDelta.function?.name && !entry.name) {
+              entry.name = tcDelta.function.name;
+            }
+            if (tcDelta.function?.arguments) {
+              entry.inputAccum += tcDelta.function.arguments;
+            }
+          }
+        }
+
+        if (choice.finish_reason) {
+          finishReason = choice.finish_reason;
+        }
+      }
+    }
+
+    // Finalize tool input parsing
+    for (const tu of toolUses) {
+      try {
+        tu.input = tu.inputAccum ? JSON.parse(tu.inputAccum) : {};
+      } catch {
+        tu.input = {};
+      }
+      dispatch({
+        type: 'AGENT_UPDATE_TOOL_CALL',
+        id: tu.id,
+        updates: { input: tu.input, name: tu.name },
+      });
+    }
+
+    return {
+      textContent,
+      toolUses,
+      stopReason: finishReason === 'tool_calls' ? 'tool_use' : finishReason,
+    };
+  }
+
   const sendMessage = useCallback(async (userMessage, activeFile) => {
-    if (!state.aiApiKey) {
+    const provider = state.aiProvider || 'anthropic';
+    const apiKey = provider === 'anthropic' ? state.aiApiKey : state.aiDeepseekKey;
+    const providerLabel = provider === 'anthropic' ? 'Anthropic' : 'DeepSeek';
+
+    if (!apiKey) {
       dispatch({
         type: 'AGENT_ADD_MESSAGE',
-        message: { role: 'assistant', content: '⚠️ Configure ta clé API Anthropic dans les Paramètres.' },
+        message: { role: 'assistant', content: `⚠️ Configure ta clé API ${providerLabel} dans les Paramètres.` },
       });
       return;
     }
@@ -276,37 +381,33 @@ export function useAgent(state, dispatch) {
     const config = state.agentConfig;
     const projectPath = state.projectPath;
     const tools = buildToolsForPermissions(config.permissions);
+    const systemPrompt = `You are Lorica Agent, an expert AI embedded in the Lorica IDE. You have direct access to the user's codebase via tools. Be concise, precise, and always use tools to read files before modifying them. Project path: ${projectPath || 'unknown'}.`;
 
-    // Build message history for API
-    const apiMessages = [];
+    // Build message history in a neutral form, then convert per-provider at fetch time
+    const history = [];
 
-    // Initial context injection (system-like user message)
     const ctxText = await buildInitialContext(config, activeFile, projectPath);
     if (ctxText) {
-      apiMessages.push({ role: 'user', content: ctxText });
-      apiMessages.push({ role: 'assistant', content: 'Contexte reçu. Comment puis-je t\'aider ?' });
+      history.push({ role: 'user', content: ctxText });
+      history.push({ role: 'assistant', content: "Contexte reçu. Comment puis-je t'aider ?", toolCalls: [] });
     }
 
-    // Add conversation history (skip last 2 if they were the context injection)
     for (const msg of state.agentMessages) {
       if (msg.role === 'user') {
-        apiMessages.push({ role: 'user', content: msg.content });
+        history.push({ role: 'user', content: msg.content });
       } else if (msg.role === 'assistant') {
-        // Rebuild Anthropic content blocks
-        const content = [];
-        if (msg.content) content.push({ type: 'text', text: msg.content });
-        for (const tc of msg.toolCalls || []) {
-          content.push({ type: 'tool_use', id: tc.id, name: tc.name, input: tc.input || {} });
-        }
-        if (content.length > 0) apiMessages.push({ role: 'assistant', content });
+        history.push({
+          role: 'assistant',
+          content: msg.content || '',
+          toolCalls: (msg.toolCalls || []).map((tc) => ({ id: tc.id, name: tc.name, input: tc.input || {} })),
+        });
       } else if (msg.role === 'tool_results') {
-        apiMessages.push({ role: 'user', content: msg.results });
+        history.push({ role: 'tool_results', results: msg.results });
       }
     }
 
-    // Add current user message
     dispatch({ type: 'AGENT_ADD_MESSAGE', message: { role: 'user', content: userMessage } });
-    apiMessages.push({ role: 'user', content: userMessage });
+    history.push({ role: 'user', content: userMessage });
 
     dispatch({ type: 'AGENT_SET_LOADING', value: true });
 
@@ -314,76 +415,142 @@ export function useAgent(state, dispatch) {
     abortRef.current = controller;
 
     try {
-      // Agentic loop
       while (true) {
-        const response = await fetch(ANTHROPIC_ENDPOINT, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': state.aiApiKey,
-            'anthropic-version': '2023-06-01',
-            'anthropic-dangerous-direct-browser-access': 'true',
-          },
-          body: JSON.stringify({
-            model: 'claude-sonnet-4-20250514',
-            max_tokens: 8096,
-            stream: true,
-            tools: tools.length > 0 ? tools : undefined,
-            system: `You are Lorica Agent, an expert AI embedded in the Lorica IDE. You have direct access to the user's codebase via tools. Be concise, precise, and always use tools to read files before modifying them. Project path: ${projectPath || 'unknown'}.`,
-            messages: apiMessages,
-          }),
-          signal: controller.signal,
-        });
+        let response;
+        let parseStreamFn;
+
+        if (provider === 'anthropic') {
+          // Anthropic format
+          const apiMessages = [];
+          for (const h of history) {
+            if (h.role === 'user') {
+              apiMessages.push({ role: 'user', content: h.content });
+            } else if (h.role === 'assistant') {
+              const content = [];
+              if (h.content) content.push({ type: 'text', text: h.content });
+              for (const tc of h.toolCalls || []) {
+                content.push({ type: 'tool_use', id: tc.id, name: tc.name, input: tc.input || {} });
+              }
+              if (content.length > 0) apiMessages.push({ role: 'assistant', content });
+            } else if (h.role === 'tool_results') {
+              apiMessages.push({ role: 'user', content: h.results });
+            }
+          }
+
+          response = await fetch(ANTHROPIC_ENDPOINT, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': apiKey,
+              'anthropic-version': '2023-06-01',
+              'anthropic-dangerous-direct-browser-access': 'true',
+            },
+            body: JSON.stringify({
+              model: 'claude-sonnet-4-20250514',
+              max_tokens: 8096,
+              stream: true,
+              tools: tools.length > 0 ? tools : undefined,
+              system: systemPrompt,
+              messages: apiMessages,
+            }),
+            signal: controller.signal,
+          });
+          parseStreamFn = parseAnthropicStream;
+        } else {
+          // DeepSeek / OpenAI-compatible format
+          const apiMessages = [{ role: 'system', content: systemPrompt }];
+          for (const h of history) {
+            if (h.role === 'user') {
+              apiMessages.push({ role: 'user', content: h.content });
+            } else if (h.role === 'assistant') {
+              const msg = { role: 'assistant', content: h.content || '' };
+              if (h.toolCalls && h.toolCalls.length > 0) {
+                msg.tool_calls = h.toolCalls.map((tc) => ({
+                  id: tc.id,
+                  type: 'function',
+                  function: { name: tc.name, arguments: JSON.stringify(tc.input || {}) },
+                }));
+              }
+              apiMessages.push(msg);
+            } else if (h.role === 'tool_results') {
+              for (const r of h.results) {
+                apiMessages.push({
+                  role: 'tool',
+                  tool_call_id: r.tool_use_id,
+                  content: typeof r.content === 'string' ? r.content : JSON.stringify(r.content),
+                });
+              }
+            }
+          }
+
+          response = await fetch(DEEPSEEK_ENDPOINT, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+              model: 'deepseek-chat',
+              max_tokens: 4096,
+              stream: true,
+              tools: tools.length > 0 ? toOpenAITools(tools) : undefined,
+              messages: apiMessages,
+            }),
+            signal: controller.signal,
+          });
+          parseStreamFn = parseOpenAIStream;
+        }
 
         if (!response.ok) {
-          const err = await response.json().catch(() => ({}));
+          let errMsg = response.statusText;
+          try {
+            const err = await response.json();
+            errMsg = err.error?.message || err.message || errMsg;
+          } catch {}
           dispatch({
             type: 'AGENT_ADD_MESSAGE',
-            message: { role: 'assistant', content: `❌ API Error: ${err.error?.message || response.statusText}` },
+            message: { role: 'assistant', content: `❌ ${providerLabel} API Error (${response.status}): ${errMsg}` },
           });
           break;
         }
 
-        const { textContent, toolUses, stopReason } = await parseStream(response, dispatch);
+        const { textContent, toolUses, stopReason } = await parseStreamFn(response);
 
-        // Build assistant content for API history
-        const assistantContent = [];
-        if (textContent) assistantContent.push({ type: 'text', text: textContent });
-        for (const tu of toolUses) {
-          assistantContent.push({ type: 'tool_use', id: tu.id, name: tu.name, input: tu.input || {} });
-        }
-        if (assistantContent.length > 0) {
-          apiMessages.push({ role: 'assistant', content: assistantContent });
-        }
+        history.push({
+          role: 'assistant',
+          content: textContent,
+          toolCalls: toolUses.map((tu) => ({ id: tu.id, name: tu.name, input: tu.input || {} })),
+        });
 
         if (stopReason !== 'tool_use' || toolUses.length === 0) break;
 
-        // Execute tools and collect results
         const toolResults = [];
         for (const tu of toolUses) {
           const result = await executeTool(tu, config, projectPath);
           toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: String(result) });
         }
 
-        // Store tool results in agent messages for UI (role: 'tool_results')
         dispatch({
           type: 'AGENT_ADD_MESSAGE',
           message: { role: 'tool_results', results: toolResults, content: '' },
         });
 
-        apiMessages.push({ role: 'user', content: toolResults });
+        history.push({ role: 'tool_results', results: toolResults });
       }
     } catch (e) {
       if (e.name !== 'AbortError') {
+        const hint = e.message === 'Failed to fetch'
+          ? ' (vérifie ta connexion, la clé API, ou que l\'URL n\'est pas bloquée par CORS)'
+          : '';
         dispatch({
           type: 'AGENT_ADD_MESSAGE',
-          message: { role: 'assistant', content: `❌ Erreur: ${e.message}` },
+          message: { role: 'assistant', content: `❌ Erreur: ${e.message}${hint}` },
         });
       }
     } finally {
       dispatch({ type: 'AGENT_SET_LOADING', value: false });
     }
-  }, [state.aiApiKey, state.agentConfig, state.agentMessages, state.projectPath, dispatch]);
+  }, [state.aiApiKey, state.aiDeepseekKey, state.aiProvider, state.agentConfig, state.agentMessages, state.projectPath, dispatch]);
 
   return { sendMessage, approveToolCall, rejectToolCall, stop };
 }
