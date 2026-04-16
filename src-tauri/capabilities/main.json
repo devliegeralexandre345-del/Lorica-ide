@@ -38,7 +38,17 @@
     "fs:allow-read-file",
     "fs:allow-write-file",
     "shell:default",
-    "shell:allow-open"
+    "shell:allow-open",
+    "http:default",
+    {
+      "identifier": "http:allow-fetch",
+      "allow": [
+        { "url": "https://api.anthropic.com/*" },
+        { "url": "https://api.deepseek.com/*" },
+        { "url": "https://*" },
+        { "url": "http://*" }
+      ]
+    }
   ]
 }
 

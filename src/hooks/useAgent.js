@@ -1,5 +1,6 @@
 // src/hooks/useAgent.js
 import { useCallback, useRef } from 'react';
+import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { buildToolsForPermissions, NON_DESTRUCTIVE_TOOLS } from '../utils/agentTools';
 
 const ANTHROPIC_ENDPOINT = 'https://api.anthropic.com/v1/messages';
@@ -437,7 +438,7 @@ export function useAgent(state, dispatch) {
             }
           }
 
-          response = await fetch(ANTHROPIC_ENDPOINT, {
+          response = await tauriFetch(ANTHROPIC_ENDPOINT, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -483,7 +484,7 @@ export function useAgent(state, dispatch) {
             }
           }
 
-          response = await fetch(DEEPSEEK_ENDPOINT, {
+          response = await tauriFetch(DEEPSEEK_ENDPOINT, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
