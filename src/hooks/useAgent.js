@@ -58,12 +58,15 @@ export function useAgent(state, dispatch) {
   const abortRef = useRef(null);
   const approvalRef = useRef({});
   const lastUserMessageRef = useRef(null);
-  // Stream buffering — avoid dispatching per token (freezes UI with Markdown+Prism).
+  // Stream buffering — avoid dispatching per token (freezes UI).
+  // Throttled to ~80ms (≈12 fps) which is plenty for reading and leaves the
+  // main thread free for clicks/scrolls/terminal input.
   const streamBufRef = useRef('');
-  const rafPendingRef = useRef(false);
+  const flushTimerRef = useRef(null);
+  const STREAM_FLUSH_MS = 80;
 
   const flushStream = useCallback(() => {
-    rafPendingRef.current = false;
+    flushTimerRef.current = null;
     const text = streamBufRef.current;
     if (!text) return;
     streamBufRef.current = '';
@@ -72,11 +75,8 @@ export function useAgent(state, dispatch) {
 
   const queueStreamAppend = useCallback((text) => {
     streamBufRef.current += text;
-    if (!rafPendingRef.current) {
-      rafPendingRef.current = true;
-      // rAF keeps updates in lockstep with the browser paint (≈60fps instead of
-      // 500+ token dispatches/sec) — the UI stays responsive to clicks/scroll.
-      requestAnimationFrame(flushStream);
+    if (flushTimerRef.current == null) {
+      flushTimerRef.current = setTimeout(flushStream, STREAM_FLUSH_MS);
     }
   }, [flushStream]);
 
@@ -92,7 +92,7 @@ export function useAgent(state, dispatch) {
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
-    // Flush any text still buffered so it isn't orphaned in the next run.
+    if (flushTimerRef.current) { clearTimeout(flushTimerRef.current); flushTimerRef.current = null; }
     if (streamBufRef.current) {
       const text = streamBufRef.current;
       streamBufRef.current = '';
@@ -335,6 +335,7 @@ export function useAgent(state, dispatch) {
     }
 
     // Flush any pending buffered text before finishing the stream.
+    if (flushTimerRef.current) { clearTimeout(flushTimerRef.current); flushTimerRef.current = null; }
     if (streamBufRef.current) flushStream();
 
     return { textContent, toolUses, stopReason, usage };
@@ -434,6 +435,7 @@ export function useAgent(state, dispatch) {
     }
 
     // Flush any pending buffered text before finishing.
+    if (flushTimerRef.current) { clearTimeout(flushTimerRef.current); flushTimerRef.current = null; }
     if (streamBufRef.current) flushStream();
 
     return {
@@ -787,7 +789,7 @@ You have direct access to the user's codebase via tools. Be concise, precise, an
         });
       }
     } finally {
-      // Guarantee any buffered stream text is flushed to state before we stop loading.
+      if (flushTimerRef.current) { clearTimeout(flushTimerRef.current); flushTimerRef.current = null; }
       if (streamBufRef.current) {
         const text = streamBufRef.current;
         streamBufRef.current = '';

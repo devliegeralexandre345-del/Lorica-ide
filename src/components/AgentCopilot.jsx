@@ -22,10 +22,33 @@ export default function AgentCopilot({ state, dispatch, agent, activeFile }) {
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashIdx, setSlashIdx] = useState(0);
   const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
   const inputRef = useRef(null);
 
+  // Auto-scroll to bottom, but only when the user is already near the bottom
+  // (so manual scroll-up isn't fought) and WITHOUT smooth behaviour (which
+  // triggers continuous layout + animation frames — blocks clicks during
+  // streaming). We also throttle by only running on message *count* changes
+  // or when the last message's content length changes appreciably.
+  const lastScrollSigRef = useRef('');
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const container = messagesContainerRef.current;
+    const end = messagesEndRef.current;
+    if (!container || !end) return;
+    const msgs = state.agentMessages;
+    const last = msgs[msgs.length - 1];
+    // Build a coarse signature: message count + bucketed last-content length
+    const sig = `${msgs.length}:${last ? Math.floor((last.content || '').length / 200) : 0}`;
+    if (sig === lastScrollSigRef.current) return;
+    lastScrollSigRef.current = sig;
+
+    const nearBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight < 120;
+    if (nearBottom) {
+      // Instant scroll — no smooth animation (animation keeps main thread busy
+      // across frames which stalls click handling).
+      end.scrollIntoView({ behavior: 'auto', block: 'end' });
+    }
   }, [state.agentMessages]);
 
   // Slash-command filter
@@ -156,7 +179,7 @@ export default function AgentCopilot({ state, dispatch, agent, activeFile }) {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2 min-h-0">
+      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-3 py-2 space-y-2 min-h-0">
         {/* Welcome state */}
         {!isActive && state.agentMessages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-center py-8">
