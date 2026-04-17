@@ -5,15 +5,49 @@ import AgentConfigModal from './AgentConfigModal';
 import AgentToolBlock from './AgentToolBlock';
 import MarkdownMessage from './MarkdownMessage';
 
+// Slash commands for quick context injection
+const SLASH_COMMANDS = [
+  { cmd: '/explain', desc: 'Expliquer le fichier actif', expand: () => 'Explique ce que fait le fichier actif en détail.' },
+  { cmd: '/fix', desc: 'Corriger les bugs du fichier actif', expand: () => 'Regarde le fichier actif et corrige les bugs éventuels. Lis le fichier avant de modifier.' },
+  { cmd: '/refactor', desc: 'Refactorer le fichier actif', expand: () => 'Refactore le fichier actif pour le rendre plus clair, modulaire et idiomatique. Lis-le d\'abord.' },
+  { cmd: '/test', desc: 'Écrire des tests pour le fichier actif', expand: () => 'Écris des tests pour le fichier actif. Crée un nouveau fichier de tests adapté au framework du projet.' },
+  { cmd: '/docs', desc: 'Ajouter la documentation', expand: () => 'Ajoute des commentaires JSDoc/docstrings au fichier actif sans modifier la logique.' },
+  { cmd: '/review', desc: 'Revue de code', expand: () => 'Fais une revue de code détaillée du fichier actif: bugs, sécurité, perf, maintenabilité.' },
+  { cmd: '/tree', desc: 'Afficher l\'arbre du projet', expand: () => 'Utilise list_dir pour explorer la structure du projet et résume son architecture.' },
+];
+
 export default function AgentCopilot({ state, dispatch, agent, activeFile }) {
   const [input, setInput] = useState('');
   const [showConfig, setShowConfig] = useState(false);
+  const [slashOpen, setSlashOpen] = useState(false);
+  const [slashIdx, setSlashIdx] = useState(0);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [state.agentMessages]);
+
+  // Slash-command filter
+  const slashFilter = input.startsWith('/') ? input.slice(1).toLowerCase() : null;
+  const slashMatches = slashFilter !== null
+    ? SLASH_COMMANDS.filter((c) => c.cmd.slice(1).toLowerCase().startsWith(slashFilter))
+    : [];
+
+  useEffect(() => {
+    if (slashFilter !== null && slashMatches.length > 0) {
+      setSlashOpen(true);
+      setSlashIdx(0);
+    } else {
+      setSlashOpen(false);
+    }
+  }, [input]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const applySlash = (cmd) => {
+    setInput(cmd.expand());
+    setSlashOpen(false);
+    setTimeout(() => inputRef.current?.focus(), 0);
+  };
 
   const handleStart = (config) => {
     dispatch({ type: 'AGENT_SET_CONFIG', config });
@@ -25,6 +59,21 @@ export default function AgentCopilot({ state, dispatch, agent, activeFile }) {
     if (!input.trim() || state.agentLoading) return;
     agent.sendMessage(input.trim(), activeFile);
     setInput('');
+    setSlashOpen(false);
+  };
+
+  const handleKeyDown = (e) => {
+    if (slashOpen && slashMatches.length > 0) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setSlashIdx((i) => (i + 1) % slashMatches.length); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setSlashIdx((i) => (i - 1 + slashMatches.length) % slashMatches.length); return; }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+        e.preventDefault();
+        applySlash(slashMatches[slashIdx]);
+        return;
+      }
+      if (e.key === 'Escape') { setSlashOpen(false); return; }
+    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   };
 
   const handleNewChat = () => {
@@ -169,16 +218,33 @@ export default function AgentCopilot({ state, dispatch, agent, activeFile }) {
 
       {/* Input */}
       {isActive && (
-        <div className="p-2 border-t border-lorica-border shrink-0">
+        <div className="p-2 border-t border-lorica-border shrink-0 relative">
+          {/* Slash-command suggestions */}
+          {slashOpen && slashMatches.length > 0 && (
+            <div className="absolute left-2 right-2 bottom-full mb-1 bg-lorica-panel border border-lorica-border rounded-lg shadow-lg overflow-hidden z-10">
+              {slashMatches.map((c, i) => (
+                <button
+                  key={c.cmd}
+                  onMouseEnter={() => setSlashIdx(i)}
+                  onClick={() => applySlash(c)}
+                  className={`w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
+                    i === slashIdx ? 'bg-lorica-accent/20 text-lorica-accent' : 'text-lorica-text hover:bg-lorica-border/30'
+                  }`}
+                >
+                  <span className="font-mono font-semibold">{c.cmd}</span>
+                  <span className="text-[10px] text-lorica-textDim truncate">{c.desc}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="flex items-center gap-2 bg-lorica-bg rounded-lg border border-lorica-border px-3 py-1.5 focus-within:border-lorica-accent/50 transition-colors">
             <input
               ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
-              }}
-              placeholder="Message à l'agent…"
+              onKeyDown={handleKeyDown}
+              placeholder="Message à l'agent… ( / pour commandes )"
               className="flex-1 bg-transparent text-xs text-lorica-text outline-none placeholder:text-lorica-textDim/50"
               disabled={state.agentLoading}
             />

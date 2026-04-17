@@ -475,7 +475,15 @@ export function useAgent(state, dispatch) {
     const model = config?.model || DEFAULT_MODELS[provider];
     const projectPath = state.projectPath;
     const tools = buildToolsForPermissions(config.permissions);
-    const systemPrompt = `You are Lorica Agent, an expert AI embedded in the Lorica IDE. You have direct access to the user's codebase via tools. Be concise, precise, and always use tools to read files before modifying them. Project path: ${projectPath || 'unknown'}.`;
+    const activeFileInfo = activeFile
+      ? `\nActive file: ${activeFile.path || activeFile.name} (language: ${activeFile.extension || 'plain'}).`
+      : '';
+    const systemPrompt = `You are Lorica Agent, an expert AI embedded in the Lorica IDE.
+You have direct access to the user's codebase via tools. Be concise, precise, and always use tools to read files before modifying them.
+- Project path: ${projectPath || 'unknown'}.${activeFileInfo}
+- When making code changes, PREFER write_file over re-creating files. Always read_file first.
+- When running commands, prefer non-interactive flags. Never run commands that keep running indefinitely (use background=false style).
+- Format your answers with concise Markdown. Code blocks should include a language identifier.`;
 
     // Build message history in a neutral form
     const history = [];
