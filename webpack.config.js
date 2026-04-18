@@ -76,6 +76,24 @@ module.exports = {
     historyApiFallback: true,
     static: { directory: path.join(__dirname, 'dist') },
     headers: { 'Access-Control-Allow-Origin': '*' },
+    client: {
+      overlay: {
+        errors: true,
+        warnings: false,
+        // Filter out benign Tauri IPC/HTTP aborts — the inline-AI
+        // completion cancels inflight requests on every keystroke, and
+        // @tauri-apps/plugin-http emits a post-abort "resource id N is
+        // invalid" that surfaces as an unhandled rejection. It's just
+        // bookkeeping noise, not a real runtime error.
+        runtimeErrors: (error) => {
+          const msg = error?.message || String(error || '');
+          if (/resource id \d+ is invalid/i.test(msg)) return false;
+          if (error?.name === 'AbortError') return false;
+          if (/The operation was aborted/i.test(msg)) return false;
+          return true;
+        },
+      },
+    },
   },
   performance: {
     hints: isProd ? 'warning' : false,

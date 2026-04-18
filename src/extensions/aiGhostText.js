@@ -143,7 +143,13 @@ const ghostWatcher = ViewPlugin.fromClass(
 
     update(upd) {
       if (upd.docChanged || upd.selectionSet) {
-        if (this.aborter) { this.aborter.abort(); this.aborter = null; }
+        // IMPORTANT: do NOT abort the inflight request here. Aborting
+        // tauri-plugin-http mid-body-read leaks a "resource id N is
+        // invalid" error that surfaces as an unhandled rejection and
+        // crashes the dev overlay. Instead, rely on the version-check
+        // inside fire() to discard stale results — the old request
+        // completes silently and its output is thrown away. Teardown
+        // still aborts in destroy() so no request outlives the editor.
         this.reschedule();
       }
     }
