@@ -172,8 +172,11 @@ const search = {
 
   // Semantic search — embeddings-based. First build is slow (downloads the
   // ONNX model + embeds the repo), queries after that are ~10–50 ms.
-  semanticIndex: (projectPath) =>
-    safeInvoke('cmd_semantic_index_project', { projectPath }),
+  // Subsequent builds are incremental: unchanged files are kept as-is,
+  // only modified/new files get re-embedded. Pass `force: true` to nuke
+  // the manifest and re-embed everything.
+  semanticIndex: (projectPath, force) =>
+    safeInvoke('cmd_semantic_index_project', { projectPath, force: !!force }),
   semanticIndexStatus: (projectPath) =>
     safeInvoke('cmd_semantic_index_status', { projectPath }),
   semanticSearch: (projectPath, query, topK) =>

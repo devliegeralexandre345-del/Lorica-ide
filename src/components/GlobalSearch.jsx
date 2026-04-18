@@ -113,28 +113,45 @@ export default function GlobalSearch({ state, dispatch, onFileOpen }) {
   // ----------------------------------------------------------------
   // Index build / clear
   // ----------------------------------------------------------------
-  const handleBuildIndex = useCallback(async () => {
+  // Build / incremental update / force-full rebuild share one handler.
+  // `force=true` (triggered by Shift-click on "Update") nukes the old
+  // manifest and re-embeds everything, useful after bumping chunking
+  // params or if the index ever drifts.
+  const handleBuildIndex = useCallback(async (force = false) => {
     if (!state.projectPath || indexing) return;
     setIndexing(true);
+
+    const hasIndex = !!indexStatus?.exists;
+    const pendingMsg = !hasIndex
+      ? 'Indexing project… (first run downloads the model, ~23 MB)'
+      : force
+        ? 'Rebuilding index from scratch…'
+        : 'Updating index (incremental)…';
     dispatch({
       type: 'ADD_TOAST',
-      toast: {
-        type: 'info',
-        message: 'Indexing project… (first run downloads the model, ~23 MB)',
-        duration: 5000,
-      },
+      toast: { type: 'info', message: pendingMsg, duration: 5000 },
     });
+
     try {
-      const res = await window.lorica.search.semanticIndex(state.projectPath);
+      const res = await window.lorica.search.semanticIndex(state.projectPath, force);
       if (res && res.success !== false) {
-        const report = res.data || res;
+        const r = res.data || res;
+        // Craft a toast that tells the user what the incremental pass did.
+        let msg;
+        if (!r.incremental) {
+          msg = `Indexed ${r.chunks} chunks from ${r.files} files in ${(r.duration_ms / 1000).toFixed(1)}s`;
+        } else if (r.chunks_embedded === 0 && r.files_deleted === 0) {
+          msg = `Index up-to-date — no changes (${(r.duration_ms / 1000).toFixed(1)}s)`;
+        } else {
+          const parts = [];
+          if (r.files_changed) parts.push(`${r.files_changed} changed`);
+          if (r.files_new) parts.push(`${r.files_new} new`);
+          if (r.files_deleted) parts.push(`${r.files_deleted} removed`);
+          msg = `Updated: ${parts.join(', ')} · re-embedded ${r.chunks_embedded} chunks in ${(r.duration_ms / 1000).toFixed(1)}s`;
+        }
         dispatch({
           type: 'ADD_TOAST',
-          toast: {
-            type: 'success',
-            message: `Indexed ${report.chunks} chunks from ${report.files} files in ${(report.duration_ms / 1000).toFixed(1)}s`,
-            duration: 4000,
-          },
+          toast: { type: 'success', message: msg, duration: 4000 },
         });
         await refreshIndexStatus();
       } else {
@@ -150,7 +167,7 @@ export default function GlobalSearch({ state, dispatch, onFileOpen }) {
       });
     }
     setIndexing(false);
-  }, [state.projectPath, indexing, dispatch, refreshIndexStatus]);
+  }, [state.projectPath, indexing, indexStatus, dispatch, refreshIndexStatus]);
 
   const handleClearIndex = useCallback(async () => {
     if (!state.projectPath) return;
@@ -330,14 +347,16 @@ export default function GlobalSearch({ state, dispatch, onFileOpen }) {
             )}
 
             <button
-              onClick={handleBuildIndex}
+              onClick={(e) => handleBuildIndex(e.shiftKey)}
               disabled={indexing || !state.projectPath}
               className="flex items-center gap-1 px-2 py-0.5 text-[10px] bg-purple-500/15 text-purple-400 rounded hover:bg-purple-500/25 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              title={indexStatus?.exists ? 'Rebuild index' : 'Build index'}
+              title={indexStatus?.exists
+                ? 'Update index (incremental) — Shift-click to force a full rebuild'
+                : 'Build index'}
             >
               {indexing
                 ? <><Loader2 size={10} className="animate-spin" /> Indexing…</>
-                : <><RefreshCw size={10} /> {indexStatus?.exists ? 'Rebuild' : 'Build'}</>}
+                : <><RefreshCw size={10} /> {indexStatus?.exists ? 'Update' : 'Build'}</>}
             </button>
 
             {indexStatus?.exists && !indexing && (
