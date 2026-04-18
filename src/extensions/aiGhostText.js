@@ -3,18 +3,30 @@
 // CodeMirror 6 inline AI completion ("ghost text"):
 //   • Renders a faint suggestion after the cursor as a widget decoration.
 //   • Tab accepts, Escape / any edit / cursor move dismisses.
-//   • Idle detection: fires an AI request ~500 ms after the user stops
-//     typing, provided the cursor is at end-of-line and selection is empty.
-//   • Single-flight with AbortController — a new request cancels the old.
+//   • Idle detection: fires an AI request after the user stops typing.
+//   • Manual trigger: Alt-\ or Ctrl-Alt-Space forces a suggestion right now.
+//   • Single-flight with AbortController — new edits cancel inflight calls.
+//   • Exposes a live "state" field (disabled | idle | thinking | ready | error)
+//     that a small corner indicator reads so the user can see what's going on.
 //
 // Configuration is injected per-editor via the `aiGhostConfig` facet:
 //   aiGhostConfig.of({ enabled, getFetcher })
-// `getFetcher` is a function that, given ({ prefix, suffix, signal }), resolves
-// to the completion string. The Editor component builds this closure using
-// the current AI provider / API key / language from app state.
+// `getFetcher` resolves to the completion string given ({ prefix, suffix, signal }).
+//
+// Debug: set `window.__LORICA_GHOST_DEBUG = true` in the devtools console to
+// get verbose logs (which check ran, why it skipped, how long a call took).
 
-import { StateField, StateEffect, EditorState, Facet } from '@codemirror/state';
+import { StateField, StateEffect, Facet } from '@codemirror/state';
 import { EditorView, Decoration, WidgetType, ViewPlugin } from '@codemirror/view';
+
+// Debug log helper. Opt-out via `window.__LORICA_GHOST_DEBUG = false` in DevTools.
+// Kept on by default while the feature stabilises so users can self-diagnose.
+const dbg = (...args) => {
+  if (typeof window === 'undefined') return;
+  if (window.__LORICA_GHOST_DEBUG === false) return;
+  // eslint-disable-next-line no-console
+  console.debug('[ghost]', ...args);
+};
 
 // --------------------------------------------------------------------
 // Facet — per-editor config
@@ -28,14 +40,13 @@ export const aiGhostConfig = Facet.define({
 // --------------------------------------------------------------------
 // Effects + state
 // --------------------------------------------------------------------
-const setGhost = StateEffect.define(); // { from, text } | null
-const clearGhost = StateEffect.define();
+const setGhost = StateEffect.define();    // { from, text }
+const clearGhost = StateEffect.define();  // null
+const setStatus = StateEffect.define();   // 'disabled' | 'idle' | 'thinking' | 'ready' | 'error'
 
 const ghostField = StateField.define({
   create: () => null,
   update(value, tr) {
-    // Any doc change invalidates the ghost — unless the change is *us*
-    // accepting it (we clear explicitly then).
     if (tr.docChanged) {
       for (const e of tr.effects) {
         if (e.is(setGhost)) return e.value;
@@ -43,7 +54,6 @@ const ghostField = StateField.define({
       }
       return null;
     }
-    // Selection changes away from the ghost anchor also invalidate.
     if (tr.selection && value) {
       const head = tr.selection.main.head;
       if (head !== value.from) return null;
@@ -58,12 +68,20 @@ const ghostField = StateField.define({
     EditorView.decorations.from(f, (g) => {
       if (!g || !g.text) return Decoration.none;
       return Decoration.set([
-        Decoration.widget({
-          widget: new GhostWidget(g.text),
-          side: 1,
-        }).range(g.from),
+        Decoration.widget({ widget: new GhostWidget(g.text), side: 1 }).range(g.from),
       ]);
     }),
+});
+
+// Status — exposed so the small corner indicator can render it.
+export const ghostStatusField = StateField.define({
+  create: () => 'idle',
+  update(value, tr) {
+    for (const e of tr.effects) {
+      if (e.is(setStatus)) return e.value;
+    }
+    return value;
+  },
 });
 
 // --------------------------------------------------------------------
@@ -76,8 +94,6 @@ class GhostWidget extends WidgetType {
   }
   eq(other) { return other.text === this.text; }
   toDOM() {
-    // Multi-line ghost: render first line as inline <span>, further lines
-    // as block rows so indentation lines up.
     const root = document.createElement('span');
     root.className = 'cm-ai-ghost';
     const lines = this.text.split('\n');
@@ -86,8 +102,7 @@ class GhostWidget extends WidgetType {
     first.textContent = lines[0];
     root.appendChild(first);
     for (let i = 1; i < lines.length; i++) {
-      const br = document.createElement('br');
-      root.appendChild(br);
+      root.appendChild(document.createElement('br'));
       const line = document.createElement('span');
       line.className = 'cm-ai-ghost-line';
       line.textContent = lines[i];
@@ -99,11 +114,11 @@ class GhostWidget extends WidgetType {
 }
 
 // --------------------------------------------------------------------
-// Theme
+// Theme — ghost text + status pill
 // --------------------------------------------------------------------
 const ghostTheme = EditorView.baseTheme({
   '.cm-ai-ghost': {
-    opacity: 0.42,
+    opacity: 0.5,
     fontStyle: 'italic',
     color: 'var(--color-textDim, #7a869a)',
     pointerEvents: 'none',
@@ -113,9 +128,10 @@ const ghostTheme = EditorView.baseTheme({
 });
 
 // --------------------------------------------------------------------
-// Idle watcher — schedules AI requests when the user pauses typing
+// Idle watcher — schedules AI requests when the user pauses typing.
+// Exposes runNow() for a manual keyboard trigger.
 // --------------------------------------------------------------------
-const IDLE_MS = 500;
+const IDLE_MS = 450;
 
 const ghostWatcher = ViewPlugin.fromClass(
   class {
@@ -123,13 +139,10 @@ const ghostWatcher = ViewPlugin.fromClass(
       this.view = view;
       this.timer = null;
       this.aborter = null;
-      this.lastScheduledVersion = -1;
-      this.reschedule();
     }
 
     update(upd) {
       if (upd.docChanged || upd.selectionSet) {
-        // Invalidate any inflight request — the context just changed.
         if (this.aborter) { this.aborter.abort(); this.aborter = null; }
         this.reschedule();
       }
@@ -138,53 +151,88 @@ const ghostWatcher = ViewPlugin.fromClass(
     reschedule() {
       if (this.timer) { clearTimeout(this.timer); this.timer = null; }
       const cfg = this.view.state.facet(aiGhostConfig);
-      if (!cfg.enabled || typeof cfg.getFetcher !== 'function') return;
-      this.timer = setTimeout(() => this.fire(), IDLE_MS);
+      if (!cfg.enabled) { this.setStatus('disabled'); return; }
+      if (typeof cfg.getFetcher !== 'function') { dbg('no fetcher'); return; }
+      this.setStatus('idle');
+      this.timer = setTimeout(() => this.fire(false), IDLE_MS);
     }
 
-    async fire() {
+    setStatus(s) {
+      // Dispatching during an in-progress update is forbidden in CM6, so we
+      // always defer status transitions to a microtask.
+      Promise.resolve().then(() => {
+        try { this.view.dispatch({ effects: setStatus.of(s) }); } catch (_) {}
+      });
+    }
+
+    async fire(manual) {
       this.timer = null;
       const view = this.view;
       const state = view.state;
       const sel = state.selection.main;
 
-      // Only ask when selection is empty.
-      if (!sel.empty) return;
+      if (!sel.empty) { dbg('skip: selection not empty'); return; }
 
-      // Context
       const pos = sel.head;
       const doc = state.doc;
       const prefix = doc.sliceString(0, pos);
       const suffix = doc.sliceString(pos);
 
-      // Skip if the line is trivially short or the last char is a letter
-      // mid-word — that's usually intra-word typing, not a pause for help.
-      const lineBefore = prefix.slice(prefix.lastIndexOf('\n') + 1);
-      if (lineBefore.length === 0 && !prefix.endsWith('\n')) return;
+      // Be lenient: if triggered manually, always fire. If automatic,
+      // still fire even on empty lines — the model can produce a
+      // boilerplate opener. The only thing we skip is a completely
+      // empty document (nothing to go on).
+      if (!manual && prefix.length === 0 && suffix.length === 0) {
+        dbg('skip: empty doc');
+        return;
+      }
 
       const cfg = state.facet(aiGhostConfig);
       const fetcher = cfg.getFetcher;
-      if (!fetcher) return;
+      if (!cfg.enabled || typeof fetcher !== 'function') {
+        dbg('skip: disabled or no fetcher', { enabled: cfg.enabled });
+        return;
+      }
 
       const aborter = new AbortController();
       this.aborter = aborter;
       const versionAtRequest = state.doc.length + '|' + pos;
 
+      this.setStatus('thinking');
+      dbg('fire', { manual, prefixLen: prefix.length, suffixLen: suffix.length });
+      const t0 = performance.now();
+
       let completion = '';
       try {
         completion = await fetcher({ prefix, suffix, signal: aborter.signal });
-      } catch (_) {
+      } catch (e) {
+        dbg('fetcher threw:', e?.message || e);
+        this.setStatus('error');
         return;
       }
-      if (aborter.signal.aborted) return;
-      // Has the editor moved on in the meantime?
+      const ms = Math.round(performance.now() - t0);
+
+      if (aborter.signal.aborted) { dbg('aborted', { ms }); return; }
       const nowState = view.state;
       const nowPos = nowState.selection.main.head;
-      if (nowState.doc.length + '|' + nowPos !== versionAtRequest) return;
-      if (!completion) return;
+      if (nowState.doc.length + '|' + nowPos !== versionAtRequest) {
+        dbg('context moved — dropping result', { ms });
+        this.setStatus('idle');
+        return;
+      }
 
+      if (!completion) {
+        dbg('empty completion', { ms });
+        this.setStatus('idle');
+        return;
+      }
+
+      dbg('got completion', { ms, bytes: completion.length, preview: completion.slice(0, 60) });
       view.dispatch({
-        effects: setGhost.of({ from: pos, text: completion }),
+        effects: [
+          setGhost.of({ from: pos, text: completion }),
+          setStatus.of('ready'),
+        ],
       });
     }
 
@@ -196,7 +244,7 @@ const ghostWatcher = ViewPlugin.fromClass(
 );
 
 // --------------------------------------------------------------------
-// Commands — accept / dismiss
+// Commands — accept / dismiss / manual trigger
 // --------------------------------------------------------------------
 export function acceptGhost(view) {
   const g = view.state.field(ghostField, false);
@@ -207,6 +255,7 @@ export function acceptGhost(view) {
     effects: clearGhost.of(null),
     userEvent: 'input.complete',
   });
+  dbg('accepted', { bytes: g.text.length });
   return true;
 }
 
@@ -217,17 +266,21 @@ export function dismissGhost(view) {
   return true;
 }
 
+// Find the ghostWatcher instance attached to this view and fire immediately.
+export function triggerGhost(view) {
+  // Iterate through plugins to locate our ViewPlugin instance.
+  const plugin = view.plugin(ghostWatcher);
+  if (!plugin) { dbg('manual trigger: plugin not found'); return false; }
+  // Cancel any queued idle timer / inflight request, then fire now.
+  if (plugin.timer) { clearTimeout(plugin.timer); plugin.timer = null; }
+  if (plugin.aborter) { plugin.aborter.abort(); plugin.aborter = null; }
+  plugin.fire(true);
+  return true;
+}
+
 // --------------------------------------------------------------------
-// Full extension bundle
+// Bundle
 // --------------------------------------------------------------------
-// NOTE: Tab / Escape bindings are NOT included here — the Editor wires them
-// into its own keymap so it can control precedence (ghost should only accept
-// when the autocomplete dropdown isn't showing, and indentation should be
-// the fallback).
 export function aiGhostExtension() {
-  return [
-    ghostField,
-    ghostWatcher,
-    ghostTheme,
-  ];
+  return [ghostField, ghostStatusField, ghostWatcher, ghostTheme];
 }

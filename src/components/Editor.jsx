@@ -11,7 +11,7 @@ import { createEditorTheme } from '../utils/themes';
 import { getCompletionSource } from '../utils/completions';
 import { bracketPairColorization } from '../extensions/bracketColorizer';
 import { indentGuidesExtension } from '../extensions/indentGuides';
-import { aiGhostExtension, aiGhostConfig, acceptGhost, dismissGhost } from '../extensions/aiGhostText';
+import { aiGhostExtension, aiGhostConfig, acceptGhost, dismissGhost, triggerGhost, ghostStatusField } from '../extensions/aiGhostText';
 import { fetchInlineCompletion } from '../utils/aiInlineComplete';
 
 // =============================================
@@ -214,6 +214,10 @@ const Editor = React.memo(function Editor({
     aiConfigRef.current = { enabled: aiInlineEnabled, provider: aiProvider, apiKey: aiApiKey };
   }, [aiInlineEnabled, aiProvider, aiApiKey]);
 
+  // Ghost status ('disabled' | 'idle' | 'thinking' | 'ready' | 'error'), for
+  // the tiny indicator chip rendered in the editor corner.
+  const [ghostStatus, setGhostStatus] = useState('idle');
+
   // Détecter style d'indentation (tabs vs espaces)
   const detectIndentStyle = useCallback((content) => {
     if (!content) return { type: 'spaces', size: 2 };
@@ -383,6 +387,9 @@ const Editor = React.memo(function Editor({
           // Escape: dismiss any visible ghost first; selection-collapse
           // logic is handled by the separate Escape binding further down.
           { key: 'Escape', run: dismissGhost },
+          // Manual ghost trigger — bypasses the idle timer and skip checks.
+          { key: 'Alt-\\', run: triggerGhost, preventDefault: true },
+          { key: 'Mod-Alt-Space', run: triggerGhost, preventDefault: true },
           { key: 'Mod-d', run: selectNextOccurrence },
           { key: 'Mod-Shift-l', run: (view) => {
             const selection = view.state.selection.main;
@@ -414,6 +421,12 @@ const Editor = React.memo(function Editor({
         // Listener pour position du curseur et breadcrumb
         EditorView.updateListener.of((update) => {
           if (update.docChanged) handleChange(update.state.doc.toString());
+          // Mirror the ghost status field into React so the corner indicator re-renders.
+          try {
+            const s = update.state.field(ghostStatusField, false);
+            const prevS = update.startState.field(ghostStatusField, false);
+            if (s && s !== prevS) setGhostStatus(s);
+          } catch (_) {}
           if (update.selectionSet) {
             const range = update.state.selection.main;
             // Mettre à jour la position du curseur
@@ -513,10 +526,28 @@ const Editor = React.memo(function Editor({
     setAiLens(null);
   };
 
+  // Status chip: only show when the user actually enabled inline AI, and only
+  // when the state is interesting (thinking/ready/error). "idle" stays hidden
+  // so it doesn't clutter the editor.
+  const showGhostChip = aiInlineEnabled && ghostStatus !== 'idle' && ghostStatus !== 'disabled';
+  const ghostChipMeta = {
+    thinking: { label: 'AI…',  className: 'text-lorica-accent border-lorica-accent/40 bg-lorica-accent/10 animate-pulse' },
+    ready:    { label: 'AI ⎋ • ⇥', className: 'text-green-300 border-green-400/40 bg-green-400/10' },
+    error:    { label: 'AI ✕', className: 'text-red-300 border-red-400/40 bg-red-400/10' },
+  }[ghostStatus] || { label: 'AI', className: 'text-lorica-textDim border-lorica-border' };
+
   return (
     <div className="relative h-full w-full overflow-hidden bg-lorica-bg">
       <div ref={containerRef} className="h-full w-full" />
       {ready && <Minimap content={file.content} editorView={viewRef.current} visible={showMinimap} />}
+      {showGhostChip && (
+        <div
+          className={`absolute bottom-2 left-2 z-40 px-2 py-0.5 rounded-full border text-[10px] font-mono pointer-events-none ${ghostChipMeta.className}`}
+          title={`Inline AI — ${ghostStatus}`}
+        >
+          {ghostChipMeta.label}
+        </div>
+      )}
       {aiLens && (
         <div
           className="absolute z-50 flex items-center gap-1 bg-lorica-panel/90 backdrop-blur-md border border-lorica-accent/30 rounded-lg shadow-[0_0_15px_rgba(0,212,255,0.15)] p-1.5 animate-fadeIn"

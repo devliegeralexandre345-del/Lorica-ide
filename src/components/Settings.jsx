@@ -225,7 +225,32 @@ export default function Settings({ state, dispatch, actions }) {
             </label>
             <div className="flex items-center gap-3">
               <button
-                onClick={() => dispatch({ type: 'SET_AI_INLINE_ENABLED', value: !state.aiInlineEnabled })}
+                onClick={() => {
+                  const next = !state.aiInlineEnabled;
+                  dispatch({ type: 'SET_AI_INLINE_ENABLED', value: next });
+                  if (next) {
+                    const key = state.aiProvider === 'anthropic' ? state.aiApiKey : state.aiDeepseekKey;
+                    if (!key) {
+                      dispatch({
+                        type: 'ADD_TOAST',
+                        toast: {
+                          type: 'warning',
+                          message: `Active mais aucune clé ${state.aiProvider === 'anthropic' ? 'Anthropic' : 'DeepSeek'} — renseigne-la ci-dessus.`,
+                          duration: 4500,
+                        },
+                      });
+                    } else {
+                      dispatch({
+                        type: 'ADD_TOAST',
+                        toast: {
+                          type: 'success',
+                          message: 'Inline AI activé. Alt+\\ pour forcer une suggestion.',
+                          duration: 3500,
+                        },
+                      });
+                    }
+                  }
+                }}
                 className={`relative w-10 h-5 rounded-full transition-colors cursor-pointer ${
                   state.aiInlineEnabled ? 'bg-lorica-accent' : 'bg-lorica-border'
                 }`}
@@ -239,7 +264,10 @@ export default function Settings({ state, dispatch, actions }) {
               </span>
             </div>
             <p className="text-[10px] text-lorica-textDim mt-1">
-              Appuie sur <kbd className="px-1 py-0.5 rounded bg-lorica-bg border border-lorica-border text-[9px]">Tab</kbd> pour accepter, <kbd className="px-1 py-0.5 rounded bg-lorica-bg border border-lorica-border text-[9px]">Esc</kbd> pour rejeter. Utilise un petit modèle rapide (Haiku / DeepSeek-Chat).
+              <kbd className="px-1 py-0.5 rounded bg-lorica-bg border border-lorica-border text-[9px]">Tab</kbd> pour accepter •{' '}
+              <kbd className="px-1 py-0.5 rounded bg-lorica-bg border border-lorica-border text-[9px]">Esc</kbd> pour rejeter •{' '}
+              <kbd className="px-1 py-0.5 rounded bg-lorica-bg border border-lorica-border text-[9px]">Alt+\</kbd> pour forcer maintenant.
+              Utilise un petit modèle rapide (Haiku 3.5 / DeepSeek-Chat).
             </p>
           </div>
 
