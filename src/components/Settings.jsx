@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, X, Key, Moon, Palette, Sun, Clock, Shield, Save, Map, Brain, Keyboard, Edit, AlertTriangle, Check, XCircle } from 'lucide-react';
+import { Settings as SettingsIcon, X, Key, Moon, Palette, Sun, Clock, Shield, Save, Map, Brain, Keyboard, Edit, AlertTriangle, Check, XCircle, Sparkles } from 'lucide-react';
 import { THEMES } from '../utils/themes';
 import { DEFAULT_SHORTCUTS, getAllShortcuts, loadCustomShortcuts, saveCustomShortcuts, isValidShortcut, findConflicts, eventToShortcut } from '../utils/keymap';
 
@@ -215,6 +215,32 @@ export default function Settings({ state, dispatch, actions }) {
                 <p className="text-[10px] text-lorica-textDim mt-1">Get your API key at platform.deepseek.com</p>
               </div>
             )}
+          </div>
+
+          {/* Inline AI tab-completion */}
+          <div>
+            <label className="flex items-center gap-2 text-xs font-semibold text-lorica-text mb-2">
+              <Sparkles size={14} className="text-lorica-accent" />
+              Inline AI completion
+            </label>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => dispatch({ type: 'SET_AI_INLINE_ENABLED', value: !state.aiInlineEnabled })}
+                className={`relative w-10 h-5 rounded-full transition-colors cursor-pointer ${
+                  state.aiInlineEnabled ? 'bg-lorica-accent' : 'bg-lorica-border'
+                }`}
+              >
+                <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+                  state.aiInlineEnabled ? 'translate-x-5' : 'translate-x-0.5'
+                }`} />
+              </button>
+              <span className="text-xs text-lorica-textDim">
+                {state.aiInlineEnabled ? 'Suggestions fantômes actives' : 'Désactivé'}
+              </span>
+            </div>
+            <p className="text-[10px] text-lorica-textDim mt-1">
+              Appuie sur <kbd className="px-1 py-0.5 rounded bg-lorica-bg border border-lorica-border text-[9px]">Tab</kbd> pour accepter, <kbd className="px-1 py-0.5 rounded bg-lorica-bg border border-lorica-border text-[9px]">Esc</kbd> pour rejeter. Utilise un petit modèle rapide (Haiku / DeepSeek-Chat).
+            </p>
           </div>
 
           {/* Theme */}

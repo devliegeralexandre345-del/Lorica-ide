@@ -275,10 +275,27 @@ export default function App() {
                   ) : hasPreview(activeFile.extension) ? (
                     <FilePreview
                       file={activeFile}
-                      editorProps={{ index: state.activeFileIndex, dispatch, theme: state.theme, showMinimap: state.showMinimap !== false }}
+                      editorProps={{
+                        index: state.activeFileIndex,
+                        dispatch,
+                        theme: state.theme,
+                        showMinimap: state.showMinimap !== false,
+                        aiInlineEnabled: state.aiInlineEnabled,
+                        aiProvider: state.aiProvider,
+                        aiApiKey: state.aiProvider === 'anthropic' ? state.aiApiKey : state.aiDeepseekKey,
+                      }}
                     />
                   ) : (
-                    <Editor file={activeFile} index={state.activeFileIndex} dispatch={dispatch} theme={state.theme} showMinimap={state.showMinimap !== false} />
+                    <Editor
+                      file={activeFile}
+                      index={state.activeFileIndex}
+                      dispatch={dispatch}
+                      theme={state.theme}
+                      showMinimap={state.showMinimap !== false}
+                      aiInlineEnabled={state.aiInlineEnabled}
+                      aiProvider={state.aiProvider}
+                      aiApiKey={state.aiProvider === 'anthropic' ? state.aiApiKey : state.aiDeepseekKey}
+                    />
                   )}
                 </div>
                 {splitFile && (
@@ -290,10 +307,27 @@ export default function App() {
                       ) : hasPreview(splitFile.extension) ? (
                         <FilePreview
                           file={splitFile}
-                          editorProps={{ index: state.splitFileIndex, dispatch, theme: state.theme, showMinimap: false }}
+                          editorProps={{
+                            index: state.splitFileIndex,
+                            dispatch,
+                            theme: state.theme,
+                            showMinimap: false,
+                            aiInlineEnabled: state.aiInlineEnabled,
+                            aiProvider: state.aiProvider,
+                            aiApiKey: state.aiProvider === 'anthropic' ? state.aiApiKey : state.aiDeepseekKey,
+                          }}
                         />
                       ) : (
-                        <Editor file={splitFile} index={state.splitFileIndex} dispatch={dispatch} theme={state.theme} showMinimap={false} />
+                        <Editor
+                          file={splitFile}
+                          index={state.splitFileIndex}
+                          dispatch={dispatch}
+                          theme={state.theme}
+                          showMinimap={false}
+                          aiInlineEnabled={state.aiInlineEnabled}
+                          aiProvider={state.aiProvider}
+                          aiApiKey={state.aiProvider === 'anthropic' ? state.aiApiKey : state.aiDeepseekKey}
+                        />
                       )}
                     </div>
                   </>

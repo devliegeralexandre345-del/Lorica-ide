@@ -49,6 +49,9 @@ export const initialState = {
   aiProvider: 'anthropic',     // 'anthropic' | 'deepseek'
   aiDeepseekKey: '',
 
+  // Inline AI ghost-text completion (Copilot-style)
+  aiInlineEnabled: false,
+
   // Agent Copilot
   agentMessages: [],        // [{ id, role, content, toolCalls }]
   agentLoading: false,
@@ -218,6 +221,8 @@ export function appReducer(state, action) {
       return { ...state, aiProvider: action.provider };
     case 'SET_DEEPSEEK_KEY':
       return { ...state, aiDeepseekKey: action.key };
+    case 'SET_AI_INLINE_ENABLED':
+      return { ...state, aiInlineEnabled: !!action.value };
     case 'SET_THEME':
       return { ...state, theme: action.theme };
     case 'SET_STATUS':

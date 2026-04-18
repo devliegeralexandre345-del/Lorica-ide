@@ -11,6 +11,8 @@ import { createEditorTheme } from '../utils/themes';
 import { getCompletionSource } from '../utils/completions';
 import { bracketPairColorization } from '../extensions/bracketColorizer';
 import { indentGuidesExtension } from '../extensions/indentGuides';
+import { aiGhostExtension, aiGhostConfig, acceptGhost, dismissGhost } from '../extensions/aiGhostText';
+import { fetchInlineCompletion } from '../utils/aiInlineComplete';
 
 // =============================================
 // Minimap with smooth drag scrolling
@@ -191,7 +193,10 @@ function Minimap({ content, editorView, visible }) {
 // =============================================
 // Editor
 // =============================================
-const Editor = React.memo(function Editor({ file, index, dispatch, theme, showMinimap = true }) {
+const Editor = React.memo(function Editor({
+  file, index, dispatch, theme, showMinimap = true,
+  aiInlineEnabled = false, aiProvider = 'anthropic', aiApiKey = '',
+}) {
   const containerRef = useRef(null);
   const viewRef = useRef(null);
   const filePathRef = useRef(null);
@@ -200,6 +205,14 @@ const Editor = React.memo(function Editor({ file, index, dispatch, theme, showMi
   const [cursorPos, setCursorPos] = useState({ line: 1, col: 1, selected: 0 });
   const [breadcrumb, setBreadcrumb] = useState([]);
   const [indentStyle, setIndentStyle] = useState({ type: 'spaces', size: 2 });
+
+  // AI inline config lives in a ref so the fetcher closure (captured once
+  // at editor creation) always sees the latest provider / key / enabled
+  // state without having to rebuild the whole EditorView.
+  const aiConfigRef = useRef({ enabled: aiInlineEnabled, provider: aiProvider, apiKey: aiApiKey });
+  useEffect(() => {
+    aiConfigRef.current = { enabled: aiInlineEnabled, provider: aiProvider, apiKey: aiApiKey };
+  }, [aiInlineEnabled, aiProvider, aiApiKey]);
 
   // Détecter style d'indentation (tabs vs espaces)
   const detectIndentStyle = useCallback((content) => {
@@ -334,6 +347,25 @@ const Editor = React.memo(function Editor({ file, index, dispatch, theme, showMi
           activateOnTyping: true,
           maxRenderedOptions: 15,
         }),
+        // AI inline ghost-text completion. The fetcher reads config from a
+        // ref so provider/API key changes don't force rebuilding the editor.
+        aiGhostConfig.of({
+          enabled: true,
+          getFetcher: async ({ prefix, suffix, signal }) => {
+            const cfg = aiConfigRef.current;
+            if (!cfg.enabled || !cfg.apiKey) return '';
+            return fetchInlineCompletion({
+              prefix,
+              suffix,
+              language: file.extension,
+              filePath: file.path,
+              provider: cfg.provider,
+              apiKey: cfg.apiKey,
+              signal,
+            });
+          },
+        }),
+        ...aiGhostExtension(),
         // Keymap amélioré
         keymap.of([
           ...defaultKeymap,
@@ -342,7 +374,15 @@ const Editor = React.memo(function Editor({ file, index, dispatch, theme, showMi
           ...searchKeymap,
           ...foldKeymap,
           ...completionKeymap,
-          { key: 'Tab', run: acceptCompletion },
+          // Tab: autocomplete dropdown wins first, then inline ghost, else
+          // fall through to indent (handled by `indentWithTab` below).
+          {
+            key: 'Tab',
+            run: (view) => acceptCompletion(view) || acceptGhost(view),
+          },
+          // Escape: dismiss any visible ghost first; selection-collapse
+          // logic is handled by the separate Escape binding further down.
+          { key: 'Escape', run: dismissGhost },
           { key: 'Mod-d', run: selectNextOccurrence },
           { key: 'Mod-Shift-l', run: (view) => {
             const selection = view.state.selection.main;
