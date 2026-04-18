@@ -342,3 +342,115 @@ pub fn cmd_git_summary(
 
     CmdResult::ok(GitSummary { status, log, branches })
 }
+
+// ======================================================
+// PR context — everything needed to generate a PR description.
+// ======================================================
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PrContext {
+    pub current_branch: String,
+    pub base_branch: String,
+    pub commits: Vec<GitLogEntry>,
+    pub diff: String,
+    pub files_changed: Vec<String>,
+}
+
+fn detect_base_branch(project_path: &str) -> String {
+    // Prefer "main", fall back to "master", else empty.
+    for candidate in &["main", "master"] {
+        if run_git(
+            project_path,
+            &["rev-parse", "--verify", &format!("refs/heads/{}", candidate)],
+        )
+        .is_ok()
+        {
+            return candidate.to_string();
+        }
+    }
+    // Last resort: try origin/HEAD, which is the remote default branch.
+    if let Ok(out) = run_git(project_path, &["symbolic-ref", "refs/remotes/origin/HEAD"]) {
+        if let Some(name) = out.trim().split('/').last() {
+            return name.to_string();
+        }
+    }
+    String::from("main")
+}
+
+fn current_branch_name(project_path: &str) -> Result<String, String> {
+    let name = run_git(project_path, &["rev-parse", "--abbrev-ref", "HEAD"])?;
+    Ok(name.trim().to_string())
+}
+
+/// Assemble the diff + commit log + branch names needed to generate a PR
+/// description. Uses `base...HEAD` (three-dot) so the diff is against the
+/// merge-base — i.e. only the commits this branch actually introduces,
+/// not anything that landed on base after divergence.
+#[tauri::command]
+pub fn cmd_git_pr_context(
+    project_path: String,
+    base_branch: Option<String>,
+) -> CmdResult<PrContext> {
+    let current = match current_branch_name(&project_path) {
+        Ok(b) => b,
+        Err(e) => return CmdResult::err(format!("Cannot read current branch: {}", e)),
+    };
+
+    let base = base_branch
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| detect_base_branch(&project_path));
+
+    if current == base {
+        return CmdResult::err(format!(
+            "You are on the base branch ({}). Checkout a feature branch first.",
+            base
+        ));
+    }
+
+    let range = format!("{}...HEAD", base);
+
+    // Commit log (newest first)
+    let format = "--pretty=format:%H||%h||%s||%an||%ar";
+    let log_output = match run_git(&project_path, &["log", &range, format]) {
+        Ok(o) => o,
+        Err(e) => return CmdResult::err(format!("git log failed: {}", e)),
+    };
+    let commits: Vec<GitLogEntry> = log_output
+        .lines()
+        .filter_map(|line| {
+            let parts: Vec<&str> = line.splitn(5, "||").collect();
+            if parts.len() == 5 {
+                Some(GitLogEntry {
+                    hash: parts[0].to_string(),
+                    short_hash: parts[1].to_string(),
+                    message: parts[2].to_string(),
+                    author: parts[3].to_string(),
+                    date: parts[4].to_string(),
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Diff (limited to a reasonable size — the prompt clipper will trim
+    // further if needed).
+    let diff = run_git(&project_path, &["diff", "--no-color", &range]).unwrap_or_default();
+
+    // Files changed (unique, stable order)
+    let files_raw = run_git(&project_path, &["diff", "--name-only", &range]).unwrap_or_default();
+    let files_changed: Vec<String> = files_raw
+        .lines()
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| s.to_string())
+        .collect();
+
+    CmdResult::ok(PrContext {
+        current_branch: current,
+        base_branch: base,
+        commits,
+        diff,
+        files_changed,
+    })
+}

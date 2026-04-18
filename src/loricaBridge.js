@@ -214,6 +214,12 @@ const git = {
     includeLog: opts.includeLog ?? true,
     includeBranches: opts.includeBranches ?? true,
   }),
+  // PR context — current branch + commits + diff since branch-off from
+  // base. `baseBranch` is optional; backend auto-detects main/master.
+  prContext: (projectPath, baseBranch) => safeInvoke('cmd_git_pr_context', {
+    projectPath,
+    baseBranch: baseBranch || null,
+  }),
 };
 
 // ============================================

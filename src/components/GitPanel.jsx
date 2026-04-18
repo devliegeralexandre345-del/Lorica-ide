@@ -13,11 +13,12 @@
 
 import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
 import {
-  GitBranch, GitCommit, Plus, Minus, Check, X, RefreshCw,
+  GitBranch, GitCommit, GitPullRequest, Plus, Minus, Check, X, RefreshCw,
   Upload, Download, RotateCcw, ChevronDown, ChevronRight,
   Sparkles, Loader2,
 } from 'lucide-react';
 import { generateCommitMessage } from '../utils/aiCommitMessage';
+import PrDescriptionModal from './PrDescriptionModal';
 
 const REFRESH_DEBOUNCE_MS = 120;
 
@@ -88,6 +89,7 @@ export default function GitPanel({ state, dispatch }) {
   const [refreshing, setRefreshing] = useState(false); // background indicator only
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [generatingMsg, setGeneratingMsg] = useState(false);
+  const [showPrModal, setShowPrModal] = useState(false);
   const generateAbortRef = useRef(null);
 
   // Refs for debouncing + single-flight + stale-close protection
@@ -442,6 +444,13 @@ export default function GitPanel({ state, dispatch }) {
               <Upload size={10} /> Push
             </button>
           </div>
+          <button
+            onClick={() => setShowPrModal(true)}
+            className="w-full mt-1.5 flex items-center justify-center gap-1 py-1 text-[10px] text-purple-400 hover:text-purple-300 bg-lorica-bg rounded border border-lorica-border hover:border-purple-400/30 transition-colors"
+            title="Generate PR description with AI"
+          >
+            <GitPullRequest size={10} /> Description de PR (IA)
+          </button>
         </div>
 
         {/* Staged */}
@@ -542,6 +551,14 @@ export default function GitPanel({ state, dispatch }) {
           ))}
         </div>
       </div>
+
+      {showPrModal && (
+        <PrDescriptionModal
+          state={state}
+          dispatch={dispatch}
+          onClose={() => setShowPrModal(false)}
+        />
+      )}
     </div>
   );
 }

@@ -91,6 +91,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             git::cmd_git_discard,
             git::cmd_git_diff_staged,
             git::cmd_git_summary,
+            git::cmd_git_pr_context,
             // Extensions & Debug
             extensions::cmd_list_extensions,
             extensions::cmd_install_extension,
