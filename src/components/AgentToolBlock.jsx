@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import {
   FileText, Pencil, FolderOpen, Plus, Trash2, Terminal,
-  Search, Globe, Check, X, Loader2, ChevronDown, ChevronRight
+  Search, Globe, Check, X, Loader2, ChevronDown, ChevronRight, Sparkles
 } from 'lucide-react';
 
 const TOOL_ICONS = {
@@ -13,6 +13,7 @@ const TOOL_ICONS = {
   delete_file: Trash2,
   run_command: Terminal,
   search_files: Search,
+  semantic_search: Sparkles,
   fetch_url: Globe,
 };
 
@@ -24,6 +25,7 @@ const TOOL_LABELS = {
   delete_file: 'Supprimer',
   run_command: 'Exécuter',
   search_files: 'Rechercher',
+  semantic_search: 'Recherche IA',
   fetch_url: 'Fetch',
 };
 
@@ -85,6 +87,7 @@ export default function AgentToolBlock({ toolCall, onApprove, onReject }) {
     if (toolCall.name === 'delete_file') return i.path || '';
     if (toolCall.name === 'run_command') return i.command || '';
     if (toolCall.name === 'search_files') return `"${i.query || ''}"`;
+    if (toolCall.name === 'semantic_search') return `"${i.query || ''}"`;
     if (toolCall.name === 'fetch_url') return i.url || '';
     return '';
   })();

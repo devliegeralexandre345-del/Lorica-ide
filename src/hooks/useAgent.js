@@ -205,6 +205,32 @@ export function useAgent(state, dispatch) {
           }
           break;
         }
+        case 'semantic_search': {
+          const rawK = Number(toolCall.input.top_k);
+          const topK = Number.isFinite(rawK) ? Math.max(1, Math.min(25, rawK)) : 8;
+          const r = await window.lorica.search.semanticSearch(
+            projectPath,
+            toolCall.input.query,
+            topK,
+          );
+          if (r && r.success !== false) {
+            const hits = Array.isArray(r.data) ? r.data : (r.data?.data || []);
+            if (hits.length === 0) {
+              result = 'No semantic matches found.';
+            } else {
+              result = hits.map((h, i) => {
+                const snippet = (h.snippet || '').replace(/\r\n/g, '\n').trim();
+                return `[${i + 1}] ${h.relative}:L${h.start_line}-${h.end_line} (score ${(h.score ?? 0).toFixed(3)})\n${snippet}`;
+              }).join('\n\n---\n\n');
+            }
+          } else {
+            // Most common cause: index not built yet. Tell the agent clearly
+            // so it can fall back to search_files or suggest the user build
+            // the index.
+            result = `Semantic search unavailable: ${r?.error || 'unknown error'}. Try search_files for exact strings, or ask the user to build the semantic index via the Search panel.`;
+          }
+          break;
+        }
         case 'fetch_url': {
           try {
             const resp = await robustFetch(toolCall.input.url, {}, true);
@@ -518,6 +544,7 @@ You have direct access to the user's codebase via tools. Be concise, precise, an
 - Project path: ${projectPath || 'unknown'}.${activeFileInfo}
 - When making code changes, PREFER write_file over re-creating files. Always read_file first.
 - When running commands, prefer non-interactive flags. Never run commands that keep running indefinitely (use background=false style).
+- **Search strategy**: For intent-based questions ("where do we handle auth", "the code that parses X"), START with semantic_search — it returns ranked snippets across the codebase with previews. Use search_files (substring/literal) only when you know an exact symbol name, import path, or string. If semantic_search reports the index is missing, fall back to search_files and let the user know they can build the index for better results.
 - Format your answers with concise Markdown. Code blocks should include a language identifier.
 - When you show code meant to replace a specific file, put a comment on the FIRST line of the code block with the relative path (e.g. \`// src/components/Foo.jsx\` for JS/TS/Rust/C, \`# app/main.py\` for Python/shell). This lets the IDE attach a one-click "Apply" button to the block.
 - If the user @-mentions files/folders ("@file:...", "@folder:...", "@active"), the referenced content is already appended to their message — don't call read_file for those paths unless you need more than what's provided.`;
