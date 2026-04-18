@@ -369,4 +369,4 @@ pub fn cmd_get_line_count(
         Some(buffer) => CmdResult::ok(buffer.line_count()),
         None => CmdResult::err("Buffer not found"),
     }
-}
+} 

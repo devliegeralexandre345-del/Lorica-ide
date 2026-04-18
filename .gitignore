@@ -22,6 +22,11 @@ rename_script.ps1
 
 # Git worktrees
 .worktrees/
+.claude/
+
+# Tauri build artefacts / scratch files
+src-tauri/gen/
+src-tauri/index.html
 
 # OS
 .DS_Store

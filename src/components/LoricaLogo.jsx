@@ -1,24 +1,23 @@
 import React from 'react';
 
 /**
- * Lorica logo — 5 stacked rounded bars fading from purple to cyan,
- * matching the desktop application icon.
+ * Lorica logo — 5 stacked rounded bars fading from the theme accent color,
+ * automatically adapting to the active IDE theme.
  */
 export default function LoricaLogo({ size = 32, className = '' }) {
-  // Each bar: [width%, color]
+  // Each bar: [width%, opacity]
   const bars = [
-    [100, '#9333ea'],
-    [82,  '#7d51d5'],
-    [63,  '#6770bf'],
-    [45,  '#518fa9'],
-    [28,  '#3bae94'],
+    [100, 1.0],
+    [82,  0.78],
+    [63,  0.56],
+    [45,  0.38],
+    [28,  0.22],
   ];
 
-  const barH   = 14;
-  const gap    = 5;
-  const totalH = bars.length * barH + (bars.length - 1) * gap; // 70 + 20 = 90 (but offset from 0)
-  const lastY  = (bars.length - 1) * (barH + gap);             // 4 * 19 = 76
-  const viewH  = lastY + barH;                                  // 76 + 14 = 90
+  const barH  = 14;
+  const gap   = 5;
+  const lastY = (bars.length - 1) * (barH + gap);
+  const viewH = lastY + barH;
 
   return (
     <svg
@@ -30,7 +29,7 @@ export default function LoricaLogo({ size = 32, className = '' }) {
       className={className}
       aria-label="Lorica logo"
     >
-      {bars.map(([w, color], i) => (
+      {bars.map(([w, opacity], i) => (
         <rect
           key={i}
           x={0}
@@ -38,7 +37,8 @@ export default function LoricaLogo({ size = 32, className = '' }) {
           width={w}
           height={barH}
           rx={barH / 2}
-          fill={color}
+          fill="var(--color-accent)"
+          fillOpacity={opacity}
         />
       ))}
     </svg>

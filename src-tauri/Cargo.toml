@@ -1,6 +1,6 @@
 [package]
 name = "lorica"
-version = "2.0.0"
+version = "2.1.0"
 description = "Lorica — Secure, AI-Powered, Native IDE"
 authors = ["Lorica Team"]
 edition = "2021"
