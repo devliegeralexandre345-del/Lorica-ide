@@ -1,4 +1,4 @@
-import React, { useReducer, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useReducer, useEffect, useCallback, useRef, useMemo, Suspense, lazy } from 'react';
 import { appReducer, initialState } from './store/appReducer';
 import { THEMES } from './utils/themes';
 import { useFileSystem } from './hooks/useFileSystem';
@@ -8,6 +8,11 @@ import { useSpotify } from './hooks/useSpotify';
 import { useUpdate } from './hooks/useUpdate';
 import { useShortcuts } from './hooks/useShortcuts';
 import { useSemanticAutoReindex } from './hooks/useSemanticAutoReindex';
+
+// -------------------------------------------------------------------
+// Eager imports — rendered on first paint (or so close to it that code
+// splitting would just introduce a visible flash).
+// -------------------------------------------------------------------
 import MenuBar from './components/MenuBar';
 import FileTree from './components/FileTree';
 import TabBar from './components/TabBar';
@@ -15,29 +20,40 @@ import Editor from './components/Editor';
 import Terminal from './components/Terminal';
 import AgentCopilot from './components/AgentCopilot';
 import { useAgent } from './hooks/useAgent';
-import SpotifyPlayer from './components/SpotifyPlayer';
-import CommandPalette from './components/CommandPalette';
 import StatusBar from './components/StatusBar';
 import LockScreen from './components/LockScreen';
-import SecretVault from './components/SecretVault';
-import AuditLog from './components/AuditLog';
-import DiffViewer from './components/DiffViewer';
-import Settings from './components/Settings';
 import ToastContainer from './components/Toast';
 import Breadcrumbs from './components/Breadcrumbs';
 import WelcomeTab from './components/WelcomeTab';
-import GlobalSearch from './components/GlobalSearch';
-import GitPanel from './components/GitPanel';
-import FilePalette from './components/FilePalette';
 import LoricaDock from './components/LoricaDock';
 import ImagePreview, { isImageFile } from './components/ImagePreview';
 import FilePreview, { hasPreview } from './components/FilePreview';
-import ExtensionManager from './components/ExtensionManager';
-import DebugPanel from './components/DebugPanel';
-import ProblemsPanel from './components/ProblemsPanel';
-import SnippetPalette from './components/SnippetPalette';
-import OutlinePanel from './components/OutlinePanel';
-import TimelinePanel from './components/TimelinePanel';
+
+// -------------------------------------------------------------------
+// Lazy-loaded — only fetched when the user actually opens them. Each
+// gets its own chunk; main.bundle shrinks by whatever they pull in.
+// Webpack names the chunk from the magic comment.
+// -------------------------------------------------------------------
+const CommandPalette    = lazy(() => import(/* webpackChunkName: "cmd-palette" */ './components/CommandPalette'));
+const Settings          = lazy(() => import(/* webpackChunkName: "settings"    */ './components/Settings'));
+const SecretVault       = lazy(() => import(/* webpackChunkName: "vault"       */ './components/SecretVault'));
+const AuditLog          = lazy(() => import(/* webpackChunkName: "audit-log"   */ './components/AuditLog'));
+const DiffViewer        = lazy(() => import(/* webpackChunkName: "diff-viewer" */ './components/DiffViewer'));
+const FilePalette       = lazy(() => import(/* webpackChunkName: "file-palette"*/ './components/FilePalette'));
+const ExtensionManager  = lazy(() => import(/* webpackChunkName: "extensions"  */ './components/ExtensionManager'));
+const SnippetPalette    = lazy(() => import(/* webpackChunkName: "snippets"    */ './components/SnippetPalette'));
+const GlobalSearch      = lazy(() => import(/* webpackChunkName: "search"      */ './components/GlobalSearch'));
+const GitPanel          = lazy(() => import(/* webpackChunkName: "git"         */ './components/GitPanel'));
+const DebugPanel        = lazy(() => import(/* webpackChunkName: "debug"       */ './components/DebugPanel'));
+const OutlinePanel      = lazy(() => import(/* webpackChunkName: "outline"     */ './components/OutlinePanel'));
+const TimelinePanel     = lazy(() => import(/* webpackChunkName: "timeline"    */ './components/TimelinePanel'));
+const ProblemsPanel     = lazy(() => import(/* webpackChunkName: "problems"    */ './components/ProblemsPanel'));
+const SpotifyPlayer     = lazy(() => import(/* webpackChunkName: "spotify"     */ './components/SpotifyPlayer'));
+
+// Lightweight placeholder for Suspense boundaries. `null` is intentional:
+// these are modal/panel openings — an extra spinner frame would feel
+// worse than a silent one-frame delay.
+const LazyFallback = null;
 
 // Helper to add toast
 function toast(dispatch, type, message, duration = 2000) {
@@ -239,19 +255,21 @@ export default function App() {
         {!isZen && (state.showFileTree || state.showSearch || state.showGit || state.showDebug || state.showOutline || state.showTimeline) && (
           <>
             <div style={{ width: sidebarWidth }} className="flex-shrink-0 border-r border-lorica-border bg-lorica-surface overflow-hidden">
-              {state.showSearch ? (
-                <GlobalSearch state={state} dispatch={dispatch} onFileOpen={fs.openFile} />
-              ) : state.showGit ? (
-                <GitPanel state={state} dispatch={dispatch} />
-              ) : state.showDebug ? (
-                <DebugPanel state={state} dispatch={dispatch} activeFile={activeFile} />
-              ) : state.showOutline ? (
-                <OutlinePanel state={state} dispatch={dispatch} activeFile={activeFile} />
-              ) : state.showTimeline ? (
-                <TimelinePanel state={state} dispatch={dispatch} />
-              ) : (
-                <FileTree tree={state.fileTree} projectPath={state.projectPath} onFileClick={fs.openFile} onRefresh={() => fs.refreshTree(state.projectPath)} dispatch={dispatch} fs={fs} />
-              )}
+              <Suspense fallback={LazyFallback}>
+                {state.showSearch ? (
+                  <GlobalSearch state={state} dispatch={dispatch} onFileOpen={fs.openFile} />
+                ) : state.showGit ? (
+                  <GitPanel state={state} dispatch={dispatch} />
+                ) : state.showDebug ? (
+                  <DebugPanel state={state} dispatch={dispatch} activeFile={activeFile} />
+                ) : state.showOutline ? (
+                  <OutlinePanel state={state} dispatch={dispatch} activeFile={activeFile} />
+                ) : state.showTimeline ? (
+                  <TimelinePanel state={state} dispatch={dispatch} />
+                ) : (
+                  <FileTree tree={state.fileTree} projectPath={state.projectPath} onFileClick={fs.openFile} onRefresh={() => fs.refreshTree(state.projectPath)} dispatch={dispatch} fs={fs} />
+                )}
+              </Suspense>
             </div>
             <div className="w-1 cursor-col-resize resize-handle bg-lorica-border hover:bg-lorica-accent flex-shrink-0" onMouseDown={handleSidebarResize} />
           </>
@@ -345,7 +363,9 @@ export default function App() {
           {/* Problems Panel */}
           {!isZen && state.showProblems && (
             <div className="flex-shrink-0 h-[150px] border-t border-lorica-border">
-              <ProblemsPanel state={state} dispatch={dispatch} onFileOpen={fs.openFile} />
+              <Suspense fallback={LazyFallback}>
+                <ProblemsPanel state={state} dispatch={dispatch} onFileOpen={fs.openFile} />
+              </Suspense>
             </div>
           )}
 
@@ -365,7 +385,11 @@ export default function App() {
             <div style={{ width: aiPanelWidth }} className="flex-shrink-0 border-l border-lorica-border bg-lorica-surface overflow-hidden flex flex-col">
               <AgentCopilot state={state} dispatch={dispatch} agent={agent} activeFile={activeFile} />
               {state.showSpotify && (
-                <div className="border-t border-lorica-border flex-shrink-0"><SpotifyPlayer spotify={spotify} /></div>
+                <div className="border-t border-lorica-border flex-shrink-0">
+                  <Suspense fallback={LazyFallback}>
+                    <SpotifyPlayer spotify={spotify} />
+                  </Suspense>
+                </div>
               )}
             </div>
           </>
@@ -394,16 +418,19 @@ export default function App() {
 
       <ToastContainer toasts={state.toasts || []} dispatch={dispatch} />
 
-      {state.showCommandPalette && (
-        <CommandPalette state={state} dispatch={dispatch} onOpenFolder={fs.openFolder} onLock={security.lock} actions={actions.current} />
-      )}
-      {state.showSettings && <Settings state={state} dispatch={dispatch} actions={actions.current} />}
-      {state.showSecretVault && <SecretVault state={state} dispatch={dispatch} security={security} />}
-      {state.showAuditLog && <AuditLog dispatch={dispatch} />}
-      {state.showDiffViewer && <DiffViewer state={state} dispatch={dispatch} />}
-      {state.showFilePalette && <FilePalette state={state} dispatch={dispatch} onFileOpen={fs.openFile} />}
-      {state.showExtensions && <ExtensionManager dispatch={dispatch} />}
-      {state.showSnippets && <SnippetPalette activeFile={activeFile} dispatch={dispatch} />}
+      {/* Modal stack — all lazy-loaded, share one Suspense boundary. */}
+      <Suspense fallback={LazyFallback}>
+        {state.showCommandPalette && (
+          <CommandPalette state={state} dispatch={dispatch} onOpenFolder={fs.openFolder} onLock={security.lock} actions={actions.current} />
+        )}
+        {state.showSettings && <Settings state={state} dispatch={dispatch} actions={actions.current} />}
+        {state.showSecretVault && <SecretVault state={state} dispatch={dispatch} security={security} />}
+        {state.showAuditLog && <AuditLog dispatch={dispatch} />}
+        {state.showDiffViewer && <DiffViewer state={state} dispatch={dispatch} />}
+        {state.showFilePalette && <FilePalette state={state} dispatch={dispatch} onFileOpen={fs.openFile} />}
+        {state.showExtensions && <ExtensionManager dispatch={dispatch} />}
+        {state.showSnippets && <SnippetPalette activeFile={activeFile} dispatch={dispatch} />}
+      </Suspense>
     </div>
   );
 }
