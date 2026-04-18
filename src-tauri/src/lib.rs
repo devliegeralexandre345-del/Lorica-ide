@@ -122,6 +122,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             // Updater
             updater::check_for_update,
             updater::download_and_install_update,
+            updater::get_current_version,
             // Spotify auth
             spotify_auth::start_spotify_auth_server,
             spotify_auth::open_url,
