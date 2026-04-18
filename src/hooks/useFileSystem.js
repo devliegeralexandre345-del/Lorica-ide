@@ -20,7 +20,10 @@ export function useFileSystem(dispatch) {
     }
   }, [dispatch]);
 
-  const openFile = useCallback(async (filePath) => {
+  // `opts.line` (1-indexed) tells the editor to scroll the file to that
+  // line after opening. Used by semantic-search hits, Problems panel,
+  // Agent references, etc.
+  const openFile = useCallback(async (filePath, opts = {}) => {
     const result = await window.lorica.fs.readFile(filePath);
     if (result.success) {
       dispatch({
@@ -31,6 +34,7 @@ export function useFileSystem(dispatch) {
           content: result.data.content,
           extension: result.data.extension,
           dirty: false,
+          pendingGoto: opts.line ? { line: opts.line } : null,
         },
       });
       // Scan for secrets

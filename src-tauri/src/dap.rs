@@ -444,44 +444,44 @@ impl DapManager {
     }
 
     // Continue execution
-    pub async fn continue_execution(&self, session_id: &str) -> CmdResult<()> {
+    pub async fn continue_execution(&self, _session_id: &str) -> CmdResult<()> {
         let _sessions = self.sessions.lock().await;
         // In real implementation, send continue request
         CmdResult::ok(())
     }
 
     // Step over
-    pub async fn step_over(&self, session_id: &str, thread_id: u64) -> CmdResult<()> {
+    pub async fn step_over(&self, _session_id: &str, _thread_id: u64) -> CmdResult<()> {
         let _sessions = self.sessions.lock().await;
         // In real implementation, send stepOver request
         CmdResult::ok(())
     }
 
     // Step in
-    pub async fn step_in(&self, session_id: &str, thread_id: u64) -> CmdResult<()> {
+    pub async fn step_in(&self, _session_id: &str, _thread_id: u64) -> CmdResult<()> {
         let _sessions = self.sessions.lock().await;
         // In real implementation, send stepIn request
         CmdResult::ok(())
     }
 
     // Step out
-    pub async fn step_out(&self, session_id: &str, thread_id: u64) -> CmdResult<()> {
+    pub async fn step_out(&self, _session_id: &str, _thread_id: u64) -> CmdResult<()> {
         let _sessions = self.sessions.lock().await;
         // In real implementation, send stepOut request
         CmdResult::ok(())
     }
 
     // Pause execution
-    pub async fn pause(&self, session_id: &str) -> CmdResult<()> {
+    pub async fn pause(&self, _session_id: &str) -> CmdResult<()> {
         let _sessions = self.sessions.lock().await;
         // In real implementation, send pause request
         CmdResult::ok(())
     }
 
     // Get stack trace
-    pub async fn get_stack_trace(&self, session_id: &str, thread_id: u64) -> CmdResult<Vec<StackFrame>> {
+    pub async fn get_stack_trace(&self, session_id: &str, _thread_id: u64) -> CmdResult<Vec<StackFrame>> {
         let sessions = self.sessions.lock().await;
-        let session = match sessions.get(session_id) {
+        let _session = match sessions.get(session_id) {
             Some(session) => session,
             None => return CmdResult::err(format!("Session not found: {}", session_id)),
         };
@@ -505,7 +505,7 @@ impl DapManager {
     }
 
     // Get variables for a scope
-    pub async fn get_variables(&self, session_id: &str, variables_reference: u64) -> CmdResult<Vec<Variable>> {
+    pub async fn get_variables(&self, _session_id: &str, _variables_reference: u64) -> CmdResult<Vec<Variable>> {
         // Return mock variables for now
         let variables = vec![
             Variable {
@@ -522,7 +522,7 @@ impl DapManager {
     }
 
     // Evaluate expression
-    pub async fn evaluate(&self, session_id: &str, expression: String, frame_id: u64) -> CmdResult<String> {
+    pub async fn evaluate(&self, _session_id: &str, expression: String, _frame_id: u64) -> CmdResult<String> {
         // Mock evaluation
         CmdResult::ok(format!("Evaluated: {}", expression))
     }

@@ -519,6 +519,32 @@ const Editor = React.memo(function Editor({
     }
   }, [file.content, file.path]);
 
+  // Jump to a specific line when requested (semantic hits, Problems panel,
+  // AI refs, …). The reducer stamps `pendingGoto` on the file; we consume
+  // it here, scroll CodeMirror, then ask the reducer to clear the stamp so
+  // the next re-render doesn't re-scroll.
+  useEffect(() => {
+    if (!ready || !viewRef.current) return;
+    const goto = file?.pendingGoto;
+    if (!goto || !goto.line) return;
+
+    const view = viewRef.current;
+    const totalLines = view.state.doc.lines;
+    const ln = Math.min(Math.max(parseInt(goto.line, 10) || 1, 1), totalLines);
+    const lineInfo = view.state.doc.line(ln);
+
+    view.dispatch({
+      selection: { anchor: lineInfo.from, head: lineInfo.from },
+      effects: EditorView.scrollIntoView(lineInfo.from, { y: 'center' }),
+    });
+    view.focus();
+
+    dispatch({ type: 'CLEAR_PENDING_GOTO', index });
+    // `goto._ts` is part of the dep list so re-opening the same file with
+    // a new request (e.g. clicking two different semantic hits in the same
+    // file) re-fires this effect even if `line` happens to match.
+  }, [ready, file?.pendingGoto?.line, file?.pendingGoto?._ts, dispatch, index]);
+
   const handleLensAction = (action) => {
     dispatch({ type: 'SET_PANEL', panel: 'showAIPanel', value: true });
     const prompt = `[${action.toUpperCase()}] Focus sur cette portion de code :\n\n\`\`\`${file.extension}\n${aiLens.text}\n\`\`\`\n\nQue me proposes-tu ?`;

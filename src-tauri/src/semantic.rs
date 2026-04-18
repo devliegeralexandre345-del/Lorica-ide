@@ -44,12 +44,20 @@ const SKIP_DIRS: &[&str] = &[
 
 /// File extensions we know carry no useful text content.
 const BINARY_EXTS: &[&str] = &[
-    "png", "jpg", "jpeg", "gif", "bmp", "ico", "svg", "webp",
+    // Images
+    "png", "jpg", "jpeg", "gif", "bmp", "ico", "svg", "webp", "avif", "heic", "tiff",
+    // Fonts
     "woff", "woff2", "ttf", "otf", "eot",
-    "zip", "tar", "gz", "rar", "7z",
-    "exe", "dll", "so", "dylib", "bin",
-    "pdf", "doc", "docx", "xls", "xlsx",
-    "mp3", "mp4", "avi", "mov", "wav",
+    // Archives
+    "zip", "tar", "gz", "bz2", "xz", "zst", "rar", "7z",
+    // Native / compiled
+    "exe", "dll", "so", "dylib", "bin", "a", "o", "obj", "lib", "node", "wasm",
+    "class", "jar", "war", "pyc", "pyo", "pdb",
+    // Documents
+    "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+    // Media
+    "mp3", "mp4", "avi", "mov", "wav", "flac", "ogg", "m4a", "mkv", "webm",
+    // Lockfiles / checksum bundles (noisy, rarely searched)
     "lock", "sum",
 ];
 
@@ -211,10 +219,34 @@ fn chunk_file(content: &str, path: &str, relative: &str) -> Vec<Chunk> {
         }
         if end >= lines.len() { break; }
         start = end.saturating_sub(CHUNK_OVERLAP);
-        // Guard against zero-progress if CHUNK_LINES <= CHUNK_OVERLAP.
-        if start == end - CHUNK_LINES.min(end) { break; }
     }
     chunks
+}
+
+/// If the project has a `.gitignore`, make sure `.lorica/` is in it so
+/// the semantic index (which can be megabytes of vectors) doesn't leak
+/// into commits. We only touch an *existing* .gitignore — creating one
+/// where none existed would be presumptuous for a non-git project.
+fn ensure_gitignore_has_lorica(project_path: &str) {
+    let gi = Path::new(project_path).join(".gitignore");
+    let current = match fs::read_to_string(&gi) {
+        Ok(s) => s,
+        Err(_) => return,   // no .gitignore (or unreadable) — leave it alone
+    };
+    // Already covered?
+    for line in current.lines() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') { continue; }
+        if matches!(t, ".lorica" | ".lorica/" | "/.lorica" | "/.lorica/") {
+            return;
+        }
+    }
+    let mut updated = current;
+    if !updated.ends_with('\n') { updated.push('\n'); }
+    updated.push_str("\n# Lorica IDE local data (semantic index, per-project cache)\n");
+    updated.push_str(".lorica/\n");
+    // If the write fails, silently skip — user can add the entry manually.
+    let _ = fs::write(&gi, updated);
 }
 
 fn init_model() -> Result<TextEmbedding, String> {
@@ -490,6 +522,9 @@ pub fn cmd_semantic_index_project(
     if let Err(e) = fs::write(&out_path, &encoded) {
         return CmdResult::err(format!("Cannot write index file: {}", e));
     }
+
+    // Best-effort — never fails the build if this step hiccups.
+    ensure_gitignore_has_lorica(&project_path);
 
     let files_changed = changed_idx.len().saturating_sub(files_new);
     CmdResult::ok(IndexBuildReport {

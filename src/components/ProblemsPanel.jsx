@@ -141,7 +141,7 @@ export default function ProblemsPanel({ state, dispatch, onFileOpen }) {
                 return (
                   <button
                     key={p.id}
-                    onClick={() => onFileOpen && onFileOpen(p.file)}
+                    onClick={() => onFileOpen && onFileOpen(p.file, p.line > 0 ? { line: p.line } : undefined)}
                     className="w-full flex items-start gap-2 px-3 pl-7 py-0.5 text-[11px] hover:bg-lorica-panel/30 transition-colors"
                   >
                     <cfg.icon size={11} className={`${cfg.color} flex-shrink-0 mt-0.5`} />

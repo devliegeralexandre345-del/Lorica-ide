@@ -215,12 +215,12 @@ export default function GlobalSearch({ state, dispatch, onFileOpen }) {
   };
 
   const goToMatch = (match) => {
-    onFileOpen(match.path);
+    onFileOpen(match.path, { line: match.line });
   };
 
   // Semantic hit = { path, relative, start_line, end_line, snippet, score }
   const goToHit = (hit) => {
-    onFileOpen(hit.path);
+    onFileOpen(hit.path, { line: hit.start_line });
   };
 
   // Group matches by file (exact mode only)

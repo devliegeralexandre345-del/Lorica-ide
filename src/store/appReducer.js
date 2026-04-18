@@ -99,14 +99,36 @@ export function appReducer(state, action) {
       return { ...state, fileTree: action.tree };
     case 'OPEN_FILE': {
       const existingIdx = state.openFiles.findIndex((f) => f.path === action.file.path);
+      // If the caller asked to scroll to a line, stamp the request on the
+      // file object. The Editor consumes + clears it on mount / file change.
+      // Timestamp ensures repeated jumps to the same line re-trigger the
+      // effect (React compares by reference / value, identical objects don't).
+      const pendingGoto = action.file.pendingGoto
+        ? { ...action.file.pendingGoto, _ts: Date.now() }
+        : null;
+
       if (existingIdx >= 0) {
-        return { ...state, activeFileIndex: existingIdx };
+        // Already open — switch to that tab. If a pendingGoto was passed,
+        // merge it in so Editor jumps to the requested line.
+        const openFiles = pendingGoto
+          ? state.openFiles.map((f, i) =>
+              i === existingIdx ? { ...f, pendingGoto } : f)
+          : state.openFiles;
+        return { ...state, openFiles, activeFileIndex: existingIdx };
       }
       return {
         ...state,
-        openFiles: [...state.openFiles, action.file],
+        openFiles: [...state.openFiles, { ...action.file, pendingGoto }],
         activeFileIndex: state.openFiles.length,
       };
+    }
+    case 'CLEAR_PENDING_GOTO': {
+      // Editor calls this once the scroll has been applied.
+      const { index } = action;
+      if (index < 0 || index >= state.openFiles.length) return state;
+      const openFiles = state.openFiles.map((f, i) =>
+        i === index ? { ...f, pendingGoto: null } : f);
+      return { ...state, openFiles };
     }
     case 'CLOSE_FILE': {
       const newFiles = state.openFiles.filter((_, i) => i !== action.index);
