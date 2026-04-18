@@ -40,18 +40,41 @@ module.exports = {
   optimization: {
     splitChunks: {
       chunks: 'all',
+      // With the previous `vendor` group set to `chunks: 'all'`, webpack
+      // was pulling every node_modules file — including mammoth (~1 MB)
+      // and the long tail of lazy-only markdown deps — into the single
+      // vendors bundle, defeating the dynamic imports. Restricting the
+      // catch-all vendor group to `initial` chunks sends async-only deps
+      // into the async chunk that triggered them, shrinking the initial
+      // paint.
       cacheGroups: {
-        vendor: {
-          test: /[\\/]node_modules[\\/]/,
-          name: 'vendors',
-          chunks: 'all',
-          priority: 10,
-        },
         codemirror: {
           test: /[\\/]node_modules[\\/]@codemirror[\\/]/,
           name: 'codemirror',
           chunks: 'all',
-          priority: 20,
+          priority: 30,
+        },
+        xterm: {
+          test: /[\\/]node_modules[\\/]@xterm[\\/]/,
+          name: 'xterm',
+          chunks: 'all',
+          priority: 25,
+        },
+        // Heavy lib, only used by DocxPreview's `await import('mammoth/…')`.
+        // Explicit `async` keeps it out of the initial bundle for good.
+        mammoth: {
+          test: /[\\/]node_modules[\\/]mammoth[\\/]/,
+          name: 'mammoth',
+          chunks: 'async',
+          priority: 25,
+        },
+        // Everything else from node_modules that is reachable from the
+        // initial entry graph.
+        vendor: {
+          test: /[\\/]node_modules[\\/]/,
+          name: 'vendors',
+          chunks: 'initial',
+          priority: 10,
         },
       },
     },

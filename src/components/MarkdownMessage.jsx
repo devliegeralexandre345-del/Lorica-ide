@@ -1,9 +1,72 @@
 // src/components/MarkdownMessage.jsx
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+// PrismLight lets us register only the languages we actually need. The
+// default `Prism` import pulls in refractor + ~270 language grammars —
+// that's ~500 KB minified for features no one uses in an agent chat.
+import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { Check } from 'lucide-react';
+
+// --- Language grammars (only the ones an IDE agent chat actually renders)
+import js        from 'react-syntax-highlighter/dist/esm/languages/prism/javascript';
+import jsx       from 'react-syntax-highlighter/dist/esm/languages/prism/jsx';
+import ts        from 'react-syntax-highlighter/dist/esm/languages/prism/typescript';
+import tsx       from 'react-syntax-highlighter/dist/esm/languages/prism/tsx';
+import py        from 'react-syntax-highlighter/dist/esm/languages/prism/python';
+import rust      from 'react-syntax-highlighter/dist/esm/languages/prism/rust';
+import go        from 'react-syntax-highlighter/dist/esm/languages/prism/go';
+import bash      from 'react-syntax-highlighter/dist/esm/languages/prism/bash';
+import json      from 'react-syntax-highlighter/dist/esm/languages/prism/json';
+import css       from 'react-syntax-highlighter/dist/esm/languages/prism/css';
+import scss      from 'react-syntax-highlighter/dist/esm/languages/prism/scss';
+import markup    from 'react-syntax-highlighter/dist/esm/languages/prism/markup';
+import sql       from 'react-syntax-highlighter/dist/esm/languages/prism/sql';
+import yaml      from 'react-syntax-highlighter/dist/esm/languages/prism/yaml';
+import toml      from 'react-syntax-highlighter/dist/esm/languages/prism/toml';
+import markdown  from 'react-syntax-highlighter/dist/esm/languages/prism/markdown';
+import diff      from 'react-syntax-highlighter/dist/esm/languages/prism/diff';
+import c         from 'react-syntax-highlighter/dist/esm/languages/prism/c';
+import cpp       from 'react-syntax-highlighter/dist/esm/languages/prism/cpp';
+import java      from 'react-syntax-highlighter/dist/esm/languages/prism/java';
+import ruby      from 'react-syntax-highlighter/dist/esm/languages/prism/ruby';
+import php       from 'react-syntax-highlighter/dist/esm/languages/prism/php';
+
+// Register once at module load — cheap.
+SyntaxHighlighter.registerLanguage('javascript', js);
+SyntaxHighlighter.registerLanguage('js', js);
+SyntaxHighlighter.registerLanguage('jsx', jsx);
+SyntaxHighlighter.registerLanguage('typescript', ts);
+SyntaxHighlighter.registerLanguage('ts', ts);
+SyntaxHighlighter.registerLanguage('tsx', tsx);
+SyntaxHighlighter.registerLanguage('python', py);
+SyntaxHighlighter.registerLanguage('py', py);
+SyntaxHighlighter.registerLanguage('rust', rust);
+SyntaxHighlighter.registerLanguage('rs', rust);
+SyntaxHighlighter.registerLanguage('go', go);
+SyntaxHighlighter.registerLanguage('bash', bash);
+SyntaxHighlighter.registerLanguage('sh', bash);
+SyntaxHighlighter.registerLanguage('shell', bash);
+SyntaxHighlighter.registerLanguage('json', json);
+SyntaxHighlighter.registerLanguage('css', css);
+SyntaxHighlighter.registerLanguage('scss', scss);
+SyntaxHighlighter.registerLanguage('html', markup);
+SyntaxHighlighter.registerLanguage('xml', markup);
+SyntaxHighlighter.registerLanguage('markup', markup);
+SyntaxHighlighter.registerLanguage('sql', sql);
+SyntaxHighlighter.registerLanguage('yaml', yaml);
+SyntaxHighlighter.registerLanguage('yml', yaml);
+SyntaxHighlighter.registerLanguage('toml', toml);
+SyntaxHighlighter.registerLanguage('markdown', markdown);
+SyntaxHighlighter.registerLanguage('md', markdown);
+SyntaxHighlighter.registerLanguage('diff', diff);
+SyntaxHighlighter.registerLanguage('c', c);
+SyntaxHighlighter.registerLanguage('cpp', cpp);
+SyntaxHighlighter.registerLanguage('c++', cpp);
+SyntaxHighlighter.registerLanguage('java', java);
+SyntaxHighlighter.registerLanguage('ruby', ruby);
+SyntaxHighlighter.registerLanguage('rb', ruby);
+SyntaxHighlighter.registerLanguage('php', php);
 
 /**
  * Try to infer an absolute target file path from the top of a code block.
