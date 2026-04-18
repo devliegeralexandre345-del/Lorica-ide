@@ -6,17 +6,29 @@ IDE nouvelle génération construit avec **Tauri 2 + Rust** (backend) et **React
 
 ---
 
+## 🆕 Nouveautés v2.1.0
+
+- **🤖 Agent Copilot** — Panneau IA conversationnel avec exécution d'outils (lecture, edit, commandes), streaming, validation des actions. Anthropic Claude + DeepSeek. Commandes slash `/explain`, `/fix`, `/refactor`, `/test`, `/docs`, `/review`, `/tree`.
+- **⚡ Auto-complétion IA en ligne** — Suggestions style Copilot dans l'éditeur (**Tab** accepter, **Échap** rejeter, **Alt+\\** forcer). Modèles rapides par défaut (`claude-3-5-haiku` / `deepseek-chat`).
+- **📄 Aperçus de fichiers** — HTML, PDF, DOCX, XML, schémas SQL interactifs.
+- **🚀 Panneau Git refondu** — Status / log / branches en parallèle côté Rust, UI optimiste, lignes mémoïsées — fini le lag.
+- **🛠️ Fixes** — Streaming agent qui ne fige plus l'UI, DeepSeek durci, appels API agent via `tauri-plugin-http` (plus de CORS), overlay dev plus silencieuse.
+
+**[→ Release notes complètes v2.1.0](https://github.com/devliegeralexandre345-del/Lorica-ide/releases/tag/v2.1.0)**
+
+---
+
 ## ⬇️ Téléchargement
 
 **[→ Voir toutes les releases](https://github.com/devliegeralexandre345-del/Lorica-ide/releases)**
 
 | Plateforme | Format | Lien |
 |------------|--------|------|
-| 🪟 Windows | Installateur `.msi` | [Télécharger](https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/Lorica_2.0.0_x64_en-US.msi) |
-| 🪟 Windows | Executable `.exe` | [Télécharger](https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/Lorica_2.0.0_x64-setup.exe) |
-| 🐧 Linux | Package `.deb` (Debian/Ubuntu) | [Télécharger](https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/lorica_2.0.0_amd64.deb) |
-| 🐧 Linux | Package `.rpm` (Fedora/RHEL) | [Télécharger](https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/lorica-2.0.0-1.x86_64.rpm) |
-| 🐧 Linux | `.AppImage` (universel) | [Télécharger](https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/lorica_2.0.0_amd64.AppImage) |
+| 🪟 Windows | Installateur `.msi` | [Télécharger](https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/Lorica_2.1.0_x64_en-US.msi) |
+| 🪟 Windows | Executable `.exe` | [Télécharger](https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/Lorica_2.1.0_x64-setup.exe) |
+| 🐧 Linux | Package `.deb` (Debian/Ubuntu) | [Télécharger](https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/Lorica_2.1.0_amd64.deb) |
+| 🐧 Linux | Package `.rpm` (Fedora/RHEL) | [Télécharger](https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/Lorica-2.1.0-1.x86_64.rpm) |
+| 🐧 Linux | `.AppImage` (universel) | [Télécharger](https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/Lorica_2.1.0_amd64.AppImage) |
 
 > Les liens ci-dessus pointent vers la **dernière release**. Pour une version spécifique, rendez-vous sur la [page des releases](https://github.com/devliegeralexandre345-del/Lorica-ide/releases).
 
@@ -32,20 +44,20 @@ winget install --source winget Lorica
 
 **Debian / Ubuntu**
 ```bash
-wget https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/lorica_2.0.0_amd64.deb
-sudo dpkg -i lorica_2.0.0_amd64.deb
+wget https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/Lorica_2.1.0_amd64.deb
+sudo dpkg -i Lorica_2.1.0_amd64.deb
 ```
 
 **Fedora / RHEL**
 ```bash
-sudo rpm -i https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/lorica-2.0.0-1.x86_64.rpm
+sudo rpm -i https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/Lorica-2.1.0-1.x86_64.rpm
 ```
 
 **AppImage (toutes distros Linux)**
 ```bash
-wget https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/lorica_2.0.0_amd64.AppImage
-chmod +x lorica_2.0.0_amd64.AppImage
-./lorica_2.0.0_amd64.AppImage
+wget https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/Lorica_2.1.0_amd64.AppImage
+chmod +x Lorica_2.1.0_amd64.AppImage
+./Lorica_2.1.0_amd64.AppImage
 ```
 
 ---
