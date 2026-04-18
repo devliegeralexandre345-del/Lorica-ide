@@ -1,8 +1,9 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   Search, X, Replace, ChevronDown, ChevronRight, FileCode, CaseSensitive,
-  ArrowDownUp, Sparkles, Database, Trash2, Loader2, RefreshCw, Zap,
+  ArrowDownUp, Sparkles, Database, Trash2, Loader2, RefreshCw, Zap, Brain,
 } from 'lucide-react';
+import { rerankSemanticHits } from '../utils/aiSemanticRerank';
 
 // Two modes sharing one panel:
 //   exact    — substring search via cmd_search_in_files
@@ -32,6 +33,16 @@ export default function GlobalSearch({ state, dispatch, onFileOpen }) {
   const [indexing, setIndexing] = useState(false);
   const [semanticLoading, setSemanticLoading] = useState(false);
   const [semanticHits, setSemanticHits] = useState(null);   // array | null
+  // LLM re-rank layer — Claude/DeepSeek reorders top-50 cosine hits by actual
+  // relevance and attaches a one-line explanation to each.
+  const [rerankEnabled, setRerankEnabled] = useState(true);
+  const [reranking, setReranking] = useState(false);
+  const [rerankFallback, setRerankFallback] = useState(null); // null | string reason
+  const rerankAbortRef = useRef(null);
+
+  const provider = state.aiProvider || 'anthropic';
+  const aiApiKey = provider === 'anthropic' ? state.aiApiKey : state.aiDeepseekKey;
+  const canRerank = !!aiApiKey;
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
@@ -93,22 +104,69 @@ export default function GlobalSearch({ state, dispatch, onFileOpen }) {
       });
       return;
     }
+    // When re-ranking is on, pull a wider net (50) from the index so the LLM
+    // has room to recover from cosine mis-ranking. Without re-rank we stick
+    // to 25 to avoid overwhelming the UI.
+    const willRerank = rerankEnabled && canRerank;
+    const topK = willRerank ? 50 : 25;
+
+    // Abort any in-flight rerank — this is a fresh query.
+    rerankAbortRef.current?.abort();
+
     setSemanticLoading(true);
+    setRerankFallback(null);
+    let rawHits = [];
     try {
-      const res = await window.lorica.search.semanticSearch(state.projectPath, q, 25);
+      const res = await window.lorica.search.semanticSearch(state.projectPath, q, topK);
       if (res && res.success !== false) {
-        setSemanticHits(res.data || res);
+        rawHits = Array.isArray(res.data) ? res.data : (res.data?.data || []);
+        setSemanticHits(rawHits);
       } else {
         dispatch({
           type: 'ADD_TOAST',
           toast: { type: 'error', message: res?.error || 'Semantic search failed' },
         });
+        setSemanticLoading(false);
+        return;
       }
     } catch (e) {
       console.error('Semantic search failed:', e);
+      setSemanticLoading(false);
+      return;
     }
     setSemanticLoading(false);
-  }, [state.projectPath, indexStatus, dispatch]);
+
+    if (!willRerank || rawHits.length === 0) return;
+
+    // Re-rank via the fast model. Failure is silent — we keep cosine order.
+    setReranking(true);
+    const ctrl = new AbortController();
+    rerankAbortRef.current = ctrl;
+    try {
+      const { ranked, usedFallback, fallbackReason } = await rerankSemanticHits({
+        query: q,
+        hits: rawHits,
+        provider,
+        apiKey: aiApiKey,
+        signal: ctrl.signal,
+        maxReturn: 10,
+      });
+      if (ctrl.signal.aborted) return;
+      setSemanticHits(ranked);
+      if (usedFallback) setRerankFallback(fallbackReason || 'unknown');
+    } catch (e) {
+      if (e?.name !== 'AbortError') {
+        console.warn('[rerank] failed:', e);
+        setRerankFallback(e.message || String(e));
+      }
+    } finally {
+      if (rerankAbortRef.current === ctrl) rerankAbortRef.current = null;
+      setReranking(false);
+    }
+  }, [state.projectPath, indexStatus, dispatch, rerankEnabled, canRerank, provider, aiApiKey]);
+
+  // Abort any in-flight rerank when this panel unmounts.
+  useEffect(() => () => rerankAbortRef.current?.abort(), []);
 
   // ----------------------------------------------------------------
   // Index build / clear
@@ -373,6 +431,44 @@ export default function GlobalSearch({ state, dispatch, onFileOpen }) {
               </button>
             )}
           </div>
+
+          {/* Re-rank toggle — hidden when index doesn't exist yet */}
+          {indexStatus?.exists && (
+            <div className="flex items-center gap-1.5 mt-1.5 text-[10px]">
+              <button
+                onClick={() => canRerank && setRerankEnabled((v) => !v)}
+                disabled={!canRerank}
+                className={`flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors ${
+                  !canRerank
+                    ? 'text-lorica-textDim/50 cursor-not-allowed'
+                    : rerankEnabled
+                      ? 'bg-purple-500/15 text-purple-400 hover:bg-purple-500/25'
+                      : 'text-lorica-textDim hover:text-lorica-text hover:bg-lorica-panel/40'
+                }`}
+                title={!canRerank
+                  ? 'Add an AI API key in Settings to enable re-ranking'
+                  : rerankEnabled
+                    ? 'AI re-rank ON — top 50 cosine hits re-scored by Claude/DeepSeek'
+                    : 'AI re-rank OFF — raw cosine similarity only'}
+              >
+                <Brain size={10} /> AI re-rank {rerankEnabled && canRerank ? 'ON' : 'OFF'}
+              </button>
+              {reranking && (
+                <span className="flex items-center gap-1 text-purple-400/80">
+                  <Loader2 size={9} className="animate-spin" />
+                  <span>ranking…</span>
+                </span>
+              )}
+              {rerankFallback && !reranking && (
+                <span
+                  className="text-amber-400/80 truncate"
+                  title={`Fell back to cosine order: ${rerankFallback}`}
+                >
+                  · fallback (cosine)
+                </span>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -450,33 +546,54 @@ export default function GlobalSearch({ state, dispatch, onFileOpen }) {
             {semanticHits && !semanticLoading && (
               <div className="py-1">
                 <div className="px-3 py-1 text-[10px] text-lorica-textDim">
-                  {semanticHits.length} résultat{semanticHits.length !== 1 ? 's' : ''} — triés par similarité
+                  {semanticHits.length} résultat{semanticHits.length !== 1 ? 's' : ''} — {
+                    semanticHits.some((h) => h.rerankScore != null)
+                      ? 'reclassés par l\'IA'
+                      : 'triés par similarité'
+                  }
                 </div>
 
-                {semanticHits.map((hit, i) => (
-                  <button
-                    key={`${hit.path}:${hit.start_line}:${i}`}
-                    onClick={() => goToHit(hit)}
-                    className="w-full flex flex-col items-start gap-1 px-2 py-1.5 border-b border-lorica-border/50 hover:bg-lorica-panel/40 text-left transition-colors group"
-                  >
-                    <div className="flex items-center gap-1.5 w-full text-[11px] text-lorica-text">
-                      <FileCode size={11} className="text-purple-400 flex-shrink-0" />
-                      <span className="truncate flex-1 font-medium">{hit.relative}</span>
-                      <span className="text-[9px] text-lorica-textDim font-mono">
-                        L{hit.start_line}–{hit.end_line}
-                      </span>
-                      <span
-                        className="text-[9px] font-mono px-1 rounded bg-purple-500/10 text-purple-400"
-                        title={`Cosine similarity: ${hit.score.toFixed(4)}`}
-                      >
-                        {(hit.score * 100).toFixed(0)}
-                      </span>
-                    </div>
-                    <pre className="w-full text-[10px] leading-snug font-mono text-lorica-textDim group-hover:text-lorica-text whitespace-pre-wrap break-words max-h-24 overflow-hidden">
-                      {hit.snippet}
-                    </pre>
-                  </button>
-                ))}
+                {semanticHits.map((hit, i) => {
+                  const hasRerank = hit.rerankScore != null;
+                  const displayPct = hasRerank
+                    ? Math.round(hit.rerankScore * 100)
+                    : Math.round(hit.score * 100);
+                  return (
+                    <button
+                      key={`${hit.path}:${hit.start_line}:${i}`}
+                      onClick={() => goToHit(hit)}
+                      className="w-full flex flex-col items-start gap-1 px-2 py-1.5 border-b border-lorica-border/50 hover:bg-lorica-panel/40 text-left transition-colors group"
+                    >
+                      <div className="flex items-center gap-1.5 w-full text-[11px] text-lorica-text">
+                        <FileCode size={11} className="text-purple-400 flex-shrink-0" />
+                        <span className="truncate flex-1 font-medium">{hit.relative}</span>
+                        <span className="text-[9px] text-lorica-textDim font-mono">
+                          L{hit.start_line}–{hit.end_line}
+                        </span>
+                        <span
+                          className={`text-[9px] font-mono px-1 rounded ${
+                            hasRerank
+                              ? 'bg-purple-500/25 text-purple-300'
+                              : 'bg-purple-500/10 text-purple-400'
+                          }`}
+                          title={hasRerank
+                            ? `AI rerank: ${hit.rerankScore.toFixed(2)} · cosine: ${hit.score.toFixed(4)}`
+                            : `Cosine similarity: ${hit.score.toFixed(4)}`}
+                        >
+                          {hasRerank ? '★ ' : ''}{displayPct}
+                        </span>
+                      </div>
+                      {hit.rerankWhy && (
+                        <div className="w-full text-[10px] text-purple-300/80 italic leading-snug pl-4">
+                          {hit.rerankWhy}
+                        </div>
+                      )}
+                      <pre className="w-full text-[10px] leading-snug font-mono text-lorica-textDim group-hover:text-lorica-text whitespace-pre-wrap break-words max-h-24 overflow-hidden">
+                        {hit.snippet}
+                      </pre>
+                    </button>
+                  );
+                })}
 
                 {semanticHits.length === 0 && (
                   <div className="px-3 py-6 text-center text-xs text-lorica-textDim opacity-60">
