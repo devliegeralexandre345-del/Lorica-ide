@@ -1,6 +1,6 @@
 {
   "name": "lorica",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Lorica — Secure, AI-Powered, Native IDE",
   "private": true,
   "scripts": {

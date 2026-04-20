@@ -69,6 +69,9 @@ export default function HtmlPreview({ file }) {
             const blob = new Blob([srcDoc], { type: 'text/html' });
             const url = URL.createObjectURL(blob);
             window.open(url, '_blank');
+            // Revoke after the new window has had time to fetch the URL.
+            // Without this each "Open in browser" click leaks a Blob.
+            setTimeout(() => { try { URL.revokeObjectURL(url); } catch {} }, 60_000);
           }}
           className="p-1 text-lorica-textDim hover:text-lorica-text rounded"
           title="Ouvrir dans le navigateur"
@@ -82,12 +85,22 @@ export default function HtmlPreview({ file }) {
         className="flex-1 overflow-auto flex items-start justify-center p-3"
         style={{ background: 'var(--color-panel)' }}
       >
+        {/*
+          SECURITY: do NOT set allow-same-origin together with
+          allow-scripts. The combo effectively disables the sandbox —
+          the iframe could read cookies / localStorage / IndexedDB of
+          the Lorica app origin. We keep scripts + forms + popups for
+          developer convenience (interactive HTML previews) but the
+          frame stays in a null origin so it can't reach Lorica state
+          or the vault.
+        */}
         <iframe
           ref={iframeRef}
           key={refreshKey}
           srcDoc={srcDoc}
           title={file.name}
-          sandbox="allow-scripts allow-forms allow-popups allow-same-origin"
+          sandbox="allow-scripts allow-forms allow-popups"
+          referrerPolicy="no-referrer"
           className="bg-white border border-lorica-border rounded shadow-lg"
           style={{
             width: preset.width ? `${preset.width}px` : '100%',

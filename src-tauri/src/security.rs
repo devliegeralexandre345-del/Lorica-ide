@@ -60,10 +60,30 @@ struct EncryptedSecret {
 #[derive(Serialize, Deserialize, Clone)]
 struct VaultFile {
     version: u32,
-    password_verify: String, // bcrypt-like hash for password check
+    /// **Legacy field — vaults created before v2.2 used a bare SHA-256 for
+    /// password verification, which is brute-forceable on GPU.** Kept for
+    /// upgrade-path compatibility only; new vaults write `verify_canary`
+    /// instead and leave this empty. During unlock, if `verify_canary` is
+    /// present we use it (Argon2-gated AEAD tag check); otherwise we fall
+    /// back to the legacy hash and transparently upgrade on success.
+    #[serde(default)]
+    password_verify: String,
+    /// Argon2-gated verification canary: a constant plaintext encrypted
+    /// with the same key used for secrets. To verify a password we
+    /// re-derive the key via Argon2id (slow) and attempt to decrypt the
+    /// canary. Correct password → AEAD tag validates; wrong password →
+    /// decryption fails. This forces an attacker to pay the full Argon2
+    /// cost per guess, same as breaking the secret ciphertext directly.
+    #[serde(default)]
+    verify_canary: Option<EncryptedSecret>,
     salt: String,
     secrets: HashMap<String, EncryptedSecret>,
 }
+
+/// Plaintext wrapped in the canary. The prefix pins it to this codebase
+/// so a canary file can't be confused with a random blob. Length stays
+/// small so the AEAD overhead is minimal.
+const VAULT_CANARY_PLAINTEXT: &[u8] = b"lorica-vault-canary-v2";
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct AuditEntry {
@@ -194,7 +214,26 @@ impl VaultState {
 
     fn save_vault(&self, vault: &VaultFile) -> Result<(), String> {
         let data = serde_json::to_string_pretty(vault).map_err(|e| format!("Serialize error: {}", e))?;
-        fs::write(&self.vault_path, data).map_err(|e| format!("Cannot write vault: {}", e))
+        // Atomic write via tmp + rename. Crashing mid-save would
+        // otherwise leave an unparseable vault, locking the user out of
+        // their own secrets — worst possible failure mode.
+        let parent = self.vault_path.parent().unwrap_or_else(|| Path::new("."));
+        let _ = fs::create_dir_all(parent);
+        let file_name = self.vault_path.file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "vault.enc".to_string());
+        let tmp = parent.join(format!(".{}.tmp-{}", file_name, std::process::id()));
+        use std::io::Write;
+        {
+            let mut f = fs::File::create(&tmp).map_err(|e| format!("Cannot open vault tmp: {}", e))?;
+            f.write_all(data.as_bytes()).map_err(|e| format!("Cannot write vault tmp: {}", e))?;
+            f.sync_all().map_err(|e| format!("Cannot fsync vault tmp: {}", e))?;
+        }
+        if let Err(e) = fs::rename(&tmp, &self.vault_path) {
+            let _ = fs::remove_file(&tmp);
+            return Err(format!("Cannot promote vault: {}", e));
+        }
+        Ok(())
     }
 
     fn add_audit(&self, action: &str, detail: &str) {
@@ -286,7 +325,7 @@ fn scan_secrets(code: &str) -> Vec<SecretScanResult> {
 
 #[tauri::command]
 pub fn cmd_init_vault(master_password: String, state: tauri::State<AppState>) -> CmdResult<bool> {
-    let mut vault = state.vault.lock().unwrap();
+    let mut vault = crate::state::lock_or_recover(&state.vault);
 
     if vault.is_initialized() {
         return CmdResult::err("Vault already initialized");
@@ -302,11 +341,17 @@ pub fn cmd_init_vault(master_password: String, state: tauri::State<AppState>) ->
         Ok(k) => k,
         Err(e) => return CmdResult::err(e),
     };
-    let password_verify = VaultState::hash_for_verify(&master_password, &salt);
+    // Encrypt the canary under the freshly-derived key; that encrypted
+    // blob serves as the Argon2-gated verifier.
+    let canary = match vault.encrypt(VAULT_CANARY_PLAINTEXT, &key) {
+        Ok(c) => c,
+        Err(e) => return CmdResult::err(e),
+    };
 
     let vault_file = VaultFile {
-        version: 1,
-        password_verify,
+        version: 2,
+        password_verify: String::new(), // legacy slot, left empty
+        verify_canary: Some(canary),
         salt: salt_hex,
         secrets: HashMap::new(),
     };
@@ -322,7 +367,7 @@ pub fn cmd_init_vault(master_password: String, state: tauri::State<AppState>) ->
 
 #[tauri::command]
 pub fn cmd_unlock_vault(master_password: String, state: tauri::State<AppState>) -> CmdResult<bool> {
-    let mut vault = state.vault.lock().unwrap();
+    let mut vault = crate::state::lock_or_recover(&state.vault);
 
     if !vault.is_initialized() {
         return CmdResult::err("Vault not initialized");
@@ -340,13 +385,10 @@ pub fn cmd_unlock_vault(master_password: String, state: tauri::State<AppState>) 
             return CmdResult::err(format!("Corrupted vault salt: {}", e));
         }
     };
-    let verify = VaultState::hash_for_verify(&master_password, &salt);
 
-    if verify != vault_file.password_verify {
-        vault.add_audit("VAULT_UNLOCK_FAILED", "Wrong password");
-        return CmdResult::err("Wrong password");
-    }
-
+    // Derive the key FIRST. We must pay the Argon2 cost regardless of
+    // which verification path is taken — that's exactly the property
+    // that makes offline brute-force expensive.
     let key = match VaultState::derive_key(&master_password, &salt) {
         Ok(k) => k,
         Err(e) => {
@@ -354,6 +396,51 @@ pub fn cmd_unlock_vault(master_password: String, state: tauri::State<AppState>) 
             return CmdResult::err(format!("Key derivation failed: {}", e));
         }
     };
+
+    // v2+ path: verify by trying to decrypt the canary. Wrong key =>
+    // AEAD tag mismatch => decryption error. Timing is dominated by
+    // Argon2 above, not by this cheap tag check, so no side channel.
+    let mut migrated = false;
+    if let Some(canary) = &vault_file.verify_canary {
+        match vault.decrypt(canary, &key) {
+            Ok(plain) if plain == VAULT_CANARY_PLAINTEXT => { /* OK */ }
+            _ => {
+                vault.add_audit("VAULT_UNLOCK_FAILED", "Wrong password");
+                return CmdResult::err("Wrong password");
+            }
+        }
+    } else {
+        // Legacy v1 path: old SHA-256 verify. We honour it so existing
+        // vaults still open, then immediately re-save in v2 format with
+        // a canary to close the GPU-brute-force window.
+        let legacy_verify = VaultState::hash_for_verify(&master_password, &salt);
+        if legacy_verify != vault_file.password_verify {
+            vault.add_audit("VAULT_UNLOCK_FAILED", "Wrong password");
+            return CmdResult::err("Wrong password");
+        }
+        migrated = true;
+    }
+
+    // Opportunistic migration: write a canary + bump version so the
+    // next unlock is Argon2-gated even for legacy vaults.
+    if migrated {
+        match vault.encrypt(VAULT_CANARY_PLAINTEXT, &key) {
+            Ok(canary) => {
+                let upgraded = VaultFile {
+                    version: 2,
+                    password_verify: String::new(),
+                    verify_canary: Some(canary),
+                    salt: vault_file.salt.clone(),
+                    secrets: vault_file.secrets.clone(),
+                };
+                if vault.save_vault(&upgraded).is_ok() {
+                    vault.add_audit("VAULT_MIGRATE_V2", "Vault migrated to Argon2-gated verifier");
+                }
+            }
+            Err(_) => { /* keep legacy behaviour if encryption failed */ }
+        }
+    }
+
     vault.derived_key = Some(SecureBytes::new(key));
     vault.add_audit("VAULT_UNLOCK", "Vault unlocked");
     CmdResult::ok(true)
@@ -361,7 +448,7 @@ pub fn cmd_unlock_vault(master_password: String, state: tauri::State<AppState>) 
 
 #[tauri::command]
 pub fn cmd_lock_vault(state: tauri::State<AppState>) -> CmdResult<bool> {
-    let mut vault = state.vault.lock().unwrap();
+    let mut vault = crate::state::lock_or_recover(&state.vault);
     vault.derived_key = None; // SecureBytes::drop() zeroizes
     vault.add_audit("VAULT_LOCK", "Vault locked");
     CmdResult::ok(true)
@@ -369,7 +456,7 @@ pub fn cmd_lock_vault(state: tauri::State<AppState>) -> CmdResult<bool> {
 
 #[tauri::command]
 pub fn cmd_add_secret(key: String, value: String, state: tauri::State<AppState>) -> CmdResult<bool> {
-    let vault = state.vault.lock().unwrap();
+    let vault = crate::state::lock_or_recover(&state.vault);
     if !vault.is_unlocked() { return CmdResult::err("Vault is locked"); }
 
     let dk = vault.derived_key.as_ref().unwrap();
@@ -388,7 +475,7 @@ pub fn cmd_add_secret(key: String, value: String, state: tauri::State<AppState>)
 
 #[tauri::command]
 pub fn cmd_get_secret(key: String, state: tauri::State<AppState>) -> CmdResult<String> {
-    let vault = state.vault.lock().unwrap();
+    let vault = crate::state::lock_or_recover(&state.vault);
     if !vault.is_unlocked() { return CmdResult::err("Vault is locked"); }
 
     let vf = match vault.load_vault() { Ok(v) => v, Err(e) => return CmdResult::err(e) };
@@ -406,7 +493,7 @@ pub fn cmd_get_secret(key: String, state: tauri::State<AppState>) -> CmdResult<S
 
 #[tauri::command]
 pub fn cmd_delete_secret(key: String, state: tauri::State<AppState>) -> CmdResult<bool> {
-    let vault = state.vault.lock().unwrap();
+    let vault = crate::state::lock_or_recover(&state.vault);
     if !vault.is_unlocked() { return CmdResult::err("Vault is locked"); }
 
     let mut vf = match vault.load_vault() { Ok(v) => v, Err(e) => return CmdResult::err(e) };
@@ -419,7 +506,7 @@ pub fn cmd_delete_secret(key: String, state: tauri::State<AppState>) -> CmdResul
 
 #[tauri::command]
 pub fn cmd_list_secrets(state: tauri::State<AppState>) -> CmdResult<Vec<String>> {
-    let vault = state.vault.lock().unwrap();
+    let vault = crate::state::lock_or_recover(&state.vault);
     if !vault.is_unlocked() { return CmdResult::err("Vault is locked"); }
     let vf = match vault.load_vault() { Ok(v) => v, Err(e) => return CmdResult::err(e) };
     CmdResult::ok(vf.secrets.keys().cloned().collect())
@@ -427,17 +514,17 @@ pub fn cmd_list_secrets(state: tauri::State<AppState>) -> CmdResult<Vec<String>>
 
 #[tauri::command]
 pub fn cmd_is_vault_initialized(state: tauri::State<AppState>) -> CmdResult<bool> {
-    CmdResult::ok(state.vault.lock().unwrap().is_initialized())
+    CmdResult::ok(crate::state::lock_or_recover(&state.vault).is_initialized())
 }
 
 #[tauri::command]
 pub fn cmd_is_vault_unlocked(state: tauri::State<AppState>) -> CmdResult<bool> {
-    CmdResult::ok(state.vault.lock().unwrap().is_unlocked())
+    CmdResult::ok(crate::state::lock_or_recover(&state.vault).is_unlocked())
 }
 
 #[tauri::command]
 pub fn cmd_get_audit_log(state: tauri::State<AppState>) -> CmdResult<Vec<AuditEntry>> {
-    let vault = state.vault.lock().unwrap();
+    let vault = crate::state::lock_or_recover(&state.vault);
     if vault.audit_path.exists() {
         match fs::read_to_string(&vault.audit_path) {
             Ok(data) => {
@@ -453,7 +540,7 @@ pub fn cmd_get_audit_log(state: tauri::State<AppState>) -> CmdResult<Vec<AuditEn
 
 #[tauri::command]
 pub fn cmd_add_audit_entry(action: String, detail: String, state: tauri::State<AppState>) -> CmdResult<bool> {
-    state.vault.lock().unwrap().add_audit(&action, &detail);
+    crate::state::lock_or_recover(&state.vault).add_audit(&action, &detail);
     CmdResult::ok(true)
 }
 

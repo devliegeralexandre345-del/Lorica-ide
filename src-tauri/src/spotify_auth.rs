@@ -85,20 +85,30 @@ fn handle_connection(stream: &mut TcpStream, app: AppHandle, server_state: Arc<S
                 // FIX: Gérer à la fois le code (succès) et l'erreur (user refuse)
                 let mut code = None;
                 let mut error = None;
-                
+                let mut state: Option<String> = None;
+
                 for (key, value) in url.query_pairs() {
                     if key == "code" {
                         code = Some(value.to_string());
                     } else if key == "error" {
                         error = Some(value.to_string());
+                    } else if key == "state" {
+                        state = Some(value.to_string());
                     }
                 }
-                
+
                 if let Some(code) = code {
                     log::info!("Spotify OAuth code received: {}...", &code[..10.min(code.len())]);
-                    
-                    // FIX: Émettre l'event au frontend
-                    let emit_result = app.emit("spotify-oauth-callback", &code);
+
+                    // FIX: Émettre l'event au frontend avec {code, state} pour
+                    // que le frontend puisse vérifier le state CSRF-style.
+                    #[derive(serde::Serialize, Clone)]
+                    struct CallbackPayload {
+                        code: String,
+                        state: Option<String>,
+                    }
+                    let payload = CallbackPayload { code: code.clone(), state };
+                    let emit_result = app.emit("spotify-oauth-callback", &payload);
                     
                     if let Err(e) = emit_result {
                         log::error!("Failed to emit spotify-oauth-callback event: {}", e);
@@ -230,22 +240,36 @@ pub fn start_spotify_auth_server(app: tauri::AppHandle) -> Result<u16, String> {
     Err("No available port in range 3000-3010".to_string())
 }
 
-/// Open a URL in the system browser
+/// Open a URL in the system browser. Only accepts http(s) — anything else
+/// (file://, javascript:, weird schemes) is rejected because this is
+/// reachable from the frontend and we don't want a rogue UI to be able
+/// to launch arbitrary local files or custom-protocol handlers.
 #[tauri::command]
 pub fn open_url(url: String) -> Result<(), String> {
+    let parsed = Url::parse(&url).map_err(|e| format!("Invalid URL: {}", e))?;
+    if parsed.scheme() != "http" && parsed.scheme() != "https" {
+        return Err(format!("Refusing to open URL with scheme '{}'", parsed.scheme()));
+    }
+    // Normalize back from the parser so we never pass raw user input to
+    // the shell. `Url::to_string()` re-encodes any control chars.
+    let safe_url = parsed.to_string();
+
     if cfg!(target_os = "windows") {
+        // `start` eats the first quoted arg as the window title, so pass an
+        // empty title first and then the URL. We still route through cmd
+        // because Rust stdlib has no direct equivalent for `start`.
         std::process::Command::new("cmd")
-            .args(["/C", "start", &url])
+            .args(["/C", "start", "", &safe_url])
             .spawn()
             .map_err(|e| format!("Failed to open URL: {}", e))?;
     } else if cfg!(target_os = "macos") {
         std::process::Command::new("open")
-            .arg(&url)
+            .arg(&safe_url)
             .spawn()
             .map_err(|e| format!("Failed to open URL: {}", e))?;
     } else {
         std::process::Command::new("xdg-open")
-            .arg(&url)
+            .arg(&safe_url)
             .spawn()
             .map_err(|e| format!("Failed to open URL: {}", e))?;
     }

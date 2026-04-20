@@ -65,6 +65,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             terminal::cmd_terminal_write,
             terminal::cmd_terminal_resize,
             terminal::cmd_terminal_kill,
+            terminal::cmd_terminal_list,
             terminal::cmd_run_command,
             // Buffer
             buffer::cmd_open_large_file,
@@ -72,6 +73,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             buffer::cmd_insert_text,
             buffer::cmd_delete_range,
             buffer::cmd_get_line_count,
+            buffer::cmd_close_buffer,
             // Search
             search::cmd_search_in_files,
             search::cmd_search_replace_in_files,
@@ -92,6 +94,12 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             git::cmd_git_diff_staged,
             git::cmd_git_summary,
             git::cmd_git_pr_context,
+            git::cmd_git_blame,
+            git::cmd_git_churn,
+            git::cmd_git_worktree_add,
+            git::cmd_git_worktree_remove,
+            git::cmd_git_worktree_list,
+            git::cmd_git_worktree_merge,
             // Extensions & Debug
             extensions::cmd_list_extensions,
             extensions::cmd_install_extension,

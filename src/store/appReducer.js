@@ -78,6 +78,145 @@ export const initialState = {
   // Minimap
   showMinimap: true,
 
+  // Git blame gutter — off by default (quieter default), toggled via
+  // command palette, status bar chip, or keyboard.
+  blameEnabled: false,
+
+  // Performance HUD — tiny fps/memory/ai-latency overlay for the "how fast
+  // is my IDE right now" power-user question. Off by default.
+  showPerformanceHUD: false,
+
+  // Prefill slot for the Agent Copilot input. When non-null, AgentCopilot
+  // pulls the value into its input field and clears it — lets other
+  // components (editor quick-actions, command palette) push a question
+  // into the chat without hijacking focus or sending immediately.
+  agentInputPrefill: null,
+
+  // Omnibar — the universal Cmd+P surface that has replaced the old
+  // FilePalette and CommandPalette (both still exist as lazy chunks but
+  // are no longer the primary entry point).
+  showOmnibar: false,
+
+  // Multi-Agent Swarm panel — parallel specialized review.
+  showAgentSwarm: false,
+
+  // Code Canvas — interactive project dependency graph.
+  showCodeCanvas: false,
+
+  // Instant Preview side rail — auto-routed visualizer for the active file.
+  showInstantPreview: false,
+
+  // ── Productivity extensions ────────────────────────────────────────────
+  // Each one is a self-contained native tool exposed through the Dock,
+  // Omnibar, and (for the relevant ones) a keyboard shortcut. They all
+  // persist their own state (localStorage or .lorica/ JSON) so this
+  // reducer only tracks VISIBILITY toggles, not content.
+
+  // Bookmarks — {[absPath]: number[] of 1-indexed line numbers}.
+  // Hydrated synchronously from localStorage so the gutter renders them
+  // on first paint without a flash.
+  bookmarks: (() => {
+    try {
+      const raw = typeof localStorage !== 'undefined' && localStorage.getItem('lorica.bookmarks.v1');
+      return raw ? JSON.parse(raw) : {};
+    } catch { return {}; }
+  })(),
+  // Rich per-bookmark metadata: {[path]: {[line]: {note, group}}}
+  bookmarkDetails: (() => {
+    try {
+      const raw = typeof localStorage !== 'undefined' && localStorage.getItem('lorica.bookmarksDetails.v1');
+      return raw ? JSON.parse(raw) : {};
+    } catch { return {}; }
+  })(),
+  showBookmarksPanel: false,
+
+  // Scratchpad — project-scoped markdown notes panel.
+  showScratchpad: false,
+
+  // TODO Board — kanban, content lives in .lorica/todos.json.
+  showTodoBoard: false,
+
+  // Clipboard history — cap-N list of recent copied text, persisted.
+  clipboardItems: [],            // [{ id, text, at }]
+  showClipboardHistory: false,
+
+  // API Tester — Postman-lite modal.
+  showApiTester: false,
+
+  // Focus/Pomodoro — UI lives in the status bar when true.
+  showFocusTimer: false,
+
+  // Regex Builder modal.
+  showRegexBuilder: false,
+
+  // Code Heatmap — churn-based tinting over the file tree.
+  heatmapEnabled: false,
+  heatmapRange: 30, // days
+
+  // Custom agents loaded from .lorica/agents/*.json for the active project.
+  customAgents: [],
+  showAgentBuilder: false,
+
+  // PR-Ready Checklist modal.
+  showPrReady: false,
+
+  // ── Project Brain ──────────────────────────────────────────────────
+  // Durable project memory: decisions, facts, glossary, milestones. Lives
+  // in `.lorica/brain/*.md` with YAML frontmatter. Entries commit with
+  // the repo and are shared by the whole team.
+  brainEntries: [],
+  showProjectBrain: false,
+  // Toggle: inject the brain preamble into new agent sessions. Off by
+  // default because some users might not want the tokens; flip it on from
+  // the brain panel when it feels useful.
+  brainInAgent: true,
+
+  // ── Auto-Fix Loop ─────────────────────────────────────────────────
+  showAutoFix: false,
+  // Rolling capture of the last ~8 KB of terminal output. Used by the
+  // Auto-Fix Loop to seed the agent with recent error context without
+  // having to re-run anything. Updated from Terminal.jsx.
+  terminalTail: '',
+  // The last command the terminal ran. Captured by Terminal.jsx when the
+  // user presses Enter on a non-empty line. Used by the Auto-Fix Loop to
+  // re-run the command after applying a fix.
+  terminalLastCommand: '',
+  terminalCwd: '',
+
+  // ── Tier-Ω features ─────────────────────────────────────────────────
+  showAgentIdentity: false,
+  agentIdentity: null, // {name, tone, verbosity, proactivity, styleNotes, personalMemory[]}
+
+  // Time Scrub
+  showTimeScrub: false,
+
+  // Sandbox modal (Run / Replay / Probes)
+  showSandbox: false,
+
+  // Semantic Types store: per-file inferred marks
+  semanticTypes: {},
+  showSemanticTypes: false,
+  // Auto-run inference on save (debounced). Opt-in.
+  semanticAutoEnabled: false,
+
+  // Swarm Development
+  showSwarm: false,
+
+  // Keyboard cheatsheet
+  showKeyboardCheatsheet: false,
+  // Inline AI edit history browser
+  showInlineEditHistory: false,
+
+  // Layout profile switcher
+  showLayoutSwitcher: false,
+
+  // Welcome-to-new-version modal (one-shot per version).
+  showReleaseNotes: false,
+
+  // Predicted next-edit suggestions surfaced after an inline AI edit is
+  // accepted. Shape: { loading: bool, suggestions: [{path, reason, instruction}] } | null
+  nextEditSuggestions: null,
+
   // Updates
   updateInfo: {
     available: false,
@@ -318,10 +457,176 @@ export function appReducer(state, action) {
     case 'SET_MINIMAP':
       return { ...state, showMinimap: action.value };
 
+    // ====== GIT BLAME ======
+    case 'SET_BLAME_ENABLED':
+      return { ...state, blameEnabled: !!action.value };
+    case 'TOGGLE_BLAME':
+      return { ...state, blameEnabled: !state.blameEnabled };
+
+    // ====== PERFORMANCE HUD ======
+    case 'TOGGLE_PERFORMANCE_HUD':
+      return { ...state, showPerformanceHUD: !state.showPerformanceHUD };
+
+    // ====== AGENT INPUT PREFILL ======
+    case 'AGENT_PREFILL_INPUT':
+      return { ...state, agentInputPrefill: action.text };
+    case 'AGENT_CLEAR_PREFILL':
+      return { ...state, agentInputPrefill: null };
+
+    // ====== NEXT-EDIT PREDICTIONS ======
+    case 'SET_NEXT_EDITS':
+      return { ...state, nextEditSuggestions: action.value };
+    case 'CLEAR_NEXT_EDITS':
+      return { ...state, nextEditSuggestions: null };
+
+    // ====== BOOKMARKS ======
+    //
+    // Bookmarks storage is a two-layer structure to stay backward-compat:
+    //   state.bookmarks = { [path]: number[] }  (legacy line-list, read by gutter)
+    //   state.bookmarkDetails = { [path]: { [line]: {note, group} } }
+    //
+    // Toggle removes both layers in sync; an "add with note" action goes
+    // through ADD_BOOKMARK_WITH_NOTE.
+    case 'TOGGLE_BOOKMARK': {
+      const { path, line } = action;
+      if (!path || !line) return state;
+      const cur = state.bookmarks?.[path] || [];
+      const exists = cur.includes(line);
+      const next = exists ? cur.filter((l) => l !== line) : [...cur, line].sort((a, b) => a - b);
+      const bookmarks = { ...state.bookmarks };
+      if (next.length === 0) delete bookmarks[path];
+      else bookmarks[path] = next;
+      // Clean out any detail for removed lines.
+      const details = { ...state.bookmarkDetails };
+      if (exists && details[path]) {
+        const fresh = { ...details[path] };
+        delete fresh[line];
+        if (Object.keys(fresh).length === 0) delete details[path];
+        else details[path] = fresh;
+      }
+      try { localStorage.setItem('lorica.bookmarks.v1', JSON.stringify(bookmarks)); } catch {}
+      try { localStorage.setItem('lorica.bookmarksDetails.v1', JSON.stringify(details)); } catch {}
+      return { ...state, bookmarks, bookmarkDetails: details };
+    }
+    case 'SET_BOOKMARK_DETAILS': {
+      const { path, line, note, group } = action;
+      if (!path || !line) return state;
+      const details = { ...state.bookmarkDetails };
+      const fresh = { ...(details[path] || {}) };
+      fresh[line] = { note: note ?? '', group: group ?? fresh[line]?.group ?? '' };
+      details[path] = fresh;
+      try { localStorage.setItem('lorica.bookmarksDetails.v1', JSON.stringify(details)); } catch {}
+      return { ...state, bookmarkDetails: details };
+    }
+    case 'SET_BOOKMARKS':
+      return { ...state, bookmarks: action.bookmarks || {} };
+    case 'CLEAR_BOOKMARKS': {
+      try { localStorage.removeItem('lorica.bookmarks.v1'); } catch {}
+      try { localStorage.removeItem('lorica.bookmarksDetails.v1'); } catch {}
+      return { ...state, bookmarks: {}, bookmarkDetails: {} };
+    }
+
+    // ====== CLIPBOARD HISTORY ======
+    case 'CLIPBOARD_SET':
+      return { ...state, clipboardItems: action.items || [] };
+    case 'CLIPBOARD_PUSH': {
+      const text = action.text;
+      if (!text) return state;
+      // Dedupe: if the top item matches, bump its timestamp but don't add.
+      const existing = (state.clipboardItems || []).findIndex((it) => it.text === text);
+      let items;
+      if (existing !== -1) {
+        const it = { ...state.clipboardItems[existing], at: Date.now() };
+        items = [it, ...state.clipboardItems.filter((_, i) => i !== existing)];
+      } else {
+        items = [{ id: `${Date.now()}-${Math.random()}`, text, at: Date.now(), pinned: false }, ...(state.clipboardItems || [])];
+      }
+      // Keep ALL pinned entries + up to 30 non-pinned.
+      const pinned = items.filter((it) => it.pinned);
+      const rest   = items.filter((it) => !it.pinned).slice(0, 30);
+      items = [...pinned, ...rest];
+      try { localStorage.setItem('lorica.clipboard.v1', JSON.stringify(items)); } catch {}
+      return { ...state, clipboardItems: items };
+    }
+    case 'CLIPBOARD_TOGGLE_PIN': {
+      const items = (state.clipboardItems || []).map((it) =>
+        it.text === action.text ? { ...it, pinned: !it.pinned } : it
+      );
+      try { localStorage.setItem('lorica.clipboard.v1', JSON.stringify(items)); } catch {}
+      return { ...state, clipboardItems: items };
+    }
+    case 'CLIPBOARD_REMOVE': {
+      const items = (state.clipboardItems || []).filter((it) => it.text !== action.text);
+      try { localStorage.setItem('lorica.clipboard.v1', JSON.stringify(items)); } catch {}
+      return { ...state, clipboardItems: items };
+    }
+    case 'CLIPBOARD_CLEAR':
+      try { localStorage.removeItem('lorica.clipboard.v1'); } catch {}
+      return { ...state, clipboardItems: [] };
+
+    // ====== HEATMAP ======
+    case 'TOGGLE_HEATMAP':
+      return { ...state, heatmapEnabled: !state.heatmapEnabled };
+    case 'SET_HEATMAP_RANGE':
+      return { ...state, heatmapRange: action.days };
+
+    // ====== CUSTOM AGENTS ======
+    case 'SET_CUSTOM_AGENTS':
+      return { ...state, customAgents: action.agents || [] };
+
+    // ====== PROJECT BRAIN ======
+    case 'SET_BRAIN_ENTRIES':
+      return { ...state, brainEntries: action.entries || [] };
+    case 'TOGGLE_BRAIN_IN_AGENT':
+      return { ...state, brainInAgent: !state.brainInAgent };
+
+    // ====== TERMINAL CAPTURE (Auto-Fix) ======
+    case 'TERMINAL_APPEND': {
+      // Cap the rolling tail at ~8 KB — enough to hold a decent stack
+      // trace or cargo error without eating unbounded memory on long
+      // sessions.
+      const next = (state.terminalTail + (action.chunk || '')).slice(-8192);
+      return { ...state, terminalTail: next };
+    }
+    case 'TERMINAL_CLEAR':
+      return { ...state, terminalTail: '' };
+    case 'TERMINAL_SET_LAST_COMMAND':
+      return { ...state, terminalLastCommand: action.command || '', terminalCwd: action.cwd || state.terminalCwd };
+
+    // ====== TIER-Ω ======
+    case 'SET_AGENT_IDENTITY':
+      return { ...state, agentIdentity: action.identity };
+    case 'SET_SEMANTIC_TYPES':
+      return { ...state, semanticTypes: action.store || {} };
+    case 'UPDATE_SEMANTIC_FILE':
+      return { ...state, semanticTypes: { ...state.semanticTypes, [action.path]: action.entry } };
+    case 'TOGGLE_SEMANTIC_AUTO':
+      return { ...state, semanticAutoEnabled: !state.semanticAutoEnabled };
+
     // ====== TOASTS ======
+    // Dedupe rule: if a toast with the same `message` was added in the
+    // last 2 seconds we just refresh the timestamp instead of stacking a
+    // copy. Stops the classic "settings saved" spam when a user mashes a
+    // toggle or when a background loop re-fires.
     case 'ADD_TOAST': {
+      const now = Date.now();
+      const incoming = action.toast || {};
+      const existing = state.toasts || [];
+      const dupIdx = existing.findIndex((t) =>
+        t.message === incoming.message && (now - (t.bornAt || 0)) < 2000
+      );
+      if (dupIdx !== -1) {
+        // Move the duplicate to the end with a fresh timestamp so it
+        // stays visible but doesn't create a second notification.
+        const renewed = { ...existing[dupIdx], bornAt: now };
+        const next = [...existing.filter((_, i) => i !== dupIdx), renewed];
+        return { ...state, toasts: next };
+      }
       const id = ++toastId;
-      return { ...state, toasts: [...(state.toasts || []), { id, ...action.toast }] };
+      return {
+        ...state,
+        toasts: [...existing, { id, bornAt: now, ...incoming }],
+      };
     }
     case 'REMOVE_TOAST':
       return { ...state, toasts: (state.toasts || []).filter((t) => t.id !== action.id) };

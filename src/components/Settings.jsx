@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, X, Key, Moon, Palette, Sun, Clock, Shield, Save, Map, Brain, Keyboard, Edit, AlertTriangle, Check, XCircle, Sparkles } from 'lucide-react';
+import { Settings as SettingsIcon, X, Key, Moon, Palette, Sun, Clock, Shield, Save, Map, Brain, Keyboard, Edit, AlertTriangle, Check, XCircle, Sparkles, Info, Rocket, Github } from 'lucide-react';
 import { THEMES } from '../utils/themes';
 import { DEFAULT_SHORTCUTS, getAllShortcuts, loadCustomShortcuts, saveCustomShortcuts, isValidShortcut, findConflicts, eventToShortcut } from '../utils/keymap';
+import { APP_VERSION } from '../version';
 
 export default function Settings({ state, dispatch, actions }) {
   const [apiKey, setApiKey] = useState(state.aiApiKey);
@@ -378,6 +379,17 @@ export default function Settings({ state, dispatch, actions }) {
             </div>
           </div>
 
+          {/* v2.2 features toggle matrix — every feature that has a
+              global visibility / auto-run flag lives here so the user can
+              tune Lorica from a single place. */}
+          <div className="space-y-3 border-t border-lorica-border pt-4">
+            <div className="flex items-center gap-2 text-xs font-semibold text-lorica-text">
+              <Sparkles size={14} className="text-lorica-accent" />
+              Features
+            </div>
+            <FeatureToggleGrid state={state} dispatch={dispatch} />
+          </div>
+
           {/* Auto-lock */}
           <div>
             <label className="flex items-center gap-2 text-xs font-semibold text-lorica-text mb-2">
@@ -510,12 +522,87 @@ export default function Settings({ state, dispatch, actions }) {
               <p>• Conflicts are highlighted in orange</p>
             </div>
           </div>
+
+          {/* About — version, release notes shortcut, credits. Sits at
+              the bottom so it doesn't compete with the configurable
+              sections above. */}
+          <div className="space-y-3 border-t border-lorica-border pt-4">
+            <div className="flex items-center gap-2 text-xs font-semibold text-lorica-text">
+              <Info size={14} className="text-lorica-accent" />
+              About
+            </div>
+            <div className="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1.5 text-[11px]">
+              <span className="text-lorica-textDim">Version</span>
+              <span className="text-lorica-text font-mono">v{APP_VERSION}</span>
+              <span className="text-lorica-textDim">Stack</span>
+              <span className="text-lorica-text">Tauri 2 · React 18 · CodeMirror 6 · xterm.js</span>
+              <span className="text-lorica-textDim">Storage</span>
+              <span className="text-lorica-text">All data local — no telemetry</span>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => { dispatch({ type: 'SET_PANEL', panel: 'showReleaseNotes', value: true }); close(); }}
+                className="flex items-center gap-1 px-2.5 py-1 rounded border border-lorica-accent/40 bg-lorica-accent/10 text-[11px] text-lorica-accent hover:bg-lorica-accent/20"
+              >
+                <Rocket size={11} /> What's new in v{APP_VERSION}
+              </button>
+              <button
+                onClick={() => { dispatch({ type: 'SET_PANEL', panel: 'showKeyboardCheatsheet', value: true }); close(); }}
+                className="flex items-center gap-1 px-2.5 py-1 rounded border border-lorica-border text-[11px] text-lorica-textDim hover:text-lorica-text"
+              >
+                <Keyboard size={11} /> Keyboard shortcuts
+              </button>
+            </div>
+          </div>
         </div>
 
         <div className="px-5 py-3 border-t border-lorica-border text-center">
-          <span className="text-[10px] text-lorica-textDim">Lorica v2.0.0 — Built with ⚡ by AI</span>
+          <span className="text-[10px] text-lorica-textDim">Lorica v{APP_VERSION} — Secure · AI-Powered · Native</span>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Feature toggle grid ──────────────────────────────────────────────
+// One compact switch per opt-in feature. We keep the layout 2-column so
+// the Settings modal stays scannable. Each toggle is pure state-flip —
+// the features themselves hook into the reducer and react to the flag.
+function FeatureToggleGrid({ state, dispatch }) {
+  const rows = [
+    { label: 'Git Blame gutter',           value: !!state.blameEnabled,        action: 'TOGGLE_BLAME' },
+    { label: 'Code Heatmap tinting',       value: !!state.heatmapEnabled,      action: 'TOGGLE_HEATMAP' },
+    { label: 'Instant Preview side rail',  value: !!state.showInstantPreview,  action: 'TOGGLE_PANEL', panel: 'showInstantPreview' },
+    { label: 'Performance HUD',            value: !!state.showPerformanceHUD,  action: 'TOGGLE_PERFORMANCE_HUD' },
+    { label: 'Focus / Pomodoro timer',     value: !!state.showFocusTimer,      action: 'TOGGLE_PANEL', panel: 'showFocusTimer' },
+    { label: 'Time Scrub bar',             value: !!state.showTimeScrub,       action: 'TOGGLE_PANEL', panel: 'showTimeScrub' },
+    { label: 'Brain preamble in agent',    value: !!state.brainInAgent,        action: 'TOGGLE_BRAIN_IN_AGENT' },
+    { label: 'Semantic Types auto-infer',  value: !!state.semanticAutoEnabled, action: 'TOGGLE_SEMANTIC_AUTO' },
+  ];
+
+  const fire = (row) => {
+    if (row.panel) dispatch({ type: row.action, panel: row.panel });
+    else dispatch({ type: row.action });
+  };
+
+  return (
+    <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+      {rows.map((row) => (
+        <button
+          key={row.label}
+          onClick={() => fire(row)}
+          className="flex items-center gap-2 px-2 py-1.5 rounded border border-lorica-border hover:border-lorica-accent/40 transition-colors text-left"
+        >
+          <span className={`relative inline-block w-8 h-4 rounded-full transition-colors ${
+            row.value ? 'bg-lorica-accent' : 'bg-lorica-border'
+          }`}>
+            <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${
+              row.value ? 'translate-x-4' : 'translate-x-0.5'
+            }`} />
+          </span>
+          <span className="text-[11px] text-lorica-text">{row.label}</span>
+        </button>
+      ))}
     </div>
   );
 }

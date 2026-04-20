@@ -1,9 +1,29 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, ShieldAlert, Bot, Music, Maximize, Save, Map, GitBranch, Search, Download } from 'lucide-react';
+import { Shield, ShieldAlert, Bot, Music, Maximize, Save, Map, GitBranch, Search, Download, Wifi, WifiOff } from 'lucide-react';
 import { getLanguageName } from '../utils/languages';
+import FocusTimer from './FocusTimer';
+
+// Hook: subscribes to browser online/offline events so the status-bar
+// chip can pulse red when network is down. Agent calls will fail in that
+// state, so surfacing it is a UX win.
+function useOnlineStatus() {
+  const [online, setOnline] = useState(() => (typeof navigator !== 'undefined' ? navigator.onLine !== false : true));
+  useEffect(() => {
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
+    window.addEventListener('online', on);
+    window.addEventListener('offline', off);
+    return () => {
+      window.removeEventListener('online', on);
+      window.removeEventListener('offline', off);
+    };
+  }, []);
+  return online;
+}
 
 export default function StatusBar({ state, activeFile, dispatch, updateInfo, currentVersion }) {
   const hasAlerts = state.securityAlerts.length > 0;
+  const online = useOnlineStatus();
   const [gitBranch, setGitBranch] = useState('');
 
   // Fetch git branch on project change
@@ -65,6 +85,17 @@ export default function StatusBar({ state, activeFile, dispatch, updateInfo, cur
       </div>
 
       <div className="flex items-center gap-3">
+        {/* Focus/Pomodoro timer — opt-in via state.showFocusTimer */}
+        {state.showFocusTimer && <FocusTimer state={state} dispatch={dispatch} />}
+
+        {/* Network status — only shown when offline (silent when online
+            to avoid visual noise). Agent calls will fail in this state. */}
+        {!online && (
+          <span className="flex items-center gap-1 text-red-400 animate-pulse" title="Offline — AI calls unavailable">
+            <WifiOff size={10} /> offline
+          </span>
+        )}
+
         {/* Git branch */}
         {gitBranch && (
           <button

@@ -15,6 +15,88 @@ import {
   fuzzyMatch,
   escapePath,
 } from '../utils/mentions';
+import { estimateCost, formatCost } from '../utils/agentCost';
+
+// Memoized message row. Non-last messages are stable once the agent has
+// moved on — React.memo with a cheap equality check prevents thousands of
+// reconciliations while text streams into the LAST message. Stream updates
+// only re-render the tail row, which is where the work belongs.
+const AgentMessageRow = React.memo(function AgentMessageRow({
+  msg, isStreaming, onApply, projectPath, onApprove, onReject,
+  onSaveToBrain, onEditUser, isLastUser,
+}) {
+  if (msg.role === 'user') {
+    return (
+      <div className="ml-4 group">
+        <div className="rounded-lg px-3 py-2 bg-lorica-accent/10 border border-lorica-accent/20 relative">
+          <p className="text-xs text-lorica-text whitespace-pre-wrap">{msg.content}</p>
+          {isLastUser && (
+            <button
+              onClick={() => onEditUser?.(msg)}
+              className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 text-[9px] text-lorica-textDim hover:text-lorica-accent px-1 py-0.5 rounded transition-opacity"
+              title="Edit & re-send"
+            >
+              edit
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="mr-1 group">
+      <div className="rounded-lg px-3 py-2 bg-lorica-panel border border-lorica-border relative">
+        {msg.content && (
+          <MarkdownMessage
+            content={msg.content}
+            isStreaming={isStreaming && (msg.toolCalls?.length === 0)}
+            onApply={onApply}
+            projectPath={projectPath}
+          />
+        )}
+        {(msg.toolCalls || []).map((tc) => (
+          <AgentToolBlock
+            key={tc.id}
+            toolCall={tc}
+            onApprove={onApprove}
+            onReject={onReject}
+          />
+        ))}
+        {isStreaming && msg.toolCalls?.some((tc) => tc.status === 'running') && (
+          <div className="flex items-center gap-1.5 mt-1 text-[10px] text-lorica-textDim">
+            <Loader2 size={10} className="animate-spin text-lorica-accent" />
+            Exécution en cours…
+          </div>
+        )}
+        {msg.content && !isStreaming && (
+          <button
+            onClick={() => onSaveToBrain?.(msg)}
+            className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 text-[9px] text-lorica-textDim hover:text-amber-400 px-1 py-0.5 rounded transition-opacity"
+            title="Save this answer to Project Brain"
+          >
+            ☆ to Brain
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}, (prev, next) => {
+  // Custom equality: identity compare msg, isStreaming, and the tool-call
+  // list reference. The parent always re-creates the tool-call list when
+  // it mutates (via dispatch returning a new array), so shallow ref-equal
+  // is the right check. Callback refs are assumed stable via useCallback.
+  return (
+    prev.msg === next.msg &&
+    prev.isStreaming === next.isStreaming &&
+    prev.onApply === next.onApply &&
+    prev.onApprove === next.onApprove &&
+    prev.onReject === next.onReject &&
+    prev.onSaveToBrain === next.onSaveToBrain &&
+    prev.onEditUser === next.onEditUser &&
+    prev.isLastUser === next.isLastUser &&
+    prev.projectPath === next.projectPath
+  );
+});
 
 // Slash commands for quick context injection
 const SLASH_COMMANDS = [
@@ -75,6 +157,21 @@ export default function AgentCopilot({ state, dispatch, agent, activeFile }) {
     }
     return items;
   }, [mentionOpen, mentionQuery, flatFiles, activeFile]);
+
+  // When another component (Editor quick-actions, command palette, etc.)
+  // pushes text into state.agentInputPrefill, pull it into the input box and
+  // clear the slot. We intentionally don't auto-send — the user gets a chance
+  // to tweak the wording first.
+  useEffect(() => {
+    if (state.agentInputPrefill) {
+      setInput(state.agentInputPrefill);
+      dispatch({ type: 'AGENT_CLEAR_PREFILL' });
+      // If the agent session isn't active yet, prompt the config modal so the
+      // prefilled question doesn't sit in a dead input.
+      if (!state.agentSessionActive) setShowConfig(true);
+      setTimeout(() => inputRef.current?.focus(), 50);
+    }
+  }, [state.agentInputPrefill, state.agentSessionActive, dispatch]);
 
   // Auto-scroll to bottom, but only when the user is already near the bottom
   // (so manual scroll-up isn't fought) and WITHOUT smooth behaviour (which
@@ -217,6 +314,25 @@ export default function AgentCopilot({ state, dispatch, agent, activeFile }) {
     setTimeout(() => inputRef.current?.focus(), 100);
   };
 
+  // One-click start from a saved custom agent. We lift its fields into the
+  // normal agentConfig shape (same fields the modal produces) so useAgent
+  // doesn't need to special-case "custom" agents.
+  const handleStartCustom = (a) => {
+    dispatch({
+      type: 'AGENT_SET_CONFIG',
+      config: {
+        model: a.model,
+        permissions: a.permissions,
+        autoApprove: !!a.autoApprove,
+        context: a.context || 'none',
+        systemPromptOverride: a.systemPrompt,
+        customAgentName: a.name,
+        customAgentIcon: a.icon,
+      },
+    });
+    setTimeout(() => inputRef.current?.focus(), 100);
+  };
+
   const handleSend = async () => {
     if (!input.trim() || state.agentLoading) return;
     const raw = input.trim();
@@ -275,6 +391,43 @@ export default function AgentCopilot({ state, dispatch, agent, activeFile }) {
     dispatch({ type: 'AGENT_CLEAR' });
     setShowConfig(true);
   };
+
+  // Save a single assistant message as a note in the Project Brain. User
+  // always reviews + retitles — we drop them into the Brain panel in edit
+  // mode with a draft, never write silently.
+  const handleSaveToBrain = useCallback(async (msg) => {
+    if (!state.projectPath) {
+      dispatch({ type: 'ADD_TOAST', toast: { type: 'warning', message: 'Open a project to save to Brain', duration: 2500 } });
+      return;
+    }
+    try {
+      const { saveBrainEntry } = await import('../utils/projectBrain');
+      const lastUser = [...state.agentMessages].reverse().find((m) => m.role === 'user');
+      const title = (lastUser?.content || msg.content).replace(/\s+/g, ' ').slice(0, 70);
+      await saveBrainEntry(state.projectPath, {
+        title: title || 'Agent answer',
+        type: 'note',
+        tags: ['agent', 'chat'],
+        body: `${lastUser ? `## Question\n${lastUser.content}\n\n` : ''}## Answer\n${msg.content}\n`,
+      });
+      dispatch({ type: 'ADD_TOAST', toast: { type: 'success', message: 'Saved to Brain — open the Brain panel to review', duration: 2500 } });
+    } catch (e) {
+      dispatch({ type: 'ADD_TOAST', toast: { type: 'error', message: `Save failed: ${e.message}`, duration: 3000 } });
+    }
+  }, [state.projectPath, state.agentMessages, dispatch]);
+
+  // Edit the user's most recent message: pull it into the input, trim
+  // history back to before it, let the user re-send with corrections.
+  const handleEditUser = useCallback((msg) => {
+    // Find the index of the last user message and cut everything from
+    // there on so the next send replaces it.
+    const msgs = [...state.agentMessages];
+    const idx = msgs.map((m) => m.role).lastIndexOf('user');
+    if (idx < 0) return;
+    dispatch({ type: 'AGENT_SET_MESSAGES', messages: msgs.slice(0, idx) });
+    setInput(msg.content);
+    setTimeout(() => inputRef.current?.focus(), 50);
+  }, [state.agentMessages, dispatch]);
 
   const isActive = state.agentSessionActive;
 
@@ -365,65 +518,89 @@ export default function AgentCopilot({ state, dispatch, agent, activeFile }) {
       <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-3 py-2 space-y-2 min-h-0">
         {/* Welcome state */}
         {!isActive && state.agentMessages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full text-center py-8">
-            <Bot size={32} className="text-lorica-accent/20 mb-3" />
+          <div className="flex flex-col items-center justify-center h-full text-center py-6 px-4">
+            <Bot size={30} className="text-lorica-accent/30 mb-3" />
             <div className="text-xs text-lorica-textDim mb-1">Agent Lorica</div>
             <div className="text-[10px] text-lorica-textDim/60 mb-4">
               Peut lire, modifier et créer des fichiers,<br />exécuter des commandes et explorer le projet.
             </div>
             <button
               onClick={() => setShowConfig(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-lorica-accent/10 border border-lorica-accent/30 text-lorica-accent text-xs hover:bg-lorica-accent/20 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-lorica-accent/10 border border-lorica-accent/30 text-lorica-accent text-xs hover:bg-lorica-accent/20 transition-colors mb-4"
             >
               <Plus size={12} /> Nouveau chat
+            </button>
+
+            {/* Custom agents saved in .lorica/agents/*.json. Click = start a
+                session with that agent's system prompt + perms in one step. */}
+            {(state.customAgents || []).length > 0 && (
+              <div className="w-full">
+                <div className="text-[9px] uppercase tracking-widest text-lorica-textDim mb-1.5">
+                  Custom agents
+                </div>
+                <div className="space-y-1">
+                  {state.customAgents.map((a) => (
+                    <button
+                      key={a._path || a.slug}
+                      onClick={() => handleStartCustom(a)}
+                      className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-lorica-panel/60 border border-lorica-border hover:border-lorica-accent/40 hover:bg-lorica-accent/5 transition-colors text-left group"
+                    >
+                      <span className="text-base shrink-0">{a.icon || '🤖'}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[11px] font-semibold text-lorica-text truncate">{a.name}</div>
+                        {a.description && (
+                          <div className="text-[9px] text-lorica-textDim truncate">{a.description}</div>
+                        )}
+                      </div>
+                      <span className="text-lorica-textDim group-hover:text-lorica-accent transition-colors">›</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={() => dispatch({ type: 'SET_PANEL', panel: 'showAgentBuilder', value: true })}
+              className="mt-3 text-[10px] text-lorica-textDim hover:text-lorica-accent underline-offset-2 hover:underline transition-colors"
+            >
+              + Create custom agent…
             </button>
           </div>
         )}
 
-        {/* Message list */}
-        {state.agentMessages.map((msg, i) => {
-          if (msg.role === 'tool_results') return null; // internal, not displayed
-
-          const isLast = i === state.agentMessages.length - 1;
-          const isStreaming = state.agentLoading && isLast && msg.role === 'assistant';
-
-          return (
-            <div key={msg.id || i} className={msg.role === 'user' ? 'ml-4' : 'mr-1'}>
-              {msg.role === 'user' ? (
-                <div className="rounded-lg px-3 py-2 bg-lorica-accent/10 border border-lorica-accent/20">
-                  <p className="text-xs text-lorica-text">{msg.content}</p>
-                </div>
-              ) : (
-                <div className="rounded-lg px-3 py-2 bg-lorica-panel border border-lorica-border">
-                  {msg.content && (
-                    <MarkdownMessage
-                      content={msg.content}
-                      isStreaming={isStreaming && (msg.toolCalls?.length === 0)}
-                      onApply={handleApplyCode}
-                      projectPath={state.projectPath}
-                    />
-                  )}
-                  {/* Tool calls */}
-                  {(msg.toolCalls || []).map((tc) => (
-                    <AgentToolBlock
-                      key={tc.id}
-                      toolCall={tc}
-                      onApprove={agent.approveToolCall}
-                      onReject={agent.rejectToolCall}
-                    />
-                  ))}
-                  {/* Streaming indicator when tool is running */}
-                  {isStreaming && msg.toolCalls?.some((tc) => tc.status === 'running') && (
-                    <div className="flex items-center gap-1.5 mt-1 text-[10px] text-lorica-textDim">
-                      <Loader2 size={10} className="animate-spin text-lorica-accent" />
-                      Exécution en cours…
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
+        {/* Message list.
+            Perf: each row is memoized (AgentMessageRow) so stream updates
+            only re-render the last message, not the whole history. */}
+        {(() => {
+          // Find the index of the last user message — only show the "edit"
+          // affordance on that one. Recomputed cheaply per render; state
+          // changes rarely.
+          const lastUserIdx = (() => {
+            for (let i = state.agentMessages.length - 1; i >= 0; i--) {
+              if (state.agentMessages[i].role === 'user') return i;
+            }
+            return -1;
+          })();
+          return state.agentMessages.map((msg, i) => {
+            if (msg.role === 'tool_results') return null;
+            const isLast = i === state.agentMessages.length - 1;
+            const isStreaming = state.agentLoading && isLast && msg.role === 'assistant';
+            return (
+              <AgentMessageRow
+                key={msg.id || i}
+                msg={msg}
+                isStreaming={isStreaming}
+                onApply={handleApplyCode}
+                onApprove={agent.approveToolCall}
+                onReject={agent.rejectToolCall}
+                onSaveToBrain={handleSaveToBrain}
+                onEditUser={handleEditUser}
+                isLastUser={i === lastUserIdx}
+                projectPath={state.projectPath}
+              />
+            );
+          });
+        })()}
         <div ref={messagesEndRef} />
       </div>
 
@@ -498,7 +675,8 @@ export default function AgentCopilot({ state, dispatch, agent, activeFile }) {
             </button>
           </div>
 
-          {/* Usage footer */}
+          {/* Usage + cost footer — ballpark $ so the user can see the
+              burn rate of the current session and rein it in if needed. */}
           {state.agentUsage && (
             <div className="flex items-center gap-2 mt-1.5 px-1 text-[9px] text-lorica-textDim/70">
               <Activity size={9} />
@@ -507,9 +685,11 @@ export default function AgentCopilot({ state, dispatch, agent, activeFile }) {
                 const input = u.input_tokens ?? u.prompt_tokens ?? 0;
                 const output = u.output_tokens ?? u.completion_tokens ?? 0;
                 const total = u.total_tokens ?? (input + output);
+                const model = state.agentConfig?.model || (state.aiProvider === 'anthropic' ? 'claude-sonnet-4-20250514' : 'deepseek-chat');
+                const { cost } = estimateCost(model, u);
                 return (
-                  <span>
-                    {input.toLocaleString()} in · {output.toLocaleString()} out · {total.toLocaleString()} total
+                  <span title={`Model: ${model}\nInput: ${input.toLocaleString()} tokens\nOutput: ${output.toLocaleString()} tokens`}>
+                    {input.toLocaleString()} in · {output.toLocaleString()} out · {total.toLocaleString()} total · <b className={cost > 0.5 ? 'text-amber-400' : 'text-emerald-400'}>{formatCost(cost)}</b>
                   </span>
                 );
               })()}

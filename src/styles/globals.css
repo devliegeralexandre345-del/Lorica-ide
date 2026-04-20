@@ -61,6 +61,73 @@ body {
 }
 .animate-fadeIn { animation: fadeIn 0.1s ease-out; }
 
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.animate-slideInRight { animation: slideInRight 0.18s cubic-bezier(0.4, 0, 0.2, 1); }
+
+/* ── Ambient glow — faint accent-tinted glow behind the app frame. ──
+   Gives the UI a low-cost "live" feel without animation overhead:
+   one fixed gradient, zero reflow, zero CPU. Scales with the accent
+   colour via the theme variable so every theme picks up its own hue. */
+.lorica-ambient-glow {
+  position: fixed;
+  pointer-events: none;
+  z-index: 0;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 60% 60% at 15% 0%,
+      color-mix(in srgb, var(--color-accent) 7%, transparent) 0%,
+      transparent 60%),
+    radial-gradient(ellipse 50% 40% at 90% 100%,
+      color-mix(in srgb, var(--color-accent) 5%, transparent) 0%,
+      transparent 55%);
+}
+
+/* ── Futuristic focus ring for interactive elements. Matches the
+   accent colour and stays subtle enough to not fight with content. */
+.lorica-focus-ring:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--color-accent),
+              0 0 12px color-mix(in srgb, var(--color-accent) 35%, transparent);
+  border-radius: 6px;
+}
+
+/* ── Glass surface mixin ──
+   Apply to modals, floating panels, anything that should feel
+   "layered above" the rest of the UI. */
+.lorica-glass {
+  background: color-mix(in srgb, var(--color-panel) 82%, transparent);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 18%, var(--color-border));
+}
+
+/* ── Pulse ring animation (for agent-active state, notifications) ── */
+@keyframes pulse-ring {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent) 45%, transparent); }
+  70%  { box-shadow: 0 0 0 10px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+.animate-pulse-ring { animation: pulse-ring 1.8s ease-out infinite; }
+
+/* ── Shimmer / scanline over loading skeletons ── */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.lorica-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--color-accent) 18%, transparent) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+}
+
 /* ── Lorica Dock ───────────────────────────────────────────────── */
 .lorica-dock-container {
   display: flex;

@@ -519,7 +519,9 @@ pub fn cmd_semantic_index_project(
         Ok(b) => b,
         Err(e) => return CmdResult::err(format!("Serialize failed: {}", e)),
     };
-    if let Err(e) = fs::write(&out_path, &encoded) {
+    // Atomic write: the index can be multi-MB and a crash mid-write
+    // would leave a corrupt file that forces a full rebuild.
+    if let Err(e) = crate::filesystem::atomic_write(&out_path, &encoded) {
         return CmdResult::err(format!("Cannot write index file: {}", e));
     }
 
@@ -639,6 +641,15 @@ pub fn cmd_semantic_search(
         Some(v) => v,
         None => return CmdResult::err("Empty query embedding."),
     };
+
+    // If dims don't match, cosine would silently truncate and return
+    // garbage scores — make that visible and force a rebuild instead.
+    if !index.vectors.is_empty() && qv.len() != index.dim {
+        return CmdResult::err(format!(
+            "Index dimension mismatch (query {}, index {}) — rebuild the semantic index.",
+            qv.len(), index.dim
+        ));
+    }
 
     // Score every chunk. Brute force is fine up to ~50k chunks.
     let mut scored: Vec<(usize, f32)> = index.vectors.iter()

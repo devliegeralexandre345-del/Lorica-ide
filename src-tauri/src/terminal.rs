@@ -36,6 +36,16 @@ impl TerminalManager {
 // Commands
 // ======================================================
 
+// Serializable payload for the terminal:data event. Frontend reads
+// `session_id` to route to the correct xterm instance when multiple
+// tabs are open. Older callers that listen for the flat string still
+// work because they just ignore structured payloads.
+#[derive(serde::Serialize, Clone)]
+pub struct TerminalDataEvent {
+    pub session_id: u32,
+    pub data: String,
+}
+
 #[tauri::command]
 pub fn cmd_terminal_create(
     window: tauri::Window,
@@ -53,7 +63,6 @@ pub fn cmd_terminal_create(
         Err(e) => return CmdResult::err(format!("PTY open failed: {}", e)),
     };
 
-    // Determine shell
     let shell = if cfg!(target_os = "windows") {
         std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string())
     } else {
@@ -64,14 +73,11 @@ pub fn cmd_terminal_create(
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
 
-    // Spawn shell — this consumes the slave
     let mut child = match pair.slave.spawn_command(cmd) {
         Ok(c) => c,
         Err(e) => return CmdResult::err(format!("Shell spawn failed: {}", e)),
     };
-    // slave is now consumed/dropped — this is required for PTY to work
 
-    // Get reader BEFORE writer (order matters on some platforms)
     let mut reader = match pair.master.try_clone_reader() {
         Ok(r) => r,
         Err(e) => return CmdResult::err(format!("Cannot clone reader: {}", e)),
@@ -82,14 +88,16 @@ pub fn cmd_terminal_create(
         Err(e) => return CmdResult::err(format!("Cannot take writer: {}", e)),
     };
 
-    // Assign ID
-    let mut manager = state.terminals.lock().unwrap();
+    let mut manager = crate::state::lock_or_recover(&state.terminals);
     let id = manager.next_id;
     manager.next_id += 1;
     manager.instances.insert(id, PtyInstance { writer, master: pair.master });
     drop(manager);
 
-    // Background thread: read PTY output → emit to frontend
+    // Reader thread — emits data tagged with this session's id so the
+    // frontend can dispatch it to the correct tab. Legacy consumers that
+    // listen for the flat "terminal:data" payload still get a copy so
+    // old bridges don't need to change synchronously.
     let win = window.clone();
     let term_id = id;
     thread::spawn(move || {
@@ -98,14 +106,20 @@ pub fn cmd_terminal_create(
             match reader.read(&mut buf) {
                 Ok(0) => {
                     log::info!("Terminal {} EOF", term_id);
+                    // Emit a final close event so the frontend can drop the tab.
+                    let _ = win.emit("terminal:close", term_id);
                     break;
                 }
                 Ok(n) => {
                     let data = String::from_utf8_lossy(&buf[..n]).to_string();
-                    if win.emit("terminal:data", &data).is_err() {
-                        log::warn!("Terminal {} emit failed, stopping reader", term_id);
+                    let event = TerminalDataEvent { session_id: term_id, data: data.clone() };
+                    // Session-scoped event — new listeners use this.
+                    if win.emit(&format!("terminal:data:{}", term_id), &event).is_err() {
+                        log::warn!("Terminal {} emit failed", term_id);
                         break;
                     }
+                    // Broadcast event — legacy listeners still work.
+                    let _ = win.emit("terminal:data", &event);
                 }
                 Err(e) => {
                     log::warn!("Terminal {} read error: {}", term_id, e);
@@ -115,7 +129,6 @@ pub fn cmd_terminal_create(
         }
     });
 
-    // Background thread: wait for child exit
     thread::spawn(move || {
         match child.wait() {
             Ok(status) => log::info!("Terminal shell exited: {:?}", status),
@@ -127,38 +140,79 @@ pub fn cmd_terminal_create(
     CmdResult::ok(id)
 }
 
+// Session-aware write. If `session_id` is None we fall back to the first
+// instance for backward compatibility — the old single-terminal behavior.
 #[tauri::command]
-pub fn cmd_terminal_write(data: String, state: tauri::State<AppState>) -> CmdResult<bool> {
-    let mut manager = state.terminals.lock().unwrap();
-    if let Some((_, instance)) = manager.instances.iter_mut().next() {
-        match instance.writer.write_all(data.as_bytes()) {
-            Ok(_) => {
-                let _ = instance.writer.flush();
-                CmdResult::ok(true)
-            }
+pub fn cmd_terminal_write(
+    data: String,
+    session_id: Option<u32>,
+    state: tauri::State<AppState>,
+) -> CmdResult<bool> {
+    let mut manager = crate::state::lock_or_recover(&state.terminals);
+    let target = match session_id {
+        Some(id) => manager.instances.get_mut(&id),
+        None => manager.instances.values_mut().next(),
+    };
+    match target {
+        Some(instance) => match instance.writer.write_all(data.as_bytes()) {
+            Ok(_) => { let _ = instance.writer.flush(); CmdResult::ok(true) }
             Err(e) => CmdResult::err(format!("Write failed: {}", e)),
-        }
-    } else {
-        CmdResult::err("No terminal instance")
+        },
+        None => CmdResult::err("No terminal instance for that session id"),
     }
 }
 
+// Session-aware resize. We now actually call master.resize(); earlier
+// versions left this as a TODO which meant xterm's reported size never
+// matched the PTY's idea of columns/rows — responsible for weird line-
+// wrap issues when the panel got resized.
 #[tauri::command]
 pub fn cmd_terminal_resize(
-    _cols: u16,
-    _rows: u16,
-    _state: tauri::State<AppState>,
+    cols: u16,
+    rows: u16,
+    session_id: Option<u32>,
+    state: tauri::State<AppState>,
 ) -> CmdResult<bool> {
-    // Resize needs the master handle — stored in PtyInstance
-    // TODO: implement via master.resize() in a future version
+    let mut manager = crate::state::lock_or_recover(&state.terminals);
+    let target = match session_id {
+        Some(id) => manager.instances.get_mut(&id),
+        None => manager.instances.values_mut().next(),
+    };
+    match target {
+        Some(instance) => {
+            if let Err(e) = instance.master.resize(PtySize {
+                rows, cols, pixel_width: 0, pixel_height: 0,
+            }) {
+                return CmdResult::err(format!("Resize failed: {}", e));
+            }
+            CmdResult::ok(true)
+        }
+        None => CmdResult::err("No terminal instance for that session id"),
+    }
+}
+
+// Kill a specific session (or everything if `session_id` is None).
+#[tauri::command]
+pub fn cmd_terminal_kill(
+    session_id: Option<u32>,
+    state: tauri::State<AppState>,
+) -> CmdResult<bool> {
+    let mut manager = crate::state::lock_or_recover(&state.terminals);
+    match session_id {
+        Some(id) => { manager.instances.remove(&id); }
+        None     => { manager.instances.clear(); }
+    }
     CmdResult::ok(true)
 }
 
+// Enumerate live session ids so the frontend can reconcile after a
+// hot reload / agent-triggered terminal creation.
 #[tauri::command]
-pub fn cmd_terminal_kill(state: tauri::State<AppState>) -> CmdResult<bool> {
-    let mut manager = state.terminals.lock().unwrap();
-    manager.instances.clear(); // Drops writers + masters, closing the PTY
-    CmdResult::ok(true)
+pub fn cmd_terminal_list(state: tauri::State<AppState>) -> CmdResult<Vec<u32>> {
+    let manager = crate::state::lock_or_recover(&state.terminals);
+    let mut ids: Vec<u32> = manager.instances.keys().copied().collect();
+    ids.sort();
+    CmdResult::ok(ids)
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]

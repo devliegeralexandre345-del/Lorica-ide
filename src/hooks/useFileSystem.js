@@ -1,16 +1,29 @@
 import { useCallback } from 'react';
+import { pushRecentProject } from '../utils/recentProjects';
 
 export function useFileSystem(dispatch) {
-  const openFolder = useCallback(async () => {
-    const folderPath = await window.lorica.dialog.openFolder();
-    if (!folderPath) return;
+  // Open a project by an already-known path. Used by session restore to
+  // re-open the last project on boot without prompting the user with a
+  // dialog. Returns true on success.
+  const openProject = useCallback(async (folderPath) => {
+    if (!folderPath) return false;
     const result = await window.lorica.fs.readDir(folderPath);
     if (result.success) {
       dispatch({ type: 'SET_PROJECT', path: folderPath, tree: result.data });
       dispatch({ type: 'SET_STATUS', message: `Opened: ${folderPath}` });
       window.lorica.security.addAuditEntry('PROJECT_OPEN', folderPath);
+      // MRU-track so "Recent projects" always surfaces real work.
+      pushRecentProject(folderPath);
+      return true;
     }
+    return false;
   }, [dispatch]);
+
+  const openFolder = useCallback(async () => {
+    const folderPath = await window.lorica.dialog.openFolder();
+    if (!folderPath) return;
+    await openProject(folderPath);
+  }, [openProject]);
 
   const refreshTree = useCallback(async (projectPath) => {
     if (!projectPath) return;
@@ -84,6 +97,6 @@ export function useFileSystem(dispatch) {
     return result.success;
   }, []);
 
-  return { openFolder, refreshTree, openFile, saveFile, createNewFile, createNewDir, deletePath, renamePath };
+  return { openFolder, openProject, refreshTree, openFile, saveFile, createNewFile, createNewDir, deletePath, renamePath };
 }
 

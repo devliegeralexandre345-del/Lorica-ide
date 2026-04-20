@@ -3,7 +3,8 @@ import {
   Search, FolderOpen, Save, Settings, Shield, Lock, Bot, Music,
   Terminal, PanelLeftClose, GitCompare, ClipboardList, Palette, Moon, Sun,
   Maximize, Minimize, SplitSquareHorizontal, Map, SaveAll,
-  GitBranch, FileSearch, Replace, Bug, Package, Code2, AlertTriangle
+  GitBranch, FileSearch, Replace, Bug, Package, Code2, AlertTriangle,
+  Sparkles, GitCommit, Activity, Eye, Network, Zap,
 } from 'lucide-react';
 
 export default function CommandPalette({ state, dispatch, onOpenFolder, onLock, actions }) {
@@ -103,6 +104,33 @@ export default function CommandPalette({ state, dispatch, onOpenFolder, onLock, 
       hint: 'Ctrl+J',
       action: () => { dispatch({ type: 'SET_PANEL', panel: 'showSnippets', value: true }); close(); },
     },
+    {
+      label: state.blameEnabled ? 'Git Blame: Hide' : 'Git Blame: Show',
+      icon: GitCommit,
+      action: () => { dispatch({ type: 'TOGGLE_BLAME' }); close(); },
+    },
+    {
+      label: state.showPerformanceHUD ? 'Performance HUD: Hide' : 'Performance HUD: Show',
+      icon: Activity,
+      action: () => { dispatch({ type: 'TOGGLE_PERFORMANCE_HUD' }); close(); },
+    },
+    {
+      label: state.showInstantPreview ? 'Instant Preview: Hide' : 'Instant Preview: Show',
+      icon: Eye,
+      action: () => { dispatch({ type: 'TOGGLE_PANEL', panel: 'showInstantPreview' }); close(); },
+    },
+    {
+      label: 'Code Canvas (Project Graph)',
+      icon: Network,
+      hint: 'Ctrl+Shift+N',
+      action: () => { dispatch({ type: 'SET_PANEL', panel: 'showCodeCanvas', value: true }); close(); },
+    },
+    {
+      label: 'Multi-Agent Deep Review',
+      icon: Zap,
+      hint: 'Ctrl+Shift+A',
+      action: () => { dispatch({ type: 'SET_PANEL', panel: 'showAgentSwarm', value: true }); close(); },
+    },
     { label: 'Settings', icon: Settings, action: () => { dispatch({ type: 'TOGGLE_PANEL', panel: 'showSettings' }); close(); } },
     { label: 'Lock IDE', icon: Lock, action: () => { onLock(); close(); } },
     { label: 'Theme: Midnight', icon: Moon, action: () => { dispatch({ type: 'SET_THEME', theme: 'midnight' }); close(); } },
@@ -122,12 +150,31 @@ export default function CommandPalette({ state, dispatch, onOpenFolder, onLock, 
     ? commands.filter((c) => c.label.toLowerCase().includes(query.toLowerCase()))
     : commands;
 
+  // When the user's query doesn't match any built-in command, we still want
+  // them to be able to act on it — so the palette becomes a "type a question,
+  // send it to the agent" surface. This is the same pattern VS Code uses
+  // when you type `?` in the palette, except we route to Lorica's own agent
+  // instead of a help search. It turns the palette into the single entry
+  // point for *everything* — navigation, settings, AND conversation.
+  const showAIFallback = query.trim().length > 2 && filtered.length === 0;
+  const handleAskAI = () => {
+    const q = query.trim();
+    if (!q) return;
+    dispatch({ type: 'SET_PANEL', panel: 'showAIPanel', value: true });
+    dispatch({ type: 'AGENT_PREFILL_INPUT', text: q });
+    close();
+  };
+
   const handleKey = (e) => {
     if (e.key === 'Escape') close();
     if (e.key === 'ArrowDown') { e.preventDefault(); setSelectedIdx((i) => Math.min(i + 1, filtered.length - 1)); }
     if (e.key === 'ArrowUp') { e.preventDefault(); setSelectedIdx((i) => Math.max(i - 1, 0)); }
-    if (e.key === 'Enter' && filtered.length > 0) {
-      filtered[Math.min(selectedIdx, filtered.length - 1)]?.action();
+    if (e.key === 'Enter') {
+      if (filtered.length > 0) {
+        filtered[Math.min(selectedIdx, filtered.length - 1)]?.action();
+      } else if (showAIFallback) {
+        handleAskAI();
+      }
     }
   };
 
@@ -169,7 +216,22 @@ export default function CommandPalette({ state, dispatch, onOpenFolder, onLock, 
               )}
             </button>
           ))}
-          {filtered.length === 0 && <div className="px-4 py-6 text-center text-xs text-lorica-textDim">No matching commands</div>}
+          {filtered.length === 0 && !showAIFallback && (
+            <div className="px-4 py-6 text-center text-xs text-lorica-textDim">No matching commands</div>
+          )}
+          {showAIFallback && (
+            <button
+              onClick={handleAskAI}
+              className="w-full flex items-center gap-3 px-4 py-3 text-xs bg-gradient-to-r from-lorica-accent/10 via-purple-500/5 to-transparent hover:from-lorica-accent/20 hover:via-purple-500/10 text-lorica-accent transition-colors group"
+            >
+              <Sparkles size={14} className="flex-shrink-0 animate-pulse" />
+              <div className="flex-1 text-left">
+                <div className="font-semibold">Ask the Agent</div>
+                <div className="text-[10px] text-lorica-textDim mt-0.5 truncate group-hover:text-lorica-text/80 transition-colors">"{query}"</div>
+              </div>
+              <kbd className="px-1.5 py-0.5 bg-lorica-bg border border-lorica-border rounded text-[9px] text-lorica-textDim font-mono flex-shrink-0">↵</kbd>
+            </button>
+          )}
         </div>
       </div>
     </div>

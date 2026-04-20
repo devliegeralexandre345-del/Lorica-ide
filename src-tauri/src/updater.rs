@@ -23,6 +23,37 @@ use tauri::{AppHandle, Emitter};
 const GITHUB_RELEASES_URL: &str =
     "https://api.github.com/repos/devliegeralexandre345-del/Lorica-ide/releases/latest";
 
+/// Hosts we accept installer downloads from. Everything else is rejected
+/// by `validate_download_url` — this stops a compromised frontend from
+/// redirecting the updater to an arbitrary binary and launching it.
+/// The first is the canonical `releases/download/...` URL; the second is
+/// the CDN host GitHub redirects those URLs to.
+const ALLOWED_DOWNLOAD_HOSTS: &[&str] = &[
+    "github.com",
+    "objects.githubusercontent.com",
+];
+
+/// Only accept HTTPS URLs on a known GitHub host. The path must also
+/// mention our repo owner, so even a malicious frontend can't point the
+/// updater at some other project's installer.
+fn validate_download_url(url: &str) -> Result<(), String> {
+    let parsed = reqwest::Url::parse(url)
+        .map_err(|e| format!("Invalid download URL: {}", e))?;
+    if parsed.scheme() != "https" {
+        return Err("Only HTTPS download URLs are allowed".into());
+    }
+    let host = parsed.host_str().unwrap_or("");
+    if !ALLOWED_DOWNLOAD_HOSTS.iter().any(|h| *h == host) {
+        return Err(format!("Download host {} is not allowed", host));
+    }
+    // Very light path check — full authenticity needs a signed release,
+    // but keeping the path owner-scoped shuts down the most obvious abuse.
+    if host == "github.com" && !parsed.path().contains("/devliegeralexandre345-del/Lorica-ide/") {
+        return Err("Download path is not in the Lorica-ide repo".into());
+    }
+    Ok(())
+}
+
 /// GitHub Release asset structure
 #[derive(Debug, Deserialize, Serialize, Clone)]
 struct GitHubAsset {
@@ -195,6 +226,11 @@ pub async fn download_and_install_update(
     app: AppHandle,
     download_url: String,
 ) -> Result<(), String> {
+    // Reject any URL that isn't an official GitHub release asset for
+    // this repo. This is the main defense against frontend-driven
+    // binary-drop attacks — do not remove without a real signing story.
+    validate_download_url(&download_url)?;
+
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(600))
         .build()
@@ -351,5 +387,31 @@ mod tests {
         assert!(is_newer_version("1.1.0", "v1.2.0"));
         // Longer version wins when equal prefix
         assert!(is_newer_version("1.2.3", "1.2.3.1"));
+    }
+
+    #[test]
+    fn test_validate_download_url_accepts_official() {
+        assert!(validate_download_url(
+            "https://github.com/devliegeralexandre345-del/Lorica-ide/releases/download/v1.0.0/Lorica_1.0.0_x64.msi"
+        ).is_ok());
+        assert!(validate_download_url(
+            "https://objects.githubusercontent.com/github-production-release-asset-abc/Lorica.msi"
+        ).is_ok());
+    }
+
+    #[test]
+    fn test_validate_download_url_rejects_malicious() {
+        // Wrong scheme
+        assert!(validate_download_url("http://github.com/foo/bar/releases/download/x").is_err());
+        // Wrong host
+        assert!(validate_download_url("https://evil.example.com/Lorica.msi").is_err());
+        // Right host, wrong repo
+        assert!(validate_download_url(
+            "https://github.com/someone-else/malware/releases/download/v1/evil.exe"
+        ).is_err());
+        // Not a URL at all
+        assert!(validate_download_url("not a url").is_err());
+        // file:// scheme
+        assert!(validate_download_url("file:///C:/Windows/System32/cmd.exe").is_err());
     }
 }

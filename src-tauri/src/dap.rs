@@ -3,7 +3,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 use tokio::process::{Child as AsyncChild, Command as AsyncCommand};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::Mutex as TokioMutex;
@@ -327,16 +327,20 @@ impl DapManager {
             let (stdin_tx, mut stdin_rx) = channel::<String>(100);
             let (stdout_tx, stdout_rx) = channel::<String>(100);
 
-            // Spawn writer task
+            // Writer task — wraps every JSON message in the DAP
+            // envelope: `Content-Length: N\r\n\r\n<body>`. The old
+            // version just appended `\n` which broke most adapters
+            // (debugpy ignores unheadered messages silently).
             let mut stdin_writer = tokio::io::BufWriter::new(stdin);
             tokio::spawn(async move {
                 while let Some(message) = stdin_rx.recv().await {
-                    if let Err(e) = stdin_writer.write_all(message.as_bytes()).await {
+                    let envelope = format!(
+                        "Content-Length: {}\r\n\r\n{}",
+                        message.as_bytes().len(),
+                        message,
+                    );
+                    if let Err(e) = stdin_writer.write_all(envelope.as_bytes()).await {
                         log::error!("Failed to write to DAP stdin: {}", e);
-                        break;
-                    }
-                    if let Err(e) = stdin_writer.write_all(b"\n").await {
-                        log::error!("Failed to write newline to DAP stdin: {}", e);
                         break;
                     }
                     if let Err(e) = stdin_writer.flush().await {
@@ -346,15 +350,38 @@ impl DapManager {
                 }
             });
 
-            // Spawn reader task
-            let stdout_reader = tokio::io::BufReader::new(stdout);
+            // Reader task — DAP uses the same header-framed envelope as
+            // LSP (Content-Length: N\r\n\r\n<N bytes>). Line-based reads
+            // shred multi-line JSON responses; read exact byte counts.
+            let mut stdout_reader = tokio::io::BufReader::new(stdout);
             tokio::spawn(async move {
-                let mut lines = stdout_reader.lines();
-                while let Ok(Some(line)) = lines.next_line().await {
-                    if let Err(e) = stdout_tx.send(line).await {
-                        log::error!("Failed to send DAP stdout line: {}", e);
-                        break;
+                let mut header_buf = String::new();
+                loop {
+                    let mut content_length: usize = 0;
+                    loop {
+                        header_buf.clear();
+                        match stdout_reader.read_line(&mut header_buf).await {
+                            Ok(0) => return,
+                            Ok(_) => {}
+                            Err(e) => { log::error!("DAP header read: {}", e); return; }
+                        }
+                        let trimmed = header_buf.trim();
+                        if trimmed.is_empty() { break; }
+                        if let Some(rest) = trimmed.strip_prefix("Content-Length:") {
+                            if let Ok(n) = rest.trim().parse::<usize>() { content_length = n; }
+                        }
                     }
+                    if content_length == 0 { continue; }
+                    let mut body = vec![0u8; content_length];
+                    if let Err(e) = stdout_reader.read_exact(&mut body).await {
+                        log::error!("DAP body read: {}", e);
+                        return;
+                    }
+                    let msg = match String::from_utf8(body) {
+                        Ok(s) => s,
+                        Err(e) => { log::warn!("DAP non-utf8: {}", e); continue; }
+                    };
+                    if stdout_tx.send(msg).await.is_err() { return; }
                 }
             });
 
@@ -555,68 +582,104 @@ pub enum DapTransport {
 // Tauri Commands
 // ======================================================
 
+// All DAP commands share the AppState-stored manager — same fix as LSP.
+// `DapManager::new()` inside each command was dropping the child
+// processes and sessions on every call, making breakpoints impossible
+// to set after launch.
+
 #[tauri::command]
-pub async fn cmd_dap_launch(config: DapLaunchConfig) -> CmdResult<String> {
-    let manager = DapManager::new();
-    manager.launch_session(config).await
+pub async fn cmd_dap_launch(
+    state: tauri::State<'_, crate::state::AppState>,
+    config: DapLaunchConfig,
+) -> CmdResult<String> {
+    state.dap.launch_session(config).await
 }
 
 #[tauri::command]
-pub async fn cmd_dap_continue(session_id: String) -> CmdResult<()> {
-    let manager = DapManager::new();
-    manager.continue_execution(&session_id).await
+pub async fn cmd_dap_continue(
+    state: tauri::State<'_, crate::state::AppState>,
+    session_id: String,
+) -> CmdResult<()> {
+    state.dap.continue_execution(&session_id).await
 }
 
 #[tauri::command]
-pub async fn cmd_dap_step_over(session_id: String, thread_id: u64) -> CmdResult<()> {
-    let manager = DapManager::new();
-    manager.step_over(&session_id, thread_id).await
+pub async fn cmd_dap_step_over(
+    state: tauri::State<'_, crate::state::AppState>,
+    session_id: String,
+    thread_id: u64,
+) -> CmdResult<()> {
+    state.dap.step_over(&session_id, thread_id).await
 }
 
 #[tauri::command]
-pub async fn cmd_dap_step_in(session_id: String, thread_id: u64) -> CmdResult<()> {
-    let manager = DapManager::new();
-    manager.step_in(&session_id, thread_id).await
+pub async fn cmd_dap_step_in(
+    state: tauri::State<'_, crate::state::AppState>,
+    session_id: String,
+    thread_id: u64,
+) -> CmdResult<()> {
+    state.dap.step_in(&session_id, thread_id).await
 }
 
 #[tauri::command]
-pub async fn cmd_dap_step_out(session_id: String, thread_id: u64) -> CmdResult<()> {
-    let manager = DapManager::new();
-    manager.step_out(&session_id, thread_id).await
+pub async fn cmd_dap_step_out(
+    state: tauri::State<'_, crate::state::AppState>,
+    session_id: String,
+    thread_id: u64,
+) -> CmdResult<()> {
+    state.dap.step_out(&session_id, thread_id).await
 }
 
 #[tauri::command]
-pub async fn cmd_dap_pause(session_id: String) -> CmdResult<()> {
-    let manager = DapManager::new();
-    manager.pause(&session_id).await
+pub async fn cmd_dap_pause(
+    state: tauri::State<'_, crate::state::AppState>,
+    session_id: String,
+) -> CmdResult<()> {
+    state.dap.pause(&session_id).await
 }
 
 #[tauri::command]
-pub async fn cmd_dap_terminate(session_id: String) -> CmdResult<()> {
-    let manager = DapManager::new();
-    manager.terminate(&session_id).await
+pub async fn cmd_dap_terminate(
+    state: tauri::State<'_, crate::state::AppState>,
+    session_id: String,
+) -> CmdResult<()> {
+    state.dap.terminate(&session_id).await
 }
 
 #[tauri::command]
-pub async fn cmd_dap_set_breakpoints(session_id: String, file: String, lines: Vec<u32>) -> CmdResult<Vec<Breakpoint>> {
-    let manager = DapManager::new();
-    manager.set_breakpoints(&session_id, file, lines).await
+pub async fn cmd_dap_set_breakpoints(
+    state: tauri::State<'_, crate::state::AppState>,
+    session_id: String,
+    file: String,
+    lines: Vec<u32>,
+) -> CmdResult<Vec<Breakpoint>> {
+    state.dap.set_breakpoints(&session_id, file, lines).await
 }
 
 #[tauri::command]
-pub async fn cmd_dap_get_variables(session_id: String, variables_reference: u64) -> CmdResult<Vec<Variable>> {
-    let manager = DapManager::new();
-    manager.get_variables(&session_id, variables_reference).await
+pub async fn cmd_dap_get_variables(
+    state: tauri::State<'_, crate::state::AppState>,
+    session_id: String,
+    variables_reference: u64,
+) -> CmdResult<Vec<Variable>> {
+    state.dap.get_variables(&session_id, variables_reference).await
 }
 
 #[tauri::command]
-pub async fn cmd_dap_evaluate(session_id: String, expression: String, frame_id: u64) -> CmdResult<String> {
-    let manager = DapManager::new();
-    manager.evaluate(&session_id, expression, frame_id).await
+pub async fn cmd_dap_evaluate(
+    state: tauri::State<'_, crate::state::AppState>,
+    session_id: String,
+    expression: String,
+    frame_id: u64,
+) -> CmdResult<String> {
+    state.dap.evaluate(&session_id, expression, frame_id).await
 }
 
 #[tauri::command]
-pub async fn cmd_dap_get_stack_trace(session_id: String, thread_id: u64) -> CmdResult<Vec<StackFrame>> {
-    let manager = DapManager::new();
-    manager.get_stack_trace(&session_id, thread_id).await
+pub async fn cmd_dap_get_stack_trace(
+    state: tauri::State<'_, crate::state::AppState>,
+    session_id: String,
+    thread_id: u64,
+) -> CmdResult<Vec<StackFrame>> {
+    state.dap.get_stack_trace(&session_id, thread_id).await
 }

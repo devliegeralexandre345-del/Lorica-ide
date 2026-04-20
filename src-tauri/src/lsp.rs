@@ -3,7 +3,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 use tokio::process::{Child as AsyncChild, Command as AsyncCommand};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::Mutex as TokioMutex;
@@ -287,15 +287,51 @@ impl LspManager {
             }
         });
 
-        // Spawn reader task
-        let stdout_reader = tokio::io::BufReader::new(stdout);
+        // Spawn reader task.
+        //
+        // CRITICAL: LSP uses header-framed messages. Each message is:
+        //
+        //   Content-Length: N\r\n
+        //   \r\n
+        //   <N bytes of JSON>
+        //
+        // The JSON body almost always contains `\n` characters (pretty-
+        // printed responses, embedded strings, etc.), so a line-based
+        // reader shreds messages. We read header lines until we see the
+        // blank separator, parse Content-Length, then read exactly N
+        // bytes and emit one complete message per payload.
+        let mut stdout_reader = tokio::io::BufReader::new(stdout);
         tokio::spawn(async move {
-            let mut lines = stdout_reader.lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                if let Err(e) = stdout_tx.send(line).await {
-                    log::error!("Failed to send LSP stdout line: {}", e);
-                    break;
+            let mut header_buf = String::new();
+            loop {
+                let mut content_length: usize = 0;
+                header_buf.clear();
+                // Read headers until blank line.
+                loop {
+                    header_buf.clear();
+                    match stdout_reader.read_line(&mut header_buf).await {
+                        Ok(0) => return, // EOF
+                        Ok(_) => {}
+                        Err(e) => { log::error!("LSP header read: {}", e); return; }
+                    }
+                    let trimmed = header_buf.trim();
+                    if trimmed.is_empty() { break; } // end of headers
+                    if let Some(rest) = trimmed.strip_prefix("Content-Length:") {
+                        if let Ok(n) = rest.trim().parse::<usize>() { content_length = n; }
+                    }
+                    // Ignore other headers (Content-Type, etc.)
                 }
+                if content_length == 0 { continue; }
+                let mut body = vec![0u8; content_length];
+                if let Err(e) = stdout_reader.read_exact(&mut body).await {
+                    log::error!("LSP body read: {}", e);
+                    return;
+                }
+                let msg = match String::from_utf8(body) {
+                    Ok(s) => s,
+                    Err(e) => { log::warn!("LSP non-utf8: {}", e); continue; }
+                };
+                if stdout_tx.send(msg).await.is_err() { return; }
             }
         });
 
@@ -559,32 +595,52 @@ impl LspManager {
 // Tauri Commands
 // ======================================================
 
+// All LSP commands share a single manager stored in AppState. Earlier
+// versions created `LspManager::new()` inside each command, which meant
+// the sessions HashMap was fresh on every call — start_server succeeded
+// but every follow-up request received "no such session" because the
+// manager holding the spawned process had already dropped.
+
 #[tauri::command]
-pub async fn cmd_lsp_start(options: LspInitOptions) -> CmdResult<String> {
-    let manager = LspManager::new();
-    manager.start_server(options).await
+pub async fn cmd_lsp_start(
+    state: tauri::State<'_, crate::state::AppState>,
+    options: LspInitOptions,
+) -> CmdResult<String> {
+    state.lsp.start_server(options).await
 }
 
 #[tauri::command]
-pub async fn cmd_lsp_stop(session_id: String) -> CmdResult<()> {
-    let manager = LspManager::new();
-    manager.stop_server(&session_id).await
+pub async fn cmd_lsp_stop(
+    state: tauri::State<'_, crate::state::AppState>,
+    session_id: String,
+) -> CmdResult<()> {
+    state.lsp.stop_server(&session_id).await
 }
 
 #[tauri::command]
-pub async fn cmd_lsp_request(session_id: String, method: String, params: Option<Value>) -> CmdResult<Value> {
-    let manager = LspManager::new();
-    manager.send_request(&session_id, method, params).await
+pub async fn cmd_lsp_request(
+    state: tauri::State<'_, crate::state::AppState>,
+    session_id: String,
+    method: String,
+    params: Option<Value>,
+) -> CmdResult<Value> {
+    state.lsp.send_request(&session_id, method, params).await
 }
 
 #[tauri::command]
-pub async fn cmd_lsp_notify(session_id: String, method: String, params: Option<Value>) -> CmdResult<()> {
-    let manager = LspManager::new();
-    manager.send_notification(&session_id, method, params).await
+pub async fn cmd_lsp_notify(
+    state: tauri::State<'_, crate::state::AppState>,
+    session_id: String,
+    method: String,
+    params: Option<Value>,
+) -> CmdResult<()> {
+    state.lsp.send_notification(&session_id, method, params).await
 }
 
 #[tauri::command]
-pub async fn cmd_lsp_diagnostics(session_id: String) -> CmdResult<Vec<Diagnostic>> {
-    let manager = LspManager::new();
-    manager.get_diagnostics(&session_id).await
+pub async fn cmd_lsp_diagnostics(
+    state: tauri::State<'_, crate::state::AppState>,
+    session_id: String,
+) -> CmdResult<Vec<Diagnostic>> {
+    state.lsp.get_diagnostics(&session_id).await
 }

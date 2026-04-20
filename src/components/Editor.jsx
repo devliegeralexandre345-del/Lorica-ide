@@ -5,7 +5,7 @@ import { defaultKeymap, indentWithTab, history, historyKeymap } from '@codemirro
 import { bracketMatching, indentOnInput, foldGutter, foldKeymap } from '@codemirror/language';
 import { autocompletion, completionKeymap, acceptCompletion, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 import { searchKeymap, highlightSelectionMatches, selectNextOccurrence } from '@codemirror/search';
-import { Sparkles, Wrench, Bug, ChevronRight, Hash } from 'lucide-react';
+import { Sparkles, Wrench, Bug, ChevronRight, Hash, FileText, TestTube, MessageSquare, Zap } from 'lucide-react';
 import { LANGUAGE_MAP } from '../utils/languages';
 import { createEditorTheme } from '../utils/themes';
 import { getCompletionSource } from '../utils/completions';
@@ -13,6 +13,12 @@ import { bracketPairColorization } from '../extensions/bracketColorizer';
 import { indentGuidesExtension } from '../extensions/indentGuides';
 import { aiGhostExtension, aiGhostConfig, acceptGhost, dismissGhost, triggerGhost, ghostStatusField } from '../extensions/aiGhostText';
 import { fetchInlineCompletion } from '../utils/aiInlineComplete';
+import InlineAIEditPrompt from './InlineAIEditPrompt';
+import { blameField, setBlameEffect, toggleBlameEffect, blameGutter } from '../extensions/gitBlame';
+import { predictNextEdits } from '../utils/predictNextEdit';
+import { recordInlineEdit } from '../utils/aiInlineEdit';
+import { bookmarkGutter, setBookmarksEffect } from '../extensions/bookmarks';
+import { semanticMarksExtension, setSemanticMarksEffect } from '../extensions/semanticMarks';
 
 // =============================================
 // Minimap with smooth drag scrolling
@@ -190,17 +196,36 @@ function Minimap({ content, editorView, visible }) {
   );
 }
 
+// Pull a small list of identifier tokens from a diff to hint the next-edit
+// predictor at plausibly-related files. We don't have a full call graph, so
+// this is a cheap bag-of-tokens: the model uses it as a prior alongside the
+// before/after text. 30 tokens is enough signal without ballooning the
+// prompt.
+function collectCandidatePaths(oldText, newText) {
+  const tokens = new Set();
+  for (const t of (oldText + '\n' + newText).match(/[A-Za-z_][A-Za-z0-9_]{2,}/g) || []) {
+    tokens.add(t.toLowerCase());
+  }
+  return Array.from(tokens).slice(0, 30);
+}
+
 // =============================================
 // Editor
 // =============================================
 const Editor = React.memo(function Editor({
   file, index, dispatch, theme, showMinimap = true,
   aiInlineEnabled = false, aiProvider = 'anthropic', aiApiKey = '',
+  blameEnabled = false, projectPath = null,
+  bookmarks = null, // lines bookmarked in THIS file (array of numbers)
+  semanticMarks = null, // [{line,col,length,severity,message}] from the semantic-types store
 }) {
   const containerRef = useRef(null);
   const viewRef = useRef(null);
   const filePathRef = useRef(null);
   const [aiLens, setAiLens] = useState(null);
+  // Active Cmd+K inline-edit session. When set, renders the prompt overlay
+  // and holds the selection range so we can commit the result later.
+  const [inlineEdit, setInlineEdit] = useState(null);
   const [ready, setReady] = useState(false);
   const [cursorPos, setCursorPos] = useState({ line: 1, col: 1, selected: 0 });
   const [breadcrumb, setBreadcrumb] = useState([]);
@@ -213,6 +238,12 @@ const Editor = React.memo(function Editor({
   useEffect(() => {
     aiConfigRef.current = { enabled: aiInlineEnabled, provider: aiProvider, apiKey: aiApiKey };
   }, [aiInlineEnabled, aiProvider, aiApiKey]);
+
+  // Same pattern for bookmarks: the Mod-; keybind closes over this ref so
+  // "next bookmark" always sees the current list without rebuilding the
+  // editor on every toggle.
+  const bookmarksRef = useRef(bookmarks);
+  useEffect(() => { bookmarksRef.current = bookmarks; }, [bookmarks]);
 
   // Ghost status ('disabled' | 'idle' | 'thinking' | 'ready' | 'error'), for
   // the tiny indicator chip rendered in the editor corner.
@@ -295,6 +326,96 @@ const Editor = React.memo(function Editor({
     setIndentStyle(detectIndentStyle(content));
   }, [dispatch, index, detectIndentStyle]);
 
+  // =============================================
+  // Cmd+K inline AI edit — open the prompt at the current selection.
+  // If the cursor has no selection, we expand to the current line so the
+  // user can instantly rewrite a single line without extra clicks.
+  // =============================================
+  const openInlineEdit = useCallback(() => {
+    const view = viewRef.current;
+    if (!view) return false;
+    const range = view.state.selection.main;
+    let from = range.from;
+    let to = range.to;
+    if (from === to) {
+      const line = view.state.doc.lineAt(from);
+      from = line.from;
+      to = line.to;
+    }
+    const text = view.state.sliceDoc(from, to);
+    if (!text.trim()) return false;
+
+    const fullDoc = view.state.doc.toString();
+    const contextBefore = fullDoc.slice(Math.max(0, from - 2000), from);
+    const contextAfter = fullDoc.slice(to, to + 800);
+
+    const coords = view.coordsAtPos(from);
+    const editorRect = containerRef.current?.getBoundingClientRect();
+    const top = coords && editorRect ? coords.top - editorRect.top - 60 : 40;
+    const left = coords && editorRect ? Math.max(20, coords.left - editorRect.left) : 40;
+
+    setAiLens(null); // hide the small selection toolbar while the prompt is up
+    setInlineEdit({
+      anchor: { top, left },
+      selection: { from, to, text, contextBefore, contextAfter },
+    });
+    return true;
+  }, []);
+
+  const closeInlineEdit = useCallback(() => {
+    setInlineEdit(null);
+    // Clear the live preview decoration if we had one applied.
+    const view = viewRef.current;
+    if (view) view.focus();
+  }, []);
+
+  const acceptInlineEdit = useCallback((newText, instruction = '') => {
+    const view = viewRef.current;
+    if (!view || !inlineEdit) return;
+    const { from, to, text: oldText } = inlineEdit.selection;
+    view.dispatch({
+      changes: { from, to, insert: newText },
+      selection: { anchor: from + newText.length },
+    });
+    // Archive the accepted edit so the user can later review what the AI
+    // did to this file — one of the "pro IDE" affordances that comes up
+    // once a week but saves hours when it does.
+    try {
+      recordInlineEdit({
+        filePath: file.path,
+        instruction,
+        before: oldText,
+        after: newText,
+        accepted: true,
+      });
+    } catch {}
+    setInlineEdit(null);
+    view.focus();
+
+    // Kick off next-edit prediction in the background. This is best-effort
+    // and doesn't block the accept — the suggestions panel shows up a few
+    // seconds later (or silently stays empty if nothing interesting).
+    if (aiApiKey && oldText !== newText) {
+      dispatch({ type: 'SET_NEXT_EDITS', value: { loading: true, suggestions: [] } });
+      const candidatePaths = collectCandidatePaths(oldText, newText);
+      predictNextEdits({
+        filePath: file.path,
+        oldText, newText,
+        candidatePaths,
+        provider: aiProvider,
+        apiKey: aiApiKey,
+      }).then((suggestions) => {
+        dispatch({ type: 'SET_NEXT_EDITS', value: { loading: false, suggestions } });
+        // Auto-dismiss if empty after 4s so an empty panel doesn't stick around.
+        if (!suggestions || suggestions.length === 0) {
+          setTimeout(() => dispatch({ type: 'CLEAR_NEXT_EDITS' }), 4000);
+        }
+      }).catch(() => {
+        dispatch({ type: 'CLEAR_NEXT_EDITS' });
+      });
+    }
+  }, [inlineEdit, aiApiKey, aiProvider, file?.path, projectPath, dispatch]);
+
   useEffect(() => {
     if (!containerRef.current) return;
     if (viewRef.current) { viewRef.current.destroy(); viewRef.current = null; setReady(false); }
@@ -351,6 +472,14 @@ const Editor = React.memo(function Editor({
           activateOnTyping: true,
           maxRenderedOptions: 15,
         }),
+        // Git blame gutter — rendered to the left of the line numbers. Data
+        // is injected via setBlameEffect from the outer effect that fetches
+        // blame rows when the file loads / saves.
+        ...blameGutter(),
+        // Bookmarks gutter — sits next to blame, star icon on bookmarked lines.
+        ...bookmarkGutter(),
+        // Semantic-type mismatch underlines.
+        ...semanticMarksExtension(),
         // AI inline ghost-text completion. The fetcher reads config from a
         // ref so provider/API key changes don't force rebuilding the editor.
         aiGhostConfig.of({
@@ -390,6 +519,32 @@ const Editor = React.memo(function Editor({
           // Manual ghost trigger — bypasses the idle timer and skip checks.
           { key: 'Alt-\\', run: triggerGhost, preventDefault: true },
           { key: 'Mod-Alt-Space', run: triggerGhost, preventDefault: true },
+          // Cmd/Ctrl+K — inline AI edit over the current selection (or the
+          // active line if nothing is selected). Cursor's signature feature.
+          { key: 'Mod-k', run: () => openInlineEdit(), preventDefault: true },
+          // Ctrl+M — toggle a bookmark on the current line. Stored in the
+          // reducer (per-file line list); the gutter re-syncs via the
+          // bookmarks prop effect below.
+          { key: 'Mod-m', run: (view) => {
+            const line = view.state.doc.lineAt(view.state.selection.main.head).number;
+            dispatch({ type: 'TOGGLE_BOOKMARK', path: file.path, line });
+            return true;
+          }, preventDefault: true },
+          // Ctrl+; — jump to next bookmark in this file (wraps). Reads
+          // the live bookmarks list from a ref so it stays fresh without
+          // rebuilding the editor on every toggle.
+          { key: 'Mod-;', run: (view) => {
+            const cur = bookmarksRef.current || [];
+            if (cur.length === 0) return false;
+            const line = view.state.doc.lineAt(view.state.selection.main.head).number;
+            const next = cur.find((l) => l > line) ?? cur[0];
+            const info = view.state.doc.line(next);
+            view.dispatch({
+              selection: { anchor: info.from },
+              effects: EditorView.scrollIntoView(info.from, { y: 'center' }),
+            });
+            return true;
+          }, preventDefault: true },
           { key: 'Mod-d', run: selectNextOccurrence },
           { key: 'Mod-Shift-l', run: (view) => {
             const selection = view.state.selection.main;
@@ -545,12 +700,113 @@ const Editor = React.memo(function Editor({
     // file) re-fires this effect even if `line` happens to match.
   }, [ready, file?.pendingGoto?.line, file?.pendingGoto?._ts, dispatch, index]);
 
+  // The selection lens now has two modes:
+  //   • "edit" actions (refactor, fix, doc)  → run via Cmd+K inline prompt
+  //     with a pre-filled instruction, so the transform lands in-place.
+  //   • "ask" actions (explain, test) → forward to the Agent panel.
   const handleLensAction = (action) => {
+    if (!aiLens) return;
+    const view = viewRef.current;
+    if (!view) return;
+
+    // Build the same selection metadata the Cmd+K path uses.
+    const range = view.state.selection.main;
+    if (range.from === range.to) { setAiLens(null); return; }
+    const text = view.state.sliceDoc(range.from, range.to);
+    const fullDoc = view.state.doc.toString();
+    const contextBefore = fullDoc.slice(Math.max(0, range.from - 2000), range.from);
+    const contextAfter = fullDoc.slice(range.to, range.to + 800);
+
+    // In-place transforms: open the Cmd+K prompt pre-filled so the user sees
+    // the exact instruction, can tweak, then Enter to run.
+    const inlineInstructions = {
+      refactor: 'Refactor for clarity, modularity, and idiomatic style — preserve behavior.',
+      fix: 'Find and fix any bugs, edge-case handling, and potential errors in this code.',
+      doc: 'Add concise documentation comments (JSDoc / docstring) without changing the logic.',
+      types: 'Add explicit TypeScript types (or type hints for the source language).',
+    };
+
+    if (inlineInstructions[action]) {
+      const coords = view.coordsAtPos(range.from);
+      const editorRect = containerRef.current?.getBoundingClientRect();
+      const top = coords && editorRect ? coords.top - editorRect.top - 60 : 40;
+      const left = coords && editorRect ? Math.max(20, coords.left - editorRect.left) : 40;
+      setAiLens(null);
+      setInlineEdit({
+        anchor: { top, left },
+        selection: { from: range.from, to: range.to, text, contextBefore, contextAfter },
+        prefill: inlineInstructions[action],
+      });
+      return;
+    }
+
+    // "Ask" flow — forward to the agent panel so the user gets a full answer
+    // with follow-up turns rather than an in-place rewrite.
+    const prompts = {
+      explain: `Explain what this code does and flag anything surprising:\n\n\`\`\`${file.extension}\n${text}\n\`\`\``,
+      test: `Write unit tests for this code. Put tests in an appropriate file for the project's test framework:\n\n\`\`\`${file.extension}\n${text}\n\`\`\``,
+    };
+    const prompt = prompts[action] || `[${action}]\n\n\`\`\`${file.extension}\n${text}\n\`\`\``;
     dispatch({ type: 'SET_PANEL', panel: 'showAIPanel', value: true });
-    const prompt = `[${action.toUpperCase()}] Focus sur cette portion de code :\n\n\`\`\`${file.extension}\n${aiLens.text}\n\`\`\`\n\nQue me proposes-tu ?`;
-    navigator.clipboard.writeText(prompt);
+    dispatch({ type: 'AGENT_PREFILL_INPUT', text: prompt });
     setAiLens(null);
   };
+
+  // =============================================
+  // Load git blame for the current file and feed it to the gutter. Runs on
+  // file open and again whenever the user saves (file.dirty flips to false).
+  // If the project isn't a git repo, the backend returns an error and we just
+  // clear the rows silently — blame is a progressive-enhancement feature.
+  // =============================================
+  useEffect(() => {
+    if (!ready || !viewRef.current) return;
+    if (!projectPath || !file?.path) return;
+    // Skip re-fetching while the buffer has unsaved edits — blame would be
+    // stale by line number and we'd show misleading attribution.
+    if (file.dirty) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await window.lorica.git.blame(projectPath, file.path);
+        if (cancelled) return;
+        const view = viewRef.current;
+        if (!view) return;
+        const rows = r && r.success ? r.data : [];
+        view.dispatch({
+          effects: [
+            setBlameEffect.of(rows),
+            toggleBlameEffect.of(!!blameEnabled && rows.length > 0),
+          ],
+        });
+      } catch (_) { /* silent — not a git repo or file not tracked */ }
+    })();
+    return () => { cancelled = true; };
+  }, [ready, projectPath, file?.path, file?.dirty, blameEnabled]);
+
+  // Toggle the blame gutter visibility without refetching.
+  useEffect(() => {
+    if (!ready || !viewRef.current) return;
+    viewRef.current.dispatch({ effects: toggleBlameEffect.of(!!blameEnabled) });
+  }, [ready, blameEnabled]);
+
+  // Push current bookmarks (for this file) into the editor state field so
+  // the gutter can re-render the star markers. Props come from the outer
+  // reducer — the Editor itself stays stateless about bookmarks.
+  useEffect(() => {
+    if (!ready || !viewRef.current) return;
+    viewRef.current.dispatch({
+      effects: setBookmarksEffect.of(bookmarks || []),
+    });
+  }, [ready, bookmarks]);
+
+  // Push semantic mismatches into the decoration field.
+  useEffect(() => {
+    if (!ready || !viewRef.current) return;
+    viewRef.current.dispatch({
+      effects: setSemanticMarksEffect.of(semanticMarks || []),
+    });
+  }, [ready, semanticMarks]);
 
   // Status chip: only show when the user actually enabled inline AI, and only
   // when the state is interesting (thinking/ready/error). "idle" stays hidden
@@ -574,26 +830,74 @@ const Editor = React.memo(function Editor({
           {ghostChipMeta.label}
         </div>
       )}
-      {aiLens && (
+      {aiLens && !inlineEdit && (
         <div
-          className="absolute z-50 flex items-center gap-1 bg-lorica-panel/90 backdrop-blur-md border border-lorica-accent/30 rounded-lg shadow-[0_0_15px_rgba(0,212,255,0.15)] p-1.5 animate-fadeIn"
+          className="absolute z-50 flex items-center gap-0.5 bg-lorica-panel/95 backdrop-blur-xl border border-lorica-accent/40 rounded-lg shadow-[0_0_20px_rgba(0,212,255,0.25)] p-1 animate-fadeIn"
           style={{ top: Math.max(10, aiLens.top), left: Math.max(10, aiLens.left) }}
         >
-          <button onClick={() => handleLensAction('explain')} className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-blue-400 hover:bg-blue-400/20 rounded transition-colors">
-            <Sparkles size={12} /> Expliquer
+          <button onClick={openInlineEdit} title="Cmd+K — transform with AI"
+            className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-lorica-accent hover:bg-lorica-accent/20 rounded transition-colors font-semibold">
+            <Zap size={12} /> Edit
           </button>
           <div className="w-px h-3 bg-lorica-border/50" />
-          <button onClick={() => handleLensAction('refactor')} className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-yellow-400 hover:bg-yellow-400/20 rounded transition-colors">
+          <button onClick={() => handleLensAction('explain')} title="Ask AI to explain"
+            className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-blue-400 hover:bg-blue-400/20 rounded transition-colors">
+            <Sparkles size={12} /> Explain
+          </button>
+          <div className="w-px h-3 bg-lorica-border/50" />
+          <button onClick={() => handleLensAction('refactor')} title="Refactor in place"
+            className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-yellow-400 hover:bg-yellow-400/20 rounded transition-colors">
             <Wrench size={12} /> Refactor
           </button>
           <div className="w-px h-3 bg-lorica-border/50" />
-          <button onClick={() => handleLensAction('fix')} className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-red-400 hover:bg-red-400/20 rounded transition-colors">
+          <button onClick={() => handleLensAction('fix')} title="Fix bugs in place"
+            className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-red-400 hover:bg-red-400/20 rounded transition-colors">
             <Bug size={12} /> Fix
           </button>
+          <div className="w-px h-3 bg-lorica-border/50" />
+          <button onClick={() => handleLensAction('doc')} title="Add doc comments in place"
+            className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-emerald-400 hover:bg-emerald-400/20 rounded transition-colors">
+            <MessageSquare size={12} /> Doc
+          </button>
+          <div className="w-px h-3 bg-lorica-border/50" />
+          <button onClick={() => handleLensAction('test')} title="Generate tests"
+            className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-purple-400 hover:bg-purple-400/20 rounded transition-colors">
+            <TestTube size={12} /> Test
+          </button>
         </div>
+      )}
+      {inlineEdit && (
+        <InlineAIEditPromptWrapper
+          inlineEdit={inlineEdit}
+          file={file}
+          provider={aiProvider}
+          apiKey={aiApiKey}
+          onAccept={acceptInlineEdit}
+          onDiscard={closeInlineEdit}
+        />
       )}
     </div>
   );
 });
+
+// Small wrapper so we can pass prefill without having to cross-handle it in
+// the shared InlineAIEditPrompt component (keeps that one stateless about
+// prefilled instructions).
+function InlineAIEditPromptWrapper({ inlineEdit, file, provider, apiKey, onAccept, onDiscard }) {
+  const prefillRef = useRef(inlineEdit.prefill || '');
+  return (
+    <InlineAIEditPrompt
+      key={`${inlineEdit.selection.from}-${inlineEdit.selection.to}-${prefillRef.current}`}
+      anchor={inlineEdit.anchor}
+      selection={inlineEdit.selection}
+      file={file}
+      provider={provider}
+      apiKey={apiKey}
+      onAccept={onAccept}
+      onDiscard={onDiscard}
+      prefill={prefillRef.current}
+    />
+  );
+}
 
 export default Editor;

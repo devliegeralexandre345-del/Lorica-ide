@@ -8,6 +8,19 @@ import { useSpotify } from './hooks/useSpotify';
 import { useUpdate } from './hooks/useUpdate';
 import { useShortcuts } from './hooks/useShortcuts';
 import { useSemanticAutoReindex } from './hooks/useSemanticAutoReindex';
+import { useSession } from './hooks/useSession';
+import { useClipboardHistory } from './hooks/useClipboardHistory';
+import { useHeatmap } from './hooks/useHeatmap';
+import { useCustomAgents } from './hooks/useCustomAgents';
+import { useAgentTriggers } from './hooks/useAgentTriggers';
+import { useProjectBrain } from './hooks/useProjectBrain';
+import { useReleaseNotes } from './hooks/useReleaseNotes';
+import { useAgentSessionPersistence } from './hooks/useAgentSessionPersistence';
+import { useGlobalErrorHandler } from './hooks/useGlobalErrorHandler';
+import { useTimeScrub } from './hooks/useTimeScrub';
+import { useSemanticAuto } from './hooks/useSemanticAuto';
+import { loadIdentity } from './utils/agentIdentity';
+import { loadSemanticStore } from './utils/semanticTypes';
 
 // -------------------------------------------------------------------
 // Eager imports — rendered on first paint (or so close to it that code
@@ -28,6 +41,8 @@ import WelcomeTab from './components/WelcomeTab';
 import LoricaDock from './components/LoricaDock';
 import ImagePreview, { isImageFile } from './components/ImagePreview';
 import FilePreview, { hasPreview } from './components/FilePreview';
+import PerformanceHUD from './components/PerformanceHUD';
+import AmbientHUD from './components/AmbientHUD';
 
 // -------------------------------------------------------------------
 // Lazy-loaded — only fetched when the user actually opens them. Each
@@ -35,6 +50,32 @@ import FilePreview, { hasPreview } from './components/FilePreview';
 // Webpack names the chunk from the magic comment.
 // -------------------------------------------------------------------
 const CommandPalette    = lazy(() => import(/* webpackChunkName: "cmd-palette" */ './components/CommandPalette'));
+const Omnibar           = lazy(() => import(/* webpackChunkName: "omnibar"     */ './components/Omnibar'));
+const AgentSwarmPanel   = lazy(() => import(/* webpackChunkName: "swarm"       */ './components/AgentSwarmPanel'));
+const CodeCanvas        = lazy(() => import(/* webpackChunkName: "canvas"      */ './components/CodeCanvas'));
+const NextEditPanel     = lazy(() => import(/* webpackChunkName: "next-edit"   */ './components/NextEditPanel'));
+const InstantPreview    = lazy(() => import(/* webpackChunkName: "preview"     */ './components/InstantPreview'));
+const BookmarksPanel    = lazy(() => import(/* webpackChunkName: "bookmarks"   */ './components/BookmarksPanel'));
+const Scratchpad        = lazy(() => import(/* webpackChunkName: "scratchpad"  */ './components/Scratchpad'));
+const TodoBoard         = lazy(() => import(/* webpackChunkName: "todo"        */ './components/TodoBoard'));
+const ClipboardHistory  = lazy(() => import(/* webpackChunkName: "clipboard"   */ './components/ClipboardHistory'));
+const ApiTester         = lazy(() => import(/* webpackChunkName: "api-tester"  */ './components/ApiTester'));
+const RegexBuilder      = lazy(() => import(/* webpackChunkName: "regex"       */ './components/RegexBuilder'));
+const AgentBuilder      = lazy(() => import(/* webpackChunkName: "agent-builder" */ './components/AgentBuilder'));
+const PrReadyModal      = lazy(() => import(/* webpackChunkName: "pr-ready"    */ './components/PrReadyModal'));
+const ProjectBrainPanel = lazy(() => import(/* webpackChunkName: "brain"       */ './components/ProjectBrainPanel'));
+const AutoFixModal      = lazy(() => import(/* webpackChunkName: "auto-fix"    */ './components/AutoFixModal'));
+const AgentIdentityModal = lazy(() => import(/* webpackChunkName: "identity"   */ './components/AgentIdentityModal'));
+const SandboxPanel      = lazy(() => import(/* webpackChunkName: "sandbox"     */ './components/SandboxPanel'));
+const SwarmPanel        = lazy(() => import(/* webpackChunkName: "swarm-dev"   */ './components/SwarmPanel'));
+const SemanticTypesPanel = lazy(() => import(/* webpackChunkName: "sem-types"  */ './components/SemanticTypesPanel'));
+const KeyboardCheatsheet = lazy(() => import(/* webpackChunkName: "cheatsheet" */ './components/KeyboardCheatsheet'));
+const ReleaseNotes      = lazy(() => import(/* webpackChunkName: "release"    */ './components/ReleaseNotes'));
+const InlineEditHistory = lazy(() => import(/* webpackChunkName: "edit-hist"  */ './components/InlineEditHistory'));
+const LayoutSwitcher    = lazy(() => import(/* webpackChunkName: "layouts"    */ './components/LayoutSwitcher'));
+import ErrorBoundary from './components/ErrorBoundary';
+import TimeScrubBar from './components/TimeScrubBar';
+import FocusTimer from './components/FocusTimer';
 const Settings          = lazy(() => import(/* webpackChunkName: "settings"    */ './components/Settings'));
 const SecretVault       = lazy(() => import(/* webpackChunkName: "vault"       */ './components/SecretVault'));
 const AuditLog          = lazy(() => import(/* webpackChunkName: "audit-log"   */ './components/AuditLog'));
@@ -71,6 +112,33 @@ export default function App() {
   // Auto-reindex the semantic search index on file changes. No-op until
   // the user manually builds an index for the project at least once.
   const semanticAuto = useSemanticAutoReindex(state.projectPath, true);
+  // Restore last-session workspace (project + open tabs + layout) on boot,
+  // then debounce-save on any relevant change.
+  useSession(state, dispatch, fs);
+  useClipboardHistory(dispatch);
+  const heatmap = useHeatmap({
+    projectPath: state.projectPath,
+    enabled: state.heatmapEnabled,
+    rangeDays: state.heatmapRange,
+  });
+  const customAgents = useCustomAgents(state.projectPath, dispatch);
+  useAgentTriggers(state, dispatch);
+  useReleaseNotes(dispatch);
+  useAgentSessionPersistence(state, dispatch);
+  useGlobalErrorHandler(dispatch);
+  const projectBrain = useProjectBrain(state.projectPath, dispatch);
+  useTimeScrub(state, dispatch);
+  useSemanticAuto(state, dispatch);
+
+  // Load persistent agent identity + semantic-types store on project change.
+  useEffect(() => {
+    (async () => {
+      const id = await loadIdentity(state.projectPath);
+      dispatch({ type: 'SET_AGENT_IDENTITY', identity: id });
+      const st = await loadSemanticStore(state.projectPath);
+      dispatch({ type: 'SET_SEMANTIC_TYPES', store: st });
+    })();
+  }, [state.projectPath, dispatch]);
   const [sidebarWidth, setSidebarWidth] = React.useState(260);
   const [aiPanelWidth, setAiPanelWidth] = React.useState(340);
   const [terminalHeight, setTerminalHeight] = React.useState(200);
@@ -148,6 +216,9 @@ export default function App() {
         toast(dispatch, 'success', `${file.name} sauvegardé`, 2000);
       }
     },
+    openOmnibar: () => dispatch({ type: 'SET_PANEL', panel: 'showOmnibar', value: true }),
+    openSwarm:   () => dispatch({ type: 'SET_PANEL', panel: 'showAgentSwarm', value: true }),
+    openCanvas:  () => dispatch({ type: 'SET_PANEL', panel: 'showCodeCanvas', value: true }),
   };
 
   // =============================================
@@ -236,7 +307,10 @@ export default function App() {
   }
 
   return (
-    <div className={`flex flex-col h-screen w-screen bg-lorica-bg select-none ${isZen ? 'zen-mode' : ''}`}>
+    <div className={`relative flex flex-col h-screen w-screen bg-lorica-bg select-none ${isZen ? 'zen-mode' : ''}`}>
+      {/* Ambient accent-tinted glow behind the whole app. Pure CSS, no
+          animation, so it costs nothing per frame. */}
+      <div className="lorica-ambient-glow" />
       {!isZen && (
         <MenuBar
           state={state} dispatch={dispatch}
@@ -251,10 +325,11 @@ export default function App() {
         {/* Lorica Dock — floating nav rail */}
         {!isZen && <LoricaDock state={state} dispatch={dispatch} />}
 
-        {/* Left Sidebar — switchable: FileTree / Search / Git / Debug / Outline / Timeline */}
-        {!isZen && (state.showFileTree || state.showSearch || state.showGit || state.showDebug || state.showOutline || state.showTimeline) && (
+        {/* Left Sidebar — switchable: FileTree / Search / Git / Debug / Outline / Timeline / Bookmarks / Scratchpad / TodoBoard / Brain */}
+        {!isZen && (state.showFileTree || state.showSearch || state.showGit || state.showDebug || state.showOutline || state.showTimeline || state.showBookmarksPanel || state.showScratchpad || state.showTodoBoard || state.showProjectBrain) && (
           <>
             <div style={{ width: sidebarWidth }} className="flex-shrink-0 border-r border-lorica-border bg-lorica-surface overflow-hidden">
+              <ErrorBoundary name="Sidebar" compact>
               <Suspense fallback={LazyFallback}>
                 {state.showSearch ? (
                   <GlobalSearch state={state} dispatch={dispatch} onFileOpen={fs.openFile} />
@@ -264,12 +339,34 @@ export default function App() {
                   <DebugPanel state={state} dispatch={dispatch} activeFile={activeFile} />
                 ) : state.showOutline ? (
                   <OutlinePanel state={state} dispatch={dispatch} activeFile={activeFile} />
+                ) : state.showBookmarksPanel ? (
+                  <BookmarksPanel state={state} dispatch={dispatch} onFileOpen={fs.openFile} />
+                ) : state.showScratchpad ? (
+                  <Scratchpad state={state} dispatch={dispatch} />
+                ) : state.showTodoBoard ? (
+                  <TodoBoard state={state} dispatch={dispatch} />
+                ) : state.showProjectBrain ? (
+                  <ProjectBrainPanel state={state} dispatch={dispatch} brainRefresh={projectBrain.refresh} />
                 ) : state.showTimeline ? (
                   <TimelinePanel state={state} dispatch={dispatch} />
                 ) : (
-                  <FileTree tree={state.fileTree} projectPath={state.projectPath} onFileClick={fs.openFile} onRefresh={() => fs.refreshTree(state.projectPath)} dispatch={dispatch} fs={fs} />
+                  <FileTree
+                    tree={state.fileTree}
+                    projectPath={state.projectPath}
+                    onFileClick={fs.openFile}
+                    onRefresh={() => fs.refreshTree(state.projectPath)}
+                    dispatch={dispatch}
+                    fs={fs}
+                    heatmap={heatmap.data}
+                    heatmapEnabled={state.heatmapEnabled}
+                    heatmapRange={state.heatmapRange}
+                    heatmapLoading={heatmap.loading}
+                    onHeatmapToggle={() => dispatch({ type: 'TOGGLE_HEATMAP' })}
+                    onHeatmapRangeChange={(d) => dispatch({ type: 'SET_HEATMAP_RANGE', days: d })}
+                  />
                 )}
               </Suspense>
+              </ErrorBoundary>
             </div>
             <div className="w-1 cursor-col-resize resize-handle bg-lorica-border hover:bg-lorica-accent flex-shrink-0" onMouseDown={handleSidebarResize} />
           </>
@@ -285,7 +382,7 @@ export default function App() {
           )}
 
           {!isZen && activeFile && (
-            <Breadcrumbs file={activeFile} projectPath={state.projectPath} />
+            <Breadcrumbs file={activeFile} projectPath={state.projectPath} dispatch={dispatch} fileTree={state.fileTree} />
           )}
 
           <div className="flex-1 overflow-hidden flex">
@@ -308,16 +405,22 @@ export default function App() {
                       }}
                     />
                   ) : (
-                    <Editor
-                      file={activeFile}
-                      index={state.activeFileIndex}
-                      dispatch={dispatch}
-                      theme={state.theme}
-                      showMinimap={state.showMinimap !== false}
-                      aiInlineEnabled={state.aiInlineEnabled}
-                      aiProvider={state.aiProvider}
-                      aiApiKey={state.aiProvider === 'anthropic' ? state.aiApiKey : state.aiDeepseekKey}
-                    />
+                    <ErrorBoundary name="Editor">
+                      <Editor
+                        file={activeFile}
+                        index={state.activeFileIndex}
+                        dispatch={dispatch}
+                        theme={state.theme}
+                        showMinimap={state.showMinimap !== false}
+                        aiInlineEnabled={state.aiInlineEnabled}
+                        aiProvider={state.aiProvider}
+                        aiApiKey={state.aiProvider === 'anthropic' ? state.aiApiKey : state.aiDeepseekKey}
+                        blameEnabled={state.blameEnabled}
+                        projectPath={state.projectPath}
+                        bookmarks={state.bookmarks?.[activeFile?.path] || null}
+                        semanticMarks={state.semanticTypes?.[activeFile?.path]?.mismatches || null}
+                      />
+                    </ErrorBoundary>
                   )}
                 </div>
                 {splitFile && (
@@ -340,25 +443,34 @@ export default function App() {
                           }}
                         />
                       ) : (
-                        <Editor
-                          file={splitFile}
-                          index={state.splitFileIndex}
-                          dispatch={dispatch}
-                          theme={state.theme}
-                          showMinimap={false}
-                          aiInlineEnabled={state.aiInlineEnabled}
-                          aiProvider={state.aiProvider}
-                          aiApiKey={state.aiProvider === 'anthropic' ? state.aiApiKey : state.aiDeepseekKey}
-                        />
+                        <ErrorBoundary name="Split Editor">
+                          <Editor
+                            file={splitFile}
+                            index={state.splitFileIndex}
+                            dispatch={dispatch}
+                            theme={state.theme}
+                            showMinimap={false}
+                            aiInlineEnabled={state.aiInlineEnabled}
+                            aiProvider={state.aiProvider}
+                            aiApiKey={state.aiProvider === 'anthropic' ? state.aiApiKey : state.aiDeepseekKey}
+                            blameEnabled={state.blameEnabled}
+                            projectPath={state.projectPath}
+                            bookmarks={state.bookmarks?.[splitFile?.path] || null}
+                            semanticMarks={state.semanticTypes?.[splitFile?.path]?.mismatches || null}
+                          />
+                        </ErrorBoundary>
                       )}
                     </div>
                   </>
                 )}
               </>
             ) : (
-              <WelcomeTab dispatch={dispatch} onOpenFolder={fs.openFolder} />
+              <WelcomeTab dispatch={dispatch} onOpenFolder={fs.openFolder} onOpenProject={fs.openProject} />
             )}
           </div>
+
+          {/* Time Scrub bar — thin controller above Problems/Terminal. */}
+          {!isZen && state.showTimeScrub && <TimeScrubBar state={state} dispatch={dispatch} />}
 
           {/* Problems Panel */}
           {!isZen && state.showProblems && (
@@ -373,17 +485,40 @@ export default function App() {
             <>
               <div className="h-1 cursor-row-resize resize-handle bg-lorica-border hover:bg-lorica-accent flex-shrink-0" onMouseDown={handleTerminalResize} />
               <div style={{ height: terminalHeight }} className="flex-shrink-0 border-t border-lorica-border">
-                <Terminal />
+                <ErrorBoundary name="Terminal">
+                  <Terminal dispatch={dispatch} />
+                </ErrorBoundary>
               </div>
             </>
           )}
         </div>
 
+        {/* Instant Preview rail — auto-routed visualizer for JSON/YAML/CSV/regex/SQL/URL.
+            Sits between the editor column and the AI panel so it's close to the
+            file being visualized without competing with the agent. */}
+        {!isZen && state.showInstantPreview && activeFile && (
+          <>
+            <div className="w-1 cursor-col-resize resize-handle bg-lorica-border hover:bg-lorica-accent flex-shrink-0" />
+            <div style={{ width: 340 }} className="flex-shrink-0 border-l border-lorica-border bg-lorica-surface overflow-hidden flex flex-col">
+              <ErrorBoundary name="Instant Preview" compact>
+                <Suspense fallback={LazyFallback}>
+                  <InstantPreview
+                    file={activeFile}
+                    onClose={() => dispatch({ type: 'SET_PANEL', panel: 'showInstantPreview', value: false })}
+                  />
+                </Suspense>
+              </ErrorBoundary>
+            </div>
+          </>
+        )}
+
         {!isZen && state.showAIPanel && (
           <>
             <div className="w-1 cursor-col-resize resize-handle bg-lorica-border hover:bg-lorica-accent flex-shrink-0" onMouseDown={handleAIResize} />
             <div style={{ width: aiPanelWidth }} className="flex-shrink-0 border-l border-lorica-border bg-lorica-surface overflow-hidden flex flex-col">
-              <AgentCopilot state={state} dispatch={dispatch} agent={agent} activeFile={activeFile} />
+              <ErrorBoundary name="Agent Copilot" compact>
+                <AgentCopilot state={state} dispatch={dispatch} agent={agent} activeFile={activeFile} />
+              </ErrorBoundary>
               {state.showSpotify && (
                 <div className="border-t border-lorica-border flex-shrink-0">
                   <Suspense fallback={LazyFallback}>
@@ -418,8 +553,53 @@ export default function App() {
 
       <ToastContainer toasts={state.toasts || []} dispatch={dispatch} />
 
-      {/* Modal stack — all lazy-loaded, share one Suspense boundary. */}
+      {/* Live performance HUD — only ticks rAF while visible. */}
+      <PerformanceHUD
+        visible={state.showPerformanceHUD}
+        onClose={() => dispatch({ type: 'TOGGLE_PERFORMANCE_HUD' })}
+      />
+
+      {/* Ambient HUD — surfaces background work the user might not otherwise notice. */}
+      <AmbientHUD state={state} dispatch={dispatch} />
+
+      {/* Modal stack — all lazy-loaded, share one Suspense boundary, and
+          wrapped in an ErrorBoundary so a crash inside any modal never
+          takes down the IDE. */}
+      <ErrorBoundary name="Modal stack">
       <Suspense fallback={LazyFallback}>
+        {state.showOmnibar && (
+          <Omnibar
+            state={state} dispatch={dispatch}
+            actions={actions.current} activeFile={activeFile}
+            onOpenFolder={fs.openFolder} onLock={security.lock}
+            onFileOpen={fs.openFile}
+            onCodeCanvas={actions.current.openCanvas}
+            onSwarmReview={actions.current.openSwarm}
+          />
+        )}
+        {state.showAgentSwarm && (
+          <AgentSwarmPanel state={state} dispatch={dispatch} activeFile={activeFile} />
+        )}
+        {state.showCodeCanvas && (
+          <CodeCanvas state={state} dispatch={dispatch} onFileOpen={fs.openFile} />
+        )}
+        {state.nextEditSuggestions && <NextEditPanel state={state} dispatch={dispatch} />}
+        {state.showClipboardHistory && <ClipboardHistory state={state} dispatch={dispatch} />}
+        {state.showApiTester && <ApiTester state={state} dispatch={dispatch} />}
+        {state.showRegexBuilder && <RegexBuilder state={state} dispatch={dispatch} />}
+        {state.showAgentBuilder && (
+          <AgentBuilder state={state} dispatch={dispatch} onSaved={customAgents.refresh} />
+        )}
+        {state.showPrReady && <PrReadyModal state={state} dispatch={dispatch} />}
+        {state.showAutoFix && <AutoFixModal state={state} dispatch={dispatch} />}
+        {state.showAgentIdentity && <AgentIdentityModal state={state} dispatch={dispatch} />}
+        {state.showSandbox && <SandboxPanel state={state} dispatch={dispatch} />}
+        {state.showSwarm && <SwarmPanel state={state} dispatch={dispatch} />}
+        {state.showSemanticTypes && <SemanticTypesPanel state={state} dispatch={dispatch} />}
+        {state.showKeyboardCheatsheet && <KeyboardCheatsheet state={state} dispatch={dispatch} />}
+        {state.showReleaseNotes && <ReleaseNotes state={state} dispatch={dispatch} />}
+        {state.showInlineEditHistory && <InlineEditHistory state={state} dispatch={dispatch} />}
+        {state.showLayoutSwitcher && <LayoutSwitcher state={state} dispatch={dispatch} />}
         {state.showCommandPalette && (
           <CommandPalette state={state} dispatch={dispatch} onOpenFolder={fs.openFolder} onLock={security.lock} actions={actions.current} />
         )}
@@ -429,8 +609,9 @@ export default function App() {
         {state.showDiffViewer && <DiffViewer state={state} dispatch={dispatch} />}
         {state.showFilePalette && <FilePalette state={state} dispatch={dispatch} onFileOpen={fs.openFile} />}
         {state.showExtensions && <ExtensionManager dispatch={dispatch} />}
-        {state.showSnippets && <SnippetPalette activeFile={activeFile} dispatch={dispatch} />}
+        {state.showSnippets && <SnippetPalette activeFile={activeFile} dispatch={dispatch} state={state} />}
       </Suspense>
+      </ErrorBoundary>
     </div>
   );
 }

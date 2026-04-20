@@ -120,35 +120,69 @@ const security = {
 };
 
 // ============================================
-// Terminal — uses @tauri-apps/api/event for listen
+// Terminal — session-aware (v2.2)
 // ============================================
-let terminalUnlisten = null;
+// Backward-compatible surface:
+//   • `onData(cb)` without args still fires for EVERY session (legacy).
+//   • `onSessionData(id, cb)` subscribes to one session only.
+// The Rust side emits both a broadcast and a session-scoped event so
+// both listener styles work simultaneously without double-fire.
+
+const terminalListeners = new Map(); // id (or '*') → unlisten
+let legacyCompatUnlisten = null;
 
 const terminal = {
   create: () => safeInvoke('cmd_terminal_create'),
-  write: (data) => safeInvoke('cmd_terminal_write', { data }),
-  resize: (cols, rows) => safeInvoke('cmd_terminal_resize', { cols, rows }),
-  kill: () => safeInvoke('cmd_terminal_kill'),
+  list:   () => safeInvoke('cmd_terminal_list'),
+  write:  (data, sessionId) => safeInvoke('cmd_terminal_write', { data, sessionId: sessionId ?? null }),
+  resize: (cols, rows, sessionId) => safeInvoke('cmd_terminal_resize', { cols, rows, sessionId: sessionId ?? null }),
+  kill:   (sessionId) => safeInvoke('cmd_terminal_kill', { sessionId: sessionId ?? null }),
   runCommand: (command, cwd) => safeInvoke('cmd_run_command', { command, cwd }),
+
+  // Legacy single-callback path: invoked for every emission, receives the
+  // raw payload. Older consumers (Auto-Fix capture, single-tab Terminal)
+  // don't need to change. The payload is now `{session_id, data}` — a
+  // string `.payload.data` access keeps their usage one line shorter.
   onData: async (callback) => {
-    // Clean up previous listener
-    if (terminalUnlisten) {
-      terminalUnlisten();
-      terminalUnlisten = null;
-    }
+    if (legacyCompatUnlisten) { legacyCompatUnlisten(); legacyCompatUnlisten = null; }
     try {
-      terminalUnlisten = await listen('terminal:data', (event) => {
-        callback(event.payload);
+      legacyCompatUnlisten = await listen('terminal:data', (event) => {
+        const p = event.payload;
+        // Call with just the string so existing "term.write(payload)" code
+        // keeps working. New consumers use onSessionData.
+        callback(typeof p === 'string' ? p : (p?.data || ''));
       });
+    } catch (e) { console.error('[Lorica] terminal listen failed:', e); }
+  },
+
+  // New per-session subscription. Returns an unsubscribe function so
+  // the caller can clean up on unmount. Data arrives as `{ session_id, data }`.
+  onSessionData: async (sessionId, callback) => {
+    const key = `terminal:data:${sessionId}`;
+    try {
+      const un = await listen(key, (event) => callback(event.payload));
+      terminalListeners.set(sessionId, un);
+      return () => {
+        const fn = terminalListeners.get(sessionId);
+        if (fn) { fn(); terminalListeners.delete(sessionId); }
+      };
     } catch (e) {
-      console.error('[Lorica] terminal listen failed:', e);
+      console.error('[Lorica] terminal session listen failed:', e);
+      return () => {};
     }
   },
+
+  // Listen for session close events so tabs can prune themselves when
+  // the underlying shell exits (user typed `exit`, killed, crashed).
+  onSessionClose: async (callback) => {
+    try { return await listen('terminal:close', (event) => callback(event.payload)); }
+    catch { return () => {}; }
+  },
+
   removeDataListener: () => {
-    if (terminalUnlisten) {
-      terminalUnlisten();
-      terminalUnlisten = null;
-    }
+    if (legacyCompatUnlisten) { legacyCompatUnlisten(); legacyCompatUnlisten = null; }
+    for (const [, fn] of terminalListeners) try { fn(); } catch {}
+    terminalListeners.clear();
   },
 };
 
@@ -220,6 +254,15 @@ const git = {
     projectPath,
     baseBranch: baseBranch || null,
   }),
+  // Per-line blame — returns one row per line with {line, short_hash, author, date, summary, is_uncommitted}.
+  blame: (projectPath, filePath) => safeInvoke('cmd_git_blame', { projectPath, filePath }),
+  // Per-file churn over a time window (days). Powers the Code Heatmap.
+  churn: (projectPath, sinceDays) => safeInvoke('cmd_git_churn', { projectPath, sinceDays }),
+  // Worktree management for Swarm Development parallel execution.
+  worktreeAdd:    (projectPath, taskId, baseRef) => safeInvoke('cmd_git_worktree_add', { projectPath, taskId, baseRef: baseRef || null }),
+  worktreeRemove: (projectPath, worktreePath, force) => safeInvoke('cmd_git_worktree_remove', { projectPath, worktreePath, force: !!force }),
+  worktreeList:   (projectPath) => safeInvoke('cmd_git_worktree_list', { projectPath }),
+  worktreeMerge:  (projectPath, branches) => safeInvoke('cmd_git_worktree_merge', { projectPath, branches }),
 };
 
 // ============================================

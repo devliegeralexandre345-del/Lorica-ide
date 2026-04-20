@@ -88,10 +88,16 @@ impl HelixBuffer {
     }
 
     fn build_line_index_from_bytes(data: &[u8]) -> Vec<usize> {
+        // Every `\n` starts a new line; the trailing `\n` (if any) would
+        // produce an empty final line which standard editors expect.
+        // We still guard against pushing an out-of-range offset.
         let mut starts = vec![0usize];
         for (i, &byte) in data.iter().enumerate() {
-            if byte == b'\n' && i + 1 < data.len() {
-                starts.push(i + 1);
+            if byte == b'\n' {
+                let next = i + 1;
+                if next <= data.len() {
+                    starts.push(next);
+                }
             }
         }
         starts
@@ -168,8 +174,14 @@ impl HelixBuffer {
         self.slice(0, self.total_len)
     }
 
-    /// Insert text at a byte offset
+    /// Insert text at a byte offset. The offset is clamped to the valid
+    /// range — out-of-range calls append at EOF instead of corrupting state.
     fn insert(&mut self, offset: usize, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        let offset = offset.min(self.total_len);
+
         let add_start = self.additions.len();
         self.additions.push_str(text);
         let new_piece = Piece {
@@ -218,9 +230,20 @@ impl HelixBuffer {
         self.rebuild_line_index();
     }
 
-    /// Delete a range of bytes
+    /// Delete a range of bytes. Both bounds are clamped to the buffer —
+    /// nothing panics on overlong or out-of-range ranges, we just delete
+    /// what's in scope.
     fn delete(&mut self, offset: usize, length: usize) {
-        let delete_end = offset + length;
+        if self.total_len == 0 || length == 0 {
+            return;
+        }
+        let offset = offset.min(self.total_len);
+        let delete_end = offset.saturating_add(length).min(self.total_len);
+        let effective_len = delete_end - offset;
+        if effective_len == 0 {
+            return;
+        }
+
         let mut new_pieces = Vec::new();
         let mut pos = 0;
 
@@ -255,7 +278,7 @@ impl HelixBuffer {
         }
 
         self.pieces = new_pieces;
-        self.total_len -= length;
+        self.total_len -= effective_len;
         self.rebuild_line_index();
     }
 
@@ -264,13 +287,12 @@ impl HelixBuffer {
     }
 
     fn rebuild_line_index(&mut self) {
+        // TODO(perf): O(n) per edit — acceptable only for small/medium
+        // documents. A real piece-table line index walks pieces and
+        // accumulates `\n` offsets per piece, but that needs separate
+        // tracking. Out of scope for v2.2.
         let full = self.materialize();
-        self.line_starts = vec![0];
-        for (i, ch) in full.bytes().enumerate() {
-            if ch == b'\n' && i + 1 < full.len() {
-                self.line_starts.push(i + 1);
-            }
-        }
+        self.line_starts = Self::build_line_index_from_bytes(full.as_bytes());
     }
 }
 
@@ -305,7 +327,7 @@ pub fn cmd_open_large_file(
     };
 
     let line_count = buffer.line_count() as u64;
-    let mut manager = state.buffers.lock().unwrap();
+    let mut manager = crate::state::lock_or_recover(&state.buffers);
     manager.buffers.insert(file_path, buffer);
 
     CmdResult::ok(line_count)
@@ -318,7 +340,7 @@ pub fn cmd_get_lines(
     end_line: usize,
     state: tauri::State<AppState>,
 ) -> CmdResult<Vec<String>> {
-    let manager = state.buffers.lock().unwrap();
+    let manager = crate::state::lock_or_recover(&state.buffers);
     match manager.buffers.get(&file_path) {
         Some(buffer) => CmdResult::ok(buffer.get_lines(start_line, end_line)),
         None => CmdResult::err("Buffer not found — open the file first"),
@@ -332,7 +354,7 @@ pub fn cmd_insert_text(
     text: String,
     state: tauri::State<AppState>,
 ) -> CmdResult<bool> {
-    let mut manager = state.buffers.lock().unwrap();
+    let mut manager = crate::state::lock_or_recover(&state.buffers);
     match manager.buffers.get_mut(&file_path) {
         Some(buffer) => {
             buffer.insert(offset, &text);
@@ -349,7 +371,7 @@ pub fn cmd_delete_range(
     length: usize,
     state: tauri::State<AppState>,
 ) -> CmdResult<bool> {
-    let mut manager = state.buffers.lock().unwrap();
+    let mut manager = crate::state::lock_or_recover(&state.buffers);
     match manager.buffers.get_mut(&file_path) {
         Some(buffer) => {
             buffer.delete(offset, length);
@@ -364,9 +386,22 @@ pub fn cmd_get_line_count(
     file_path: String,
     state: tauri::State<AppState>,
 ) -> CmdResult<usize> {
-    let manager = state.buffers.lock().unwrap();
+    let manager = crate::state::lock_or_recover(&state.buffers);
     match manager.buffers.get(&file_path) {
         Some(buffer) => CmdResult::ok(buffer.line_count()),
         None => CmdResult::err("Buffer not found"),
     }
-} 
+}
+
+/// Release an mmap-backed buffer. The frontend must call this when a tab
+/// is closed — otherwise every opened large file stays memory-mapped for
+/// the lifetime of the process.
+#[tauri::command]
+pub fn cmd_close_buffer(
+    file_path: String,
+    state: tauri::State<AppState>,
+) -> CmdResult<bool> {
+    let mut manager = crate::state::lock_or_recover(&state.buffers);
+    CmdResult::ok(manager.buffers.remove(&file_path).is_some())
+}
+

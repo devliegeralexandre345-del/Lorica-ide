@@ -220,7 +220,23 @@ export function useSpotify() {
       try {
         const unlisten = await listen('spotify-oauth-callback', async (event) => {
           if (!mounted) return;
-          const code = event.payload;
+          // Backward-compat: older backend emits a bare string, newer emits
+          // {code, state}. We accept both so upgrades don't break in flight.
+          const payload = event.payload;
+          const code = typeof payload === 'string' ? payload : payload?.code;
+          const returnedState = typeof payload === 'string' ? null : payload?.state;
+          // Verify state matches what we generated before the redirect.
+          try {
+            const expected = sessionStorage.getItem('spotify_oauth_state');
+            if (expected && returnedState && expected !== returnedState) {
+              console.warn('Spotify OAuth state mismatch — rejecting callback.');
+              return;
+            }
+          } catch {
+            // sessionStorage can throw in locked-down browsers — fall through,
+            // the token fetch will fail if the code is stale anyway.
+          }
+          if (!code) return;
           await fetchToken(code);
         });
         
@@ -301,7 +317,13 @@ export function useSpotify() {
     window.localStorage.setItem('code_verifier', codeVerifier);
     const hashed = await sha256(codeVerifier);
     const codeChallenge = base64encode(hashed);
-    
+
+    // CSRF defense-in-depth alongside PKCE: we store a random state and
+    // verify it on the callback. Uses sessionStorage so it's scoped to the
+    // current window and cleared when the app closes.
+    const oauthState = generateRandomString(32);
+    try { sessionStorage.setItem('spotify_oauth_state', oauthState); } catch {}
+
     const params = new URLSearchParams({
       client_id: CLIENT_ID,
       response_type: 'code',
@@ -309,6 +331,7 @@ export function useSpotify() {
       scope: SCOPES.join(' '),
       code_challenge_method: 'S256',
       code_challenge: codeChallenge,
+      state: oauthState,
     });
     
     const authUrl = atob('aHR0cHM6Ly9hY2NvdW50cy5zcG90aWZ5LmNvbS9hdXRob3JpemU=');

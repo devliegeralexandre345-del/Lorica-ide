@@ -2,6 +2,9 @@
 import { useCallback, useRef } from 'react';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { buildToolsForPermissions, NON_DESTRUCTIVE_TOOLS } from '../utils/agentTools';
+import { buildBrainPreamble } from '../utils/projectBrain';
+import { buildIdentityPreamble } from '../utils/agentIdentity';
+import { recordAiLatency } from '../components/PerformanceHUD';
 
 const ANTHROPIC_ENDPOINT = 'https://api.anthropic.com/v1/messages';
 const DEEPSEEK_ENDPOINT = 'https://api.deepseek.com/v1/chat/completions';
@@ -539,7 +542,22 @@ export function useAgent(state, dispatch) {
     const activeFileInfo = activeFile
       ? `\nActive file: ${activeFile.path || activeFile.name} (language: ${activeFile.extension || 'plain'}).`
       : '';
-    const systemPrompt = `You are Lorica Agent, an expert AI embedded in the Lorica IDE.
+    // Agent identity preamble — a persistent lens (name, tone, proactivity,
+    // personal memory). If the user set one, we prepend it to the base
+    // system prompt so the agent shows up as the same "person" in every
+    // session. Custom-agent roles override the rest of the prompt but
+    // still inherit the identity's *how*.
+    const identityPreamble = buildIdentityPreamble(state.agentIdentity);
+    const identityHeader = identityPreamble ? identityPreamble + '\n\n' : '';
+
+    // Custom agents override the default Lorica system prompt entirely —
+    // they're meant to be domain-specialists. We still append a short
+    // "tool etiquette" postfix so they know the calling conventions.
+    const baseSystem = config?.systemPromptOverride?.trim()
+      ? `${identityHeader}${config.systemPromptOverride}\n\nYou have tools to read/write files, search, run commands (per your permissions). Use read_file before write_file. Prefer concise Markdown with fenced code blocks (include the language id). When replacing a file, start the code block with a comment giving the relative path so the IDE can attach an Apply button.\n- Project path: ${projectPath || 'unknown'}${activeFileInfo}`
+      : null;
+
+    const systemPrompt = baseSystem || `${identityHeader}You are Lorica Agent, an expert AI embedded in the Lorica IDE.
 You have direct access to the user's codebase via tools. Be concise, precise, and always use tools to read files before modifying them.
 - Project path: ${projectPath || 'unknown'}.${activeFileInfo}
 - When making code changes, PREFER write_file over re-creating files. Always read_file first.
@@ -553,8 +571,17 @@ You have direct access to the user's codebase via tools. Be concise, precise, an
     const history = [];
 
     const ctxText = await buildInitialContext(config, activeFile, projectPath);
-    if (ctxText) {
-      history.push({ role: 'user', content: ctxText });
+    // Project Brain preamble — durable project memory that the agent
+    // should have available from turn one. We inject it as its own user
+    // message so it doesn't get lost if the active-file context is heavy.
+    // Opt-in (toggled from the Brain panel) and only at the start of a
+    // new session — useAgent messages don't accumulate across sessions.
+    const brainText = state.brainInAgent && state.brainEntries?.length > 0
+      ? buildBrainPreamble(state.brainEntries, 12)
+      : null;
+    const combinedCtx = [brainText, ctxText].filter(Boolean).join('\n\n');
+    if (combinedCtx) {
+      history.push({ role: 'user', content: combinedCtx });
       history.push({ role: 'assistant', content: "Contexte reçu. Comment puis-je t'aider ?", toolCalls: [] });
     }
 
@@ -668,6 +695,7 @@ You have direct access to the user's codebase via tools. Be concise, precise, an
 
         // ── Attempt streaming request ──
         let streamError = null;
+        const reqStart = performance.now();
         try {
           response = await robustFetch(endpoint, {
             method: 'POST',
@@ -675,6 +703,10 @@ You have direct access to the user's codebase via tools. Be concise, precise, an
             body: JSON.stringify(requestBody),
             signal: controller.signal,
           }, preferNativeFetch);
+          // Record time-to-first-byte-ish latency for the HUD. We capture
+          // it BEFORE parsing the stream so the "AI responsiveness" chip
+          // reflects connection + first chunk, not total decode time.
+          try { recordAiLatency(Math.round(performance.now() - reqStart), model); } catch {}
         } catch (e) {
           streamError = e;
         }

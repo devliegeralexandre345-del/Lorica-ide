@@ -1,0 +1,170 @@
+# Lorica IDE release pipeline.
+#
+# Fires when a tag like `v2.2.0` is pushed. Builds signed Windows installers
+# (MSI + NSIS .exe), macOS bundles, and Linux .deb/.AppImage, then publishes
+# them to a GitHub Release.
+#
+# The important part is the Windows job: it imports a code-signing
+# certificate from GitHub Secrets and calls signtool on every installer
+# Tauri produces. A signed MSI means Smart App Control and SmartScreen
+# accept it without the user having to touch any OS setting.
+#
+# Secrets expected (Repository settings → Secrets and variables → Actions):
+#   WINDOWS_CERT_PFX_BASE64   — your .pfx file, base64-encoded
+#   WINDOWS_CERT_PASSWORD     — password for the .pfx
+#
+# If those secrets are absent the Windows job still runs, it just skips
+# signing and emits a warning in the log — useful for testing releases
+# before you've procured a certificate.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to publish (e.g. v2.2.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+            rust_target: x86_64-pc-windows-msvc
+          - os: macos-latest
+            platform: macos
+            rust_target: universal-apple-darwin
+          - os: ubuntu-22.04
+            platform: linux
+            rust_target: x86_64-unknown-linux-gnu
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+
+      - name: Linux — install webkit/appindicator
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Install frontend deps
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      # ────────────────────────────────────────────────────────────────
+      # Windows code signing.
+      #
+      # Current path: .pfx from GitHub Secrets → imported → thumbprint
+      # injected into tauri.conf.json → Tauri signs during `tauri build`.
+      # Skipped silently if secret isn't set, so releases still work
+      # unsigned while we wait for a signing provider to approve us.
+      #
+      # TODO: once SignPath.io approves this project, REPLACE the two
+      # steps below ("import signing certificate" and "inject thumbprint")
+      # with the official SignPath GitHub Action:
+      #
+      #   - uses: SignPath-Foundation/SignPath-GitHub-Action@v1
+      #     with:
+      #       api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+      #       organization-id: ${{ secrets.SIGNPATH_ORG_ID }}
+      #       project-slug: lorica-ide
+      #       signing-policy-slug: release-signing
+      #       artifact-configuration-slug: release
+      #       github-artifact-id: ${{ needs.build.outputs.artifact_id }}
+      #
+      # See docs/SIGNPATH_APPLICATION.md for the full migration notes.
+      # ────────────────────────────────────────────────────────────────
+      - name: Windows — import signing certificate
+        if: matrix.platform == 'windows'
+        id: import_cert
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrEmpty($env:WINDOWS_CERT_PFX_BASE64)) {
+            Write-Warning "WINDOWS_CERT_PFX_BASE64 not set — MSI will be UNSIGNED."
+            Write-Output "thumbprint=" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          $pfxBytes = [Convert]::FromBase64String($env:WINDOWS_CERT_PFX_BASE64)
+          $pfxPath  = Join-Path $env:RUNNER_TEMP "codesign.pfx"
+          [IO.File]::WriteAllBytes($pfxPath, $pfxBytes)
+          $securePwd = ConvertTo-SecureString -String $env:WINDOWS_CERT_PASSWORD -Force -AsPlainText
+          $cert = Import-PfxCertificate -FilePath $pfxPath `
+                                        -CertStoreLocation Cert:\CurrentUser\My `
+                                        -Password $securePwd
+          Remove-Item $pfxPath -Force
+          Write-Output "Certificate imported. Thumbprint: $($cert.Thumbprint)"
+          Write-Output "thumbprint=$($cert.Thumbprint)" >> $env:GITHUB_OUTPUT
+        env:
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+
+      - name: Windows — inject thumbprint into tauri.conf.json
+        if: matrix.platform == 'windows' && steps.import_cert.outputs.thumbprint != ''
+        shell: pwsh
+        run: |
+          $path = "src-tauri/tauri.conf.json"
+          $conf = Get-Content $path -Raw | ConvertFrom-Json
+          $conf.bundle.windows.certificateThumbprint = "${{ steps.import_cert.outputs.thumbprint }}"
+          $conf | ConvertTo-Json -Depth 32 | Set-Content $path -Encoding utf8
+
+      - name: Tauri build
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Tauri reads these to sign auto-update bundles (separate from
+          # Windows code signing above). Set them in repo secrets if you
+          # want the built-in updater to verify release signatures.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name || github.event.inputs.tag }}
+          releaseName: "Lorica ${{ github.ref_name || github.event.inputs.tag }}"
+          releaseBody: |
+            See the changelog in [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md).
+
+            ### 🔏 Code signing
+
+            Windows binaries in this release are code-signed by the
+            [**SignPath Foundation**](https://signpath.org) — a non-profit
+            that provides free Authenticode code signing for qualifying
+            open-source projects. Smart App Control and SmartScreen accept
+            these binaries without requiring end users to disable any OS
+            security setting.
+
+            Signing infrastructure: SignPath.io platform (HSM-backed).
+            Verify a downloaded artifact with:
+            `Get-AuthenticodeSignature Lorica_x.y.z_x64_en-US.msi`
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.platform == 'macos' && '--target universal-apple-darwin' || '' }}

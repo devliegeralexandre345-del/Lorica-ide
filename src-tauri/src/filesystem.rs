@@ -1,6 +1,42 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::Path;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+
+// Write `content` to `path` atomically: stage into a tmp file in the
+// same directory, fsync, then rename. A rename on the same filesystem is
+// guaranteed atomic on POSIX and Windows NTFS. This prevents half-written
+// files if the process dies mid-write — the caller always sees either
+// the old content or the new, never a truncated state.
+//
+// Same-directory tmp placement matters because cross-device rename
+// would fall back to a copy, losing the atomicity guarantee.
+pub(crate) fn atomic_write(path: &Path, content: &[u8]) -> std::io::Result<()> {
+    // Ensure parent exists so the tmp write doesn't fail.
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent)?;
+        }
+    }
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let file_name = path.file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "lorica".to_string());
+    let tmp: PathBuf = parent.join(format!(".{}.lorica-tmp-{}", file_name, std::process::id()));
+
+    {
+        let mut f = fs::File::create(&tmp)?;
+        f.write_all(content)?;
+        f.sync_all()?;
+    }
+    // If the rename fails (e.g. permission) make a best-effort cleanup
+    // of the tmp file so the user's directory doesn't accumulate junk.
+    if let Err(e) = fs::rename(&tmp, path) {
+        let _ = fs::remove_file(&tmp);
+        return Err(e);
+    }
+    Ok(())
+}
 
 // ======================================================
 // Types
@@ -191,7 +227,8 @@ pub fn cmd_read_file(file_path: String) -> CmdResult<FileData> {
 
 #[tauri::command]
 pub fn cmd_write_file(file_path: String, content: String) -> CmdResult<bool> {
-    match fs::write(&file_path, &content) {
+    // Atomic write so a crash mid-save can't corrupt the user's file.
+    match atomic_write(Path::new(&file_path), content.as_bytes()) {
         Ok(_) => CmdResult::ok(true),
         Err(e) => CmdResult::err(format!("Cannot write file: {}", e)),
     }

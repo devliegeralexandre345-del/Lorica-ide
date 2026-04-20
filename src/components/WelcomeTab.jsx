@@ -3,9 +3,11 @@ import {
   FolderOpen, Bot, Terminal, Shield, Keyboard,
   Sparkles, Rocket, GitBranch, Search,
   Star, Cpu, Eye, Palette, Lock, Brain, Wrench,
-  Settings, Code, GitMerge, Package, Bug
+  Settings, Code, GitMerge, Package, Bug, Clock, X,
 } from 'lucide-react';
 import LoricaLogo from './LoricaLogo';
+import { loadRecentProjects, removeRecentProject } from '../utils/recentProjects';
+import { APP_VERSION } from '../version';
 
 const FEATURES = [
   { icon: Cpu,      label: 'Rust Engine',    description: 'Backend natif ×2',       color: 'text-cyan-400',    bg: 'bg-cyan-400/10',    border: 'border-cyan-400/20' },
@@ -39,18 +41,19 @@ const QUICK_ACTIONS = [
 ];
 
 const SHORTCUTS = [
-  ['Ctrl+P',       'Command Palette'],
-  ['Ctrl+Shift+P', 'Go to File'],
-  ['Ctrl+Shift+F', 'Search in Files'],
+  ['Ctrl+P',       'Omnibar (files · commands · symbols · AI)'],
+  ['Ctrl+K',       'Inline AI edit'],
+  ['Ctrl+Shift+A', 'Multi-agent Deep Review'],
+  ['Ctrl+Alt+X',   'Auto-Fix terminal error'],
+  ['Ctrl+Alt+W',   'Swarm Development'],
+  ['Ctrl+Alt+T',   'Time Scrub'],
   ['Ctrl+K → Z',   'Zen Mode'],
-  ['Ctrl+\\',      'Split Editor'],
-  ['Ctrl+Shift+G', 'Git Panel'],
-  ['Ctrl+Shift+A', 'AI Copilot'],
-  ['Ctrl+J',       'Snippets'],
+  ['?',            'Keyboard cheatsheet'],
 ];
 
-export default function WelcomeTab({ dispatch, onOpenFolder }) {
+export default function WelcomeTab({ dispatch, onOpenFolder, onOpenProject }) {
   const [visible, setVisible] = useState(false);
+  const [recents, setRecents] = useState(() => loadRecentProjects());
 
   useEffect(() => {
     requestAnimationFrame(() => setVisible(true));
@@ -62,6 +65,15 @@ export default function WelcomeTab({ dispatch, onOpenFolder }) {
     } else {
       dispatch({ type: 'SET_PANEL', panel: action, value: true });
     }
+  };
+
+  const openRecent = (path) => {
+    if (onOpenProject) onOpenProject(path);
+  };
+  const removeRecent = (path, e) => {
+    e.stopPropagation();
+    removeRecentProject(path);
+    setRecents(loadRecentProjects());
   };
 
   return (
@@ -81,7 +93,7 @@ export default function WelcomeTab({ dispatch, onOpenFolder }) {
               <h1 className="text-2xl font-bold text-lorica-text tracking-tight">Lorica</h1>
               <span className="text-xs font-semibold px-2 py-0.5 rounded-full text-lorica-accent"
                 style={{ background: 'color-mix(in srgb, var(--color-accent) 15%, transparent)', border: '1px solid color-mix(in srgb, var(--color-accent) 30%, transparent)' }}>
-                v2.0.0
+                v{APP_VERSION}
               </span>
             </div>
             <p className="text-sm text-lorica-textDim mt-0.5">
@@ -95,6 +107,39 @@ export default function WelcomeTab({ dispatch, onOpenFolder }) {
 
           {/* Left+Center (2/3) */}
           <div className="col-span-2 flex flex-col gap-6">
+
+            {/* Recent projects — only shown if the user has any. Click
+                to re-open directly, no dialog. */}
+            {recents.length > 0 && (
+              <div>
+                <h2 className="text-sm font-semibold text-lorica-text mb-3 flex items-center gap-2">
+                  <Clock size={15} className="text-lorica-accent" />
+                  Recent projects
+                </h2>
+                <div className="grid grid-cols-2 gap-2">
+                  {recents.slice(0, 6).map((p) => (
+                    <div
+                      key={p.path}
+                      className="group flex items-center gap-2 px-3 py-2 rounded-xl bg-lorica-surface/50 border border-lorica-border/40 hover:border-lorica-accent/40 transition-colors cursor-pointer"
+                      onClick={() => openRecent(p.path)}
+                    >
+                      <FolderOpen size={13} className="text-lorica-accent flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[11px] font-semibold text-lorica-text truncate">{p.name}</div>
+                        <div className="text-[9px] text-lorica-textDim truncate" title={p.path}>{p.path}</div>
+                      </div>
+                      <button
+                        onClick={(e) => removeRecent(p.path, e)}
+                        className="opacity-0 group-hover:opacity-100 text-lorica-textDim hover:text-red-400 transition-opacity"
+                        title="Remove from recents"
+                      >
+                        <X size={10} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* What's New */}
             <div>
