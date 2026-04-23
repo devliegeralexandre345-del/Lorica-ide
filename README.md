@@ -71,16 +71,17 @@ Cette release transforme Lorica d'un **IDE avec des features IA** en un **IDE co
 
 ### 🔏 Code signing
 
-Windows releases of Lorica IDE are (or will be, once validated) digitally
-signed using **[SignPath Foundation](https://signpath.org)** — a non-profit
-service that provides free Authenticode code signing for qualifying
-open-source projects. Signed binaries are recognized by Windows
-SmartScreen and Smart App Control without prompting end users to bypass
-OS-level security.
+Windows binaries of Lorica are currently **unsigned**. We're an early-stage
+solo-maintainer project and we haven't yet qualified for the free
+code-signing programs (they require established community reputation) nor
+committed to a paid certificate. The binary you download is built
+reproducibly from the tagged commit on GitHub — you can verify the SHA-256
+against the release notes.
 
-- **Project's SignPath policy:** pending approval (application submitted to the Foundation)
-- **Signing infrastructure:** SignPath.io platform (HSM-backed, hardware key never leaves their servers)
-- **Verification:** after install, run `Get-AuthenticodeSignature C:\path\to\Lorica.exe` in PowerShell — `Status : Valid` with SignPath Foundation as the signer confirms an authentic binary
+Once Lorica has enough community traction to qualify for free signing
+(SignPath Foundation or equivalent), Windows releases will be signed
+automatically via the existing GitHub Actions pipeline — no action needed
+on your side.
 
 ### Installation rapide
 
@@ -94,27 +95,27 @@ winget install --source winget Lorica
 
 > **⚠ Avertissement SmartScreen sur Windows**
 >
-> Lorica est en cours de validation pour **SignPath Foundation**
-> (https://signpath.org/apply — code signing gratuit pour les projets
-> open-source). En attendant l'approbation, les installeurs Windows ne
-> sont pas encore signés et tu verras l'un de ces écrans :
+> Les installeurs Lorica ne sont pas encore signés avec un certificat
+> Authenticode — on est un projet OSS solo early-stage. Windows va afficher
+> un avertissement :
 >
 > **SmartScreen (écran bleu "Windows a protégé votre PC")**
 > → Clique **"Informations complémentaires"** → **"Exécuter quand même"**.
 >
-> **Smart App Control (blocage complet)**
-> → SAC bloque l'installation. Options :
-> - Clique droit sur le `.msi` → **Propriétés** → coche **"Débloquer"** → **OK**, puis relance
-> - Ou installe depuis PowerShell : `Start-Process -FilePath "Lorica_2.2.0_x64_en-US.msi"`
+> **Smart App Control (blocage complet)** — sur Windows 11 récents
+> → Clique droit sur le `.msi` → **Propriétés** → coche **"Débloquer"** → **OK**, puis relance.
+> Si SAC refuse toujours, c'est que ton OS est configuré pour ne jamais
+> accepter de binaires non signés — tu dois alors installer Lorica depuis
+> les sources (voir [Lancement depuis les sources](#lancement-depuis-les-sources))
+> ou attendre qu'on ait un certificat.
 >
-> **Pourquoi ce message ?** SmartScreen et SAC bloquent par défaut tout
-> binaire non signé avec un certificat Microsoft-partner. Une fois Lorica
-> signé (incessamment sous peu), ces écrans disparaîtront automatiquement
-> pour toutes les releases suivantes. Rien à changer côté user.
->
-> Tu peux vérifier la version du binaire avec :
-> `Get-FileHash Lorica_2.2.0_x64_en-US.msi`  et la comparer aux checksums
-> publiés dans les [release notes](https://github.com/devliegeralexandre345-del/Lorica-ide/releases).
+> **Pourquoi ce message apparaît** — SmartScreen et SAC bloquent par
+> défaut les binaires sans signature Microsoft-partner. Lorica n'a pas
+> encore cette signature (coût + reputation requise). Vérifier l'intégrité
+> du fichier téléchargé reste possible via le SHA-256 :
+> `Get-FileHash Lorica_2.2.0_x64_en-US.msi`
+> à comparer avec le hash publié dans les
+> [release notes](https://github.com/devliegeralexandre345-del/Lorica-ide/releases).
 
 **Debian / Ubuntu**
 ```bash
@@ -133,6 +134,20 @@ wget https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/dow
 chmod +x Lorica_2.2.0_amd64.AppImage
 ./Lorica_2.2.0_amd64.AppImage
 ```
+
+---
+
+## 🔒 Privacy
+
+Lorica est **local-first** et respecte le RGPD par conception :
+
+- **Zéro télémétrie.** Aucun analytics, aucun endpoint Lorica, aucun tracker embarqué.
+- **Toutes tes données restent sur ta machine** — code, fichiers, settings, historique, index semantic.
+- **Les clés API (Anthropic, DeepSeek…) sont chiffrées** localement avec Argon2id + ChaCha20-Poly1305.
+- **Les features IA sont opt-in.** Tant que tu n'entres pas de clé API, aucune donnée ne quitte ton ordinateur. Quand tu utilises l'IA, tes prompts vont **directement** au provider (Anthropic / DeepSeek) — il n'y a pas de serveur Lorica intermédiaire.
+
+📄 **Politique de confidentialité complète : [PRIVACY.md](./PRIVACY.md)**
+— détaille chaque transfert de données, tes droits RGPD, comment tout supprimer.
 
 ---
 

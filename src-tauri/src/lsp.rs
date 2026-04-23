@@ -3,13 +3,19 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 use tokio::process::{Child as AsyncChild, Command as AsyncCommand};
-use tokio::sync::mpsc::{channel, Receiver, Sender};
-use tokio::sync::Mutex as TokioMutex;
+use tokio::sync::mpsc::{channel, Sender};
+use tokio::sync::{oneshot, Mutex as TokioMutex};
 use uuid::Uuid;
 
 use crate::filesystem::CmdResult;
+
+// Maximum time we wait for an LSP response before giving up. Generous
+// because cold language servers (rust-analyzer indexing for example)
+// can take a while on the first request.
+const LSP_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 // ======================================================
 // LSP Types (Language Server Protocol)
@@ -140,10 +146,26 @@ pub fn get_lsp_server(language: &str) -> Option<(String, Vec<String>)> {
             "csharp-language-server".to_string(),
             vec!["--stdio".to_string()],
         )),
-        "java" => Some((
-            "jdtls".to_string(),
-            vec!["-configuration".to_string(), "~/.config/jdtls/config".to_string(), "-data".to_string(), "~/.cache/jdtls/workspace".to_string()],
-        )),
+        "java" => {
+            // jdtls needs concrete (expanded) paths for `-configuration`
+            // and `-data`. Rust's `Command` never expands `~`, so the
+            // old code passed the literal `~` through and jdtls either
+            // crashed or created weird `~` directories. We resolve
+            // against the real config/cache dirs via the `dirs` crate.
+            let config_dir = dirs::config_dir()
+                .map(|p| p.join("jdtls").join("config"))
+                .unwrap_or_else(|| std::path::PathBuf::from(".jdtls/config"));
+            let cache_dir = dirs::cache_dir()
+                .map(|p| p.join("jdtls").join("workspace"))
+                .unwrap_or_else(|| std::path::PathBuf::from(".jdtls/workspace"));
+            Some((
+                "jdtls".to_string(),
+                vec![
+                    "-configuration".to_string(), config_dir.to_string_lossy().to_string(),
+                    "-data".to_string(), cache_dir.to_string_lossy().to_string(),
+                ],
+            ))
+        },
         "html" => Some((
             "vscode-html-language-server".to_string(),
             vec!["--stdio".to_string()],
@@ -168,9 +190,49 @@ pub fn get_lsp_server(language: &str) -> Option<(String, Vec<String>)> {
     }
 }
 
+/// Install hint per LSP server, shown when `start_server` can't spawn
+/// the binary. The language keys match `get_lsp_server` arms.
+pub fn lsp_install_hint(language: &str) -> String {
+    match language {
+        "python" =>
+            "Install pylsp: `pipx install 'python-lsp-server[all]'`.".to_string(),
+        "javascript" | "typescript" =>
+            "Install typescript-language-server: `npm i -g typescript typescript-language-server`.".to_string(),
+        "rust" =>
+            "Install rust-analyzer: `rustup component add rust-analyzer`.".to_string(),
+        "go" =>
+            "Install gopls: `go install golang.org/x/tools/gopls@latest`.".to_string(),
+        "c" | "cpp" =>
+            "Install clangd (ships with LLVM): apt install clangd / brew install llvm.".to_string(),
+        "csharp" =>
+            "Install csharp-language-server: `dotnet tool install -g csharp-ls`.".to_string(),
+        "java" =>
+            "Install jdtls: https://github.com/eclipse-jdtls/eclipse.jdt.ls#installation".to_string(),
+        "html" | "css" | "json" =>
+            format!("Install vscode-langservers-extracted: `npm i -g vscode-langservers-extracted`."),
+        "sql" =>
+            "Install sql-language-server: `npm i -g sql-language-server`.".to_string(),
+        "php" =>
+            "Install intelephense: `npm i -g intelephense`.".to_string(),
+        _ => "No LSP server is registered for this language.".to_string(),
+    }
+}
+
 // ======================================================
 // LSP Session
 // ======================================================
+
+/// One-shot senders indexed by JSON-RPC request id. When a request is
+/// sent we register a oneshot::Sender here, and the dispatcher task
+/// (spawned in `start_server`) removes and fulfils it when the matching
+/// response comes back. The value is `Result<Value, String>` so errors
+/// from the server surface cleanly instead of looking like "placeholder".
+type PendingMap = Arc<TokioMutex<HashMap<u64, oneshot::Sender<Result<Value, String>>>>>;
+
+/// Diagnostics by URI. Populated by the dispatcher task whenever the
+/// server sends a `textDocument/publishDiagnostics` notification, read
+/// by `get_diagnostics` for the frontend.
+type DiagnosticsMap = Arc<TokioMutex<HashMap<String, Vec<Diagnostic>>>>;
 
 pub struct LspSession {
     pub id: String,
@@ -178,10 +240,12 @@ pub struct LspSession {
     pub root_uri: String,
     pub process: Option<AsyncChild>,
     pub stdin_tx: Option<Sender<String>>,
-    pub stdout_rx: Option<Receiver<String>>,
-    pub diagnostics: HashMap<String, Vec<Diagnostic>>,
-    pub completions: HashMap<String, Vec<CompletionItem>>,
-    pub symbols: HashMap<String, Vec<SymbolInformation>>,
+    /// Diagnostics by file URI — populated from `publishDiagnostics`
+    /// notifications by the dispatcher task.
+    pub diagnostics: DiagnosticsMap,
+    /// Pending request map — registered by `send_request`, drained by
+    /// the dispatcher task.
+    pub pending: PendingMap,
     pub state: LspSessionState,
     pub seq_counter: u64,
 }
@@ -203,10 +267,8 @@ impl LspSession {
             root_uri,
             process: None,
             stdin_tx: None,
-            stdout_rx: None,
-            diagnostics: HashMap::new(),
-            completions: HashMap::new(),
-            symbols: HashMap::new(),
+            diagnostics: Arc::new(TokioMutex::new(HashMap::new())),
+            pending: Arc::new(TokioMutex::new(HashMap::new())),
             state: LspSessionState::Initializing,
             seq_counter: 0,
         }
@@ -237,7 +299,11 @@ impl LspManager {
     pub async fn start_server(&self, options: LspInitOptions) -> CmdResult<String> {
         let (command, args) = match get_lsp_server(&options.language) {
             Some((cmd, args)) => (cmd, args),
-            None => return CmdResult::err(format!("No LSP server found for language: {}", options.language)),
+            None => return CmdResult::err(format!(
+                "No LSP server registered for '{}'. {}",
+                options.language,
+                lsp_install_hint(&options.language),
+            )),
         };
 
         let mut session = LspSession::new(options.language.clone(), options.root_uri.clone());
@@ -245,14 +311,17 @@ impl LspManager {
         // Spawn the LSP server process
         let mut cmd = AsyncCommand::new(&command);
         cmd.args(&args);
-        
+
         cmd.stdin(Stdio::piped())
            .stdout(Stdio::piped())
            .stderr(Stdio::piped());
 
         let mut child = match cmd.spawn() {
             Ok(child) => child,
-            Err(e) => return CmdResult::err(format!("Failed to spawn LSP server: {}", e)),
+            Err(e) => return CmdResult::err(format!(
+                "Cannot launch LSP server '{}': {}. {}",
+                command, e, lsp_install_hint(&options.language),
+            )),
         };
 
         // Set up communication channels
@@ -336,9 +405,72 @@ impl LspManager {
         });
 
         session.stdin_tx = Some(stdin_tx);
-        session.stdout_rx = Some(stdout_rx);
         session.process = Some(child);
         session.state = LspSessionState::Running;
+
+        // Dispatcher task: reads incoming JSON-RPC messages, routes
+        // responses back to their pending requests via the oneshot
+        // channel, and buckets `publishDiagnostics` notifications into
+        // the session's diagnostics map so the frontend can fetch them.
+        //
+        // Without this, the stdout channel would fill up and the LSP
+        // server would block, and every `send_request` would return a
+        // placeholder (which was the pre-v2.2 bug).
+        let pending_for_dispatcher = session.pending.clone();
+        let diagnostics_for_dispatcher = session.diagnostics.clone();
+        let mut rx = stdout_rx;
+        tokio::spawn(async move {
+            while let Some(msg) = rx.recv().await {
+                let v: Value = match serde_json::from_str(&msg) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        log::warn!("LSP: could not parse message as JSON: {}", e);
+                        continue;
+                    }
+                };
+
+                // Responses carry a numeric `id` and either a `result`
+                // or an `error` field. Notifications carry a `method`
+                // and no `id`.
+                if let Some(id) = v.get("id").and_then(|x| x.as_u64()) {
+                    let outcome = if let Some(err) = v.get("error") {
+                        let msg = err.get("message")
+                            .and_then(|m| m.as_str())
+                            .unwrap_or("LSP error");
+                        Err(msg.to_string())
+                    } else {
+                        Ok(v.get("result").cloned().unwrap_or(Value::Null))
+                    };
+                    let mut map = pending_for_dispatcher.lock().await;
+                    if let Some(sender) = map.remove(&id) {
+                        let _ = sender.send(outcome);
+                    }
+                } else if let Some(method) = v.get("method").and_then(|m| m.as_str()) {
+                    match method {
+                        "textDocument/publishDiagnostics" => {
+                            if let Some(params) = v.get("params") {
+                                let uri = params.get("uri")
+                                    .and_then(|u| u.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let diags: Vec<Diagnostic> = params.get("diagnostics")
+                                    .and_then(|d| serde_json::from_value(d.clone()).ok())
+                                    .unwrap_or_default();
+                                diagnostics_for_dispatcher.lock().await.insert(uri, diags);
+                            }
+                        }
+                        // Server-initiated requests like `window/workDoneProgress/create`
+                        // or `client/registerCapability` would require us to send a
+                        // reply. For v2.2 we ignore them — all mainstream servers
+                        // tolerate missing responses for these, the work just doesn't
+                        // report progress.
+                        _ => {
+                            log::debug!("LSP notification '{}' ignored", method);
+                        }
+                    }
+                }
+            }
+        });
 
         // Send initialize request
         let initialize_params = serde_json::json!({
@@ -431,46 +563,80 @@ impl LspManager {
         CmdResult::ok(session_id)
     }
 
-    // Send LSP request
+    // Send an LSP request and wait for the matching response.
+    //
+    // The flow:
+    //   1. Assign a unique numeric id (session.seq_counter).
+    //   2. Register a oneshot::Sender in session.pending keyed by id.
+    //   3. Write the Content-Length-framed JSON to stdin.
+    //   4. Await the oneshot receiver with a timeout. The dispatcher
+    //      task set up in `start_server` parses incoming messages and
+    //      fulfils the matching sender.
+    //
+    // Pre-v2.2 this returned a hard-coded placeholder — the frontend
+    // could never actually receive completion / hover / definition
+    // responses. Every LSP feature is blocked behind this fix.
     pub async fn send_request(&self, session_id: &str, method: String, params: Option<Value>) -> CmdResult<Value> {
-        let mut sessions = self.sessions.lock().await;
-        let session = match sessions.get_mut(session_id) {
-            Some(session) => session,
-            None => return CmdResult::err(format!("Session not found: {}", session_id)),
+        // Step 1: collect everything we need from the session under the
+        // sessions lock, then drop it so we don't hold it across the
+        // network wait.
+        let (id, stdin_tx, pending, method_for_log) = {
+            let mut sessions = self.sessions.lock().await;
+            let session = match sessions.get_mut(session_id) {
+                Some(session) => session,
+                None => return CmdResult::err(format!("Session not found: {}", session_id)),
+            };
+            if session.state != LspSessionState::Initialized && session.state != LspSessionState::Running {
+                return CmdResult::err(format!("Session is not ready: {:?}", session.state));
+            }
+            let id = session.next_seq();
+            let stdin_tx = match session.stdin_tx.clone() {
+                Some(tx) => tx,
+                None => return CmdResult::err("LSP stdin not available".to_string()),
+            };
+            (id, stdin_tx, session.pending.clone(), method.clone())
         };
 
-        if session.state != LspSessionState::Initialized && session.state != LspSessionState::Running {
-            return CmdResult::err(format!("Session is not ready: {:?}", session.state));
-        }
+        // Step 2: register the pending oneshot BEFORE sending, so a
+        // super-fast server can't reply before we're listening.
+        let (tx, rx) = oneshot::channel::<Result<Value, String>>();
+        pending.lock().await.insert(id, tx);
 
-        let id = session.next_seq();
+        // Step 3: serialize and send.
         let request = LspRequest {
             jsonrpc: "2.0".to_string(),
             id,
-            method: method.clone(),
+            method,
             params,
         };
-
         let request_json = match serde_json::to_string(&request) {
             Ok(json) => json,
-            Err(e) => return CmdResult::err(format!("Failed to serialize request: {}", e)),
-        };
-
-        let content_length = request_json.len();
-        let full_message = format!("Content-Length: {}\r\n\r\n{}", content_length, request_json);
-
-        // Send the request
-        if let Some(stdin_tx) = &session.stdin_tx {
-            if let Err(e) = stdin_tx.send(full_message).await {
-                return CmdResult::err(format!("Failed to send request: {}", e));
+            Err(e) => {
+                pending.lock().await.remove(&id);
+                return CmdResult::err(format!("Failed to serialize request: {}", e));
             }
-        } else {
-            return CmdResult::err("LSP stdin not available".to_string());
+        };
+        let framed = format!("Content-Length: {}\r\n\r\n{}", request_json.len(), request_json);
+        if let Err(e) = stdin_tx.send(framed).await {
+            pending.lock().await.remove(&id);
+            return CmdResult::err(format!("Failed to send request: {}", e));
         }
 
-        // In a real implementation, we would wait for the response and match by id
-        // For now, return a placeholder result
-        CmdResult::ok(serde_json::json!({ "result": "placeholder" }))
+        // Step 4: await the response. Timeout caps how long a broken
+        // or overwhelmed server can stall the UI.
+        match tokio::time::timeout(LSP_REQUEST_TIMEOUT, rx).await {
+            Ok(Ok(Ok(value))) => CmdResult::ok(value),
+            Ok(Ok(Err(err_msg))) => CmdResult::err(format!("LSP '{}': {}", method_for_log, err_msg)),
+            Ok(Err(_canceled)) => CmdResult::err(format!("LSP '{}' pipe closed", method_for_log)),
+            Err(_timeout) => {
+                // Drop the pending entry so a late response doesn't
+                // accumulate. The dispatcher's removal would also
+                // handle this, but being explicit is cheaper than
+                // leaking memory if the server never replies.
+                pending.lock().await.remove(&id);
+                CmdResult::err(format!("LSP '{}' timed out", method_for_log))
+            }
+        }
     }
 
     // Send LSP notification
@@ -511,20 +677,20 @@ impl LspManager {
         CmdResult::ok(())
     }
 
-    // Get diagnostics for a language
+    // Return all diagnostics the dispatcher has received for this
+    // session, across every file URI the server has reported on.
+    // The frontend typically filters by the active file's URI.
     pub async fn get_diagnostics(&self, session_id: &str) -> CmdResult<Vec<Diagnostic>> {
-        let sessions = self.sessions.lock().await;
-        let session = match sessions.get(session_id) {
-            Some(session) => session,
-            None => return CmdResult::err(format!("Session not found: {}", session_id)),
+        let diagnostics_arc = {
+            let sessions = self.sessions.lock().await;
+            match sessions.get(session_id) {
+                Some(session) => session.diagnostics.clone(),
+                None => return CmdResult::err(format!("Session not found: {}", session_id)),
+            }
         };
-
-        let mut all_diagnostics = Vec::new();
-        for diagnostics in session.diagnostics.values() {
-            all_diagnostics.extend(diagnostics.clone());
-        }
-
-        CmdResult::ok(all_diagnostics)
+        let diagnostics = diagnostics_arc.lock().await;
+        let all: Vec<Diagnostic> = diagnostics.values().flat_map(|v| v.iter().cloned()).collect();
+        CmdResult::ok(all)
     }
 
     // Stop LSP server
@@ -601,20 +767,23 @@ impl LspManager {
 // but every follow-up request received "no such session" because the
 // manager holding the spawned process had already dropped.
 
+// Tauri async commands that borrow their inputs must return
+// `Result<T, E>`. `.into_result()` does the CmdResult → Result hop.
+
 #[tauri::command]
 pub async fn cmd_lsp_start(
     state: tauri::State<'_, crate::state::AppState>,
     options: LspInitOptions,
-) -> CmdResult<String> {
-    state.lsp.start_server(options).await
+) -> Result<String, String> {
+    state.lsp.start_server(options).await.into_result()
 }
 
 #[tauri::command]
 pub async fn cmd_lsp_stop(
     state: tauri::State<'_, crate::state::AppState>,
     session_id: String,
-) -> CmdResult<()> {
-    state.lsp.stop_server(&session_id).await
+) -> Result<(), String> {
+    state.lsp.stop_server(&session_id).await.into_result()
 }
 
 #[tauri::command]
@@ -623,8 +792,8 @@ pub async fn cmd_lsp_request(
     session_id: String,
     method: String,
     params: Option<Value>,
-) -> CmdResult<Value> {
-    state.lsp.send_request(&session_id, method, params).await
+) -> Result<Value, String> {
+    state.lsp.send_request(&session_id, method, params).await.into_result()
 }
 
 #[tauri::command]
@@ -633,14 +802,14 @@ pub async fn cmd_lsp_notify(
     session_id: String,
     method: String,
     params: Option<Value>,
-) -> CmdResult<()> {
-    state.lsp.send_notification(&session_id, method, params).await
+) -> Result<(), String> {
+    state.lsp.send_notification(&session_id, method, params).await.into_result()
 }
 
 #[tauri::command]
 pub async fn cmd_lsp_diagnostics(
     state: tauri::State<'_, crate::state::AppState>,
     session_id: String,
-) -> CmdResult<Vec<Diagnostic>> {
-    state.lsp.get_diagnostics(&session_id).await
+) -> Result<Vec<Diagnostic>, String> {
+    state.lsp.get_diagnostics(&session_id).await.into_result()
 }

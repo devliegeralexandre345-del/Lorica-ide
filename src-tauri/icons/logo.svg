@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Lorica IDE — master brand logo SVG.
+
+  This is the *brand* mark used for OS-level icons (taskbar, tray, MSI
+  installer, macOS .icns). It has fixed brand colours that don't vary
+  with the in-app theme.
+
+  NOT the same as `src/components/LoricaLogo.jsx`, which is the
+  theme-aware variant used inside the app — that one binds to the
+  `color-accent` CSS custom property with opacity fade so it recolours
+  when the user switches themes. Both share the same geometry: five
+  rounded bars, decreasing widths, centred horizontally.
+
+  Geometry:
+    viewBox 100×90
+    bar height 14, gap 5
+    rounded corners rx = 7
+    bar width 80 (uniform — every bar is the same size; only the
+                  horizontal alignment changes to produce the zig-zag)
+    alignment  [left, centre, right, left, centre]
+    y offsets  [0, 19, 38, 57, 76]
+
+    Computed x positions (given viewBox width 100, bar width 80):
+      bar 1 (left)   : x = 0
+      bar 2 (centre) : x = 10
+      bar 3 (right)  : x = 20
+      bar 4 (left)   : x = 0
+      bar 5 (centre) : x = 10
+
+  Brand palette (top → bottom): magenta → purple → periwinkle → sky →
+  pale cyan. Approximate sampling from the reference brand mark; tweak
+  hex values here if the design evolves.
+
+  Regenerate raster icons after every edit — see `docs/ICONS.md`.
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 100 90"
+     fill="none"
+     role="img"
+     aria-label="Lorica IDE logo">
+  <rect x="0"  y="0"  width="80" height="14" rx="7" fill="#B878F5" />
+  <rect x="10" y="19" width="80" height="14" rx="7" fill="#9C89F0" />
+  <rect x="20" y="38" width="80" height="14" rx="7" fill="#8EB3ED" />
+  <rect x="0"  y="57" width="80" height="14" rx="7" fill="#7FD2EC" />
+  <rect x="10" y="76" width="80" height="14" rx="7" fill="#BFEFF6" />
+</svg>

@@ -2,6 +2,8 @@ import React, { useReducer, useEffect, useCallback, useRef, useMemo, Suspense, l
 import { appReducer, initialState } from './store/appReducer';
 import { THEMES } from './utils/themes';
 import { useFileSystem } from './hooks/useFileSystem';
+import { useFileWatcher } from './hooks/useFileWatcher';
+import { useLSP } from './hooks/useLSP';
 import { useAI } from './hooks/useAI';
 import { useSecurity } from './hooks/useSecurity';
 import { useSpotify } from './hooks/useSpotify';
@@ -43,6 +45,7 @@ import ImagePreview, { isImageFile } from './components/ImagePreview';
 import FilePreview, { hasPreview } from './components/FilePreview';
 import PerformanceHUD from './components/PerformanceHUD';
 import AmbientHUD from './components/AmbientHUD';
+import AIConsentModal from './components/AIConsentModal';
 
 // -------------------------------------------------------------------
 // Lazy-loaded — only fetched when the user actually opens them. Each
@@ -112,6 +115,18 @@ export default function App() {
   // Auto-reindex the semantic search index on file changes. No-op until
   // the user manually builds an index for the project at least once.
   const semanticAuto = useSemanticAutoReindex(state.projectPath, true);
+  // Auto-refresh the file tree when files change outside Lorica (git
+  // checkout, npm install, another editor). Without this hook users have
+  // to manually click Refresh to see new files.
+  useFileWatcher(state.projectPath, fs.refreshTree);
+
+  // Language Server Protocol integration. Spins up one server process
+  // per language on-demand (first Python file opened → starts pylsp,
+  // first Rust file → starts rust-analyzer, etc.), then forwards
+  // completion / hover / definition requests from the editor. Servers
+  // aren't bundled — the user has to install them. If missing, the
+  // static completion dictionary still works.
+  const lsp = useLSP(state);
   // Restore last-session workspace (project + open tabs + layout) on boot,
   // then debounce-save on any relevant change.
   useSession(state, dispatch, fs);
@@ -168,6 +183,13 @@ export default function App() {
     root.style.setProperty('--color-success',    t.success || '#22c55e');
     root.style.setProperty('--color-text',       t.text);
     root.style.setProperty('--color-textDim',    t.textDim);
+    // 5-stop palette for the in-app logo (LoricaLogo.jsx). Falls back to
+    // the accent colour if a theme forgot to define one, so the logo is
+    // never invisible.
+    const bars = t.logoBars || [t.accent, t.accent, t.accent, t.accent, t.accent];
+    for (let i = 0; i < 5; i++) {
+      root.style.setProperty(`--color-logo-${i + 1}`, bars[i] || t.accent);
+    }
   }, [state.theme]);
 
   // =============================================
@@ -419,6 +441,7 @@ export default function App() {
                         projectPath={state.projectPath}
                         bookmarks={state.bookmarks?.[activeFile?.path] || null}
                         semanticMarks={state.semanticTypes?.[activeFile?.path]?.mismatches || null}
+                        lspRequestCompletion={lsp.requestCompletion}
                       />
                     </ErrorBoundary>
                   )}
@@ -457,6 +480,7 @@ export default function App() {
                             projectPath={state.projectPath}
                             bookmarks={state.bookmarks?.[splitFile?.path] || null}
                             semanticMarks={state.semanticTypes?.[splitFile?.path]?.mismatches || null}
+                            lspRequestCompletion={lsp.requestCompletion}
                           />
                         </ErrorBoundary>
                       )}
@@ -561,6 +585,10 @@ export default function App() {
 
       {/* Ambient HUD — surfaces background work the user might not otherwise notice. */}
       <AmbientHUD state={state} dispatch={dispatch} />
+
+      {/* RGPD consent gate for AI features. Shown the first time any AI
+          feature is triggered — blocks the call until the user decides. */}
+      <AIConsentModal state={state} dispatch={dispatch} />
 
       {/* Modal stack — all lazy-loaded, share one Suspense boundary, and
           wrapped in an ErrorBoundary so a crash inside any modal never

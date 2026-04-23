@@ -48,6 +48,35 @@ export const initialState = {
   aiApiKey: '',
   aiProvider: 'anthropic',     // 'anthropic' | 'deepseek'
   aiDeepseekKey: '',
+  // RGPD consent: user must explicitly agree before the first AI call
+  // transmits any prompt or code context to a third-party provider.
+  // Persisted to localStorage once accepted; stays per-machine.
+  aiConsentGiven: (() => {
+    try {
+      return localStorage.getItem('lorica.ai.consent.v1') === 'true';
+    } catch {
+      return false;
+    }
+  })(),
+  // When true, renders the consent modal. Set to true by any AI feature
+  // that finds aiConsentGiven === false right before calling a provider.
+  aiConsentModalOpen: false,
+
+  // Enabled-features map. Loaded from localStorage with defaults from
+  // utils/features.js. Commands tagged with a `feature` key only show
+  // in the Omnibar / respond to shortcuts when the feature is enabled.
+  // This is the "soft" extensions system — v2.3 will convert it to
+  // true dynamic imports.
+  enabledFeatures: (() => {
+    try {
+      // Lazy-import at init to avoid a circular dep at module load.
+      // eslint-disable-next-line global-require
+      const { loadEnabledFeatures } = require('../utils/features');
+      return loadEnabledFeatures();
+    } catch {
+      return {};
+    }
+  })(),
 
   // Inline AI ghost-text completion (Copilot-style)
   aiInlineEnabled: false,
@@ -384,6 +413,36 @@ export function appReducer(state, action) {
       return { ...state, aiDeepseekKey: action.key };
     case 'SET_AI_INLINE_ENABLED':
       return { ...state, aiInlineEnabled: !!action.value };
+    case 'SET_AI_CONSENT': {
+      const value = !!action.value;
+      try { localStorage.setItem('lorica.ai.consent.v1', value ? 'true' : 'false'); } catch {}
+      return { ...state, aiConsentGiven: value, aiConsentModalOpen: false };
+    }
+    case 'OPEN_AI_CONSENT_MODAL':
+      return { ...state, aiConsentModalOpen: true };
+    case 'CLOSE_AI_CONSENT_MODAL':
+      return { ...state, aiConsentModalOpen: false };
+    case 'SET_FEATURE_ENABLED': {
+      const next = { ...state.enabledFeatures, [action.featureId]: !!action.enabled };
+      try {
+        // Inline save so we don't pull a side-effect module into the
+        // reducer's top-level scope (avoids the require() cost on
+        // every dispatch).
+        // eslint-disable-next-line global-require
+        require('../utils/features').saveEnabledFeatures(next);
+      } catch {}
+      return { ...state, enabledFeatures: next };
+    }
+    case 'RESET_FEATURES': {
+      try {
+        // eslint-disable-next-line global-require
+        const { resetFeatures, loadEnabledFeatures } = require('../utils/features');
+        resetFeatures();
+        return { ...state, enabledFeatures: loadEnabledFeatures() };
+      } catch {
+        return state;
+      }
+    }
     case 'SET_THEME':
       return { ...state, theme: action.theme };
     case 'SET_STATUS':

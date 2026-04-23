@@ -27,18 +27,36 @@ const SAVE_DEBOUNCE_MS = 400;
 // explicitly — blanket serialization would sneak in runtime-only data.
 function captureSession(state) {
   return {
+    // Workspace
     projectPath: state.projectPath || null,
     openFiles: (state.openFiles || []).map((f) => ({ path: f.path })),
     activeFileIndex: state.activeFileIndex ?? -1,
+
+    // Appearance / layout
     theme: state.theme,
     showFileTree: state.showFileTree,
     showTerminal: state.showTerminal,
     showAIPanel: state.showAIPanel,
     showInstantPreview: state.showInstantPreview,
     showMinimap: state.showMinimap,
+
+    // Behavior toggles the user sets in Settings — previously not
+    // persisted, which is why checkboxes in Settings seemed to "forget"
+    // their value on relaunch.
+    autoSave: state.autoSave,
+    autoSaveDelay: state.autoSaveDelay,
+    autoLockMinutes: state.autoLockMinutes,
     blameEnabled: state.blameEnabled,
     aiInlineEnabled: state.aiInlineEnabled,
     aiProvider: state.aiProvider,
+    heatmapEnabled: state.heatmapEnabled,
+    heatmapRange: state.heatmapRange,
+    semanticAutoEnabled: state.semanticAutoEnabled,
+
+    // NOTE: `enabledFeatures` has its own localStorage key managed by
+    // utils/features.js — no duplication here. Hydrated directly at
+    // reducer init time.
+
     zenMode: false, // Always boot non-zen.
   };
 }
@@ -65,23 +83,45 @@ export function useSession(state, dispatch, fs) {
     let session;
     try { session = JSON.parse(raw); } catch { return; }
 
-    // Apply layout toggles immediately — these are cheap and don't depend
-    // on async operations.
-    const layoutKeys = [
+    // Apply layout + behavior toggles immediately — these are cheap and
+    // don't depend on async operations. Each toggle uses its dedicated
+    // action type; generic SET_PANEL only applies to visibility panels.
+    const apply = (key, value) => {
+      if (value == null) return;
+      switch (key) {
+        case 'theme':            dispatch({ type: 'SET_THEME', theme: value }); break;
+        case 'aiProvider':       dispatch({ type: 'SET_AI_PROVIDER', provider: value }); break;
+        case 'aiInlineEnabled':  dispatch({ type: 'SET_AI_INLINE_ENABLED', value }); break;
+        case 'blameEnabled':     dispatch({ type: 'SET_BLAME_ENABLED', value }); break;
+        case 'showMinimap':      dispatch({ type: 'SET_MINIMAP', value }); break;
+        case 'autoSave':         dispatch({ type: 'SET_AUTO_SAVE', value }); break;
+        case 'autoSaveDelay':    dispatch({ type: 'SET_AUTO_SAVE_DELAY', delay: value }); break;
+        case 'autoLockMinutes':  dispatch({ type: 'SET_AUTO_LOCK_MINUTES', minutes: value }); break;
+        // Toggle-style actions: only dispatch when the stored value
+        // differs from the default-false initial state, otherwise we'd
+        // accidentally flip it off on restore.
+        case 'heatmapEnabled':
+          if (value) dispatch({ type: 'TOGGLE_HEATMAP' });
+          break;
+        case 'semanticAutoEnabled':
+          if (value) dispatch({ type: 'TOGGLE_SEMANTIC_AUTO' });
+          break;
+        case 'heatmapRange':
+          if (typeof value === 'number') dispatch({ type: 'SET_HEATMAP_RANGE', days: value });
+          break;
+        // Anything else is a panel visibility boolean.
+        default:
+          dispatch({ type: 'SET_PANEL', panel: key, value: !!value });
+      }
+    };
+    const restoreKeys = [
       'theme', 'showFileTree', 'showTerminal', 'showAIPanel',
       'showInstantPreview', 'showMinimap', 'blameEnabled',
       'aiInlineEnabled', 'aiProvider',
+      'autoSave', 'autoSaveDelay', 'autoLockMinutes',
+      'heatmapEnabled', 'heatmapRange', 'semanticAutoEnabled',
     ];
-    for (const k of layoutKeys) {
-      if (session[k] != null) {
-        if (k === 'theme') dispatch({ type: 'SET_THEME', theme: session[k] });
-        else if (k === 'aiProvider') dispatch({ type: 'SET_AI_PROVIDER', provider: session[k] });
-        else if (k === 'aiInlineEnabled') dispatch({ type: 'SET_AI_INLINE_ENABLED', value: session[k] });
-        else if (k === 'blameEnabled') dispatch({ type: 'SET_BLAME_ENABLED', value: session[k] });
-        else if (k === 'showMinimap') dispatch({ type: 'SET_MINIMAP', value: session[k] });
-        else dispatch({ type: 'SET_PANEL', panel: k, value: !!session[k] });
-      }
-    }
+    for (const k of restoreKeys) apply(k, session[k]);
 
     // Re-open the project (loads fileTree, then re-opens tabs).
     if (session.projectPath) {
@@ -130,5 +170,11 @@ export function useSession(state, dispatch, fs) {
     state.blameEnabled,
     state.aiInlineEnabled,
     state.aiProvider,
+    state.autoSave,
+    state.autoSaveDelay,
+    state.autoLockMinutes,
+    state.heatmapEnabled,
+    state.heatmapRange,
+    state.semanticAutoEnabled,
   ]);
 }

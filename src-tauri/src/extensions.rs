@@ -392,11 +392,40 @@ pub fn cmd_debug_run(config: DebugConfig) -> CmdResult<DebugOutput> {
                 a
             })
         },
-        "javascript" | "typescript" => ("node".to_string(), {
+        "javascript" => ("node".to_string(), {
             let mut a = vec![program.clone()];
             a.extend(config.args);
             a
         }),
+        "typescript" => {
+            // `node foo.ts` silently fails — Node has no TS loader by
+            // default. Prefer whatever the user has installed: `tsx`
+            // (modern ESM-friendly) → `ts-node` (classic). Falls back
+            // to `node` with a note if neither is on PATH.
+            let finder = if cfg!(target_os = "windows") { "where" } else { "which" };
+            let has = |bin: &str| std::process::Command::new(finder)
+                .arg(bin).output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+            let runner = if has("tsx") {
+                "tsx"
+            } else if has("ts-node") {
+                "ts-node"
+            } else {
+                // No loader → tell the user instead of silently
+                // producing cryptic SyntaxError.
+                return CmdResult::ok(DebugOutput {
+                    stdout: String::new(),
+                    stderr: "TypeScript runner not found.\n\nInstall one of:\n  npm i -g tsx\n  npm i -g ts-node\n".to_string(),
+                    exit_code: Some(127),
+                });
+            };
+            (runner.to_string(), {
+                let mut a = vec![program.clone()];
+                a.extend(config.args);
+                a
+            })
+        },
         "rust" => ("cargo".to_string(), {
             let mut a = vec!["run".to_string()];
             if !config.args.is_empty() {
@@ -406,21 +435,65 @@ pub fn cmd_debug_run(config: DebugConfig) -> CmdResult<DebugOutput> {
             a
         }),
         "cpp" | "c" => {
-            // Compile first in the file's directory
-            let out_name = if cfg!(target_os = "windows") { "lorica_debug.exe" } else { "./lorica_debug" };
-            let compiler = if config.language == "c" { "gcc" } else { "g++" };
+            // Decisions baked into this branch:
+            //   1. Pass the SOURCE as an absolute path so we don't rely on
+            //      cwd matching the file's directory — the frontend often
+            //      forces cwd = projectPath, which breaks the basename path.
+            //   2. Put the output binary in the OS temp dir so repeated
+            //      runs don't litter the user's source folder and so
+            //      Windows exe-discovery rules don't bite us.
+            //   3. Use the right standard flag per language — gcc rejects
+            //      `-std=c++17` on a .c file, so C and C++ get separate
+            //      flags.
+            //   4. Add `-pthread` on Unix — a huge chunk of real-world
+            //      C/C++ needs it and it's harmless otherwise.
+            let is_c = config.language == "c";
+            let compiler = if is_c { "gcc" } else { "g++" };
+            let std_flag = if is_c { "-std=c11" } else { "-std=c++17" };
 
-            log::info!("Compiling {} with {} in {}", filename, compiler, cwd);
+            // Absolute source path. If `program` is already absolute we
+            // keep it; otherwise join with cwd (best-effort).
+            let src_path = std::path::Path::new(program);
+            let src_abs = if src_path.is_absolute() {
+                program.clone()
+            } else {
+                std::path::Path::new(&cwd)
+                    .join(src_path)
+                    .to_string_lossy()
+                    .to_string()
+            };
+
+            // Output binary: `<tmp>/lorica_debug_<pid>[.exe]`. Unique per
+            // running IDE instance so two Loricas don't stomp on each
+            // other's binaries.
+            let exe_suffix = if cfg!(target_os = "windows") { ".exe" } else { "" };
+            let out_path = std::env::temp_dir().join(format!(
+                "lorica_debug_{}{}", std::process::id(), exe_suffix
+            ));
+            let out_str = out_path.to_string_lossy().to_string();
+
+            // Compile args. `-pthread` only makes sense on Unix toolchains;
+            // MinGW wants `-pthread` too but it's a no-op if the runtime
+            // doesn't need it. MSVC via `cl.exe` isn't supported here (the
+            // user would need a separate MSVC path — out of scope for v2.2).
+            let mut compile_args: Vec<&str> = vec![
+                &src_abs, "-o", &out_str, "-g", std_flag,
+            ];
+            if !cfg!(target_os = "windows") {
+                compile_args.push("-pthread");
+            }
+
+            log::info!("Compiling {:?} with {} → {:?}", src_abs, compiler, out_path);
 
             let compile = Command::new(compiler)
-                .args(&[filename.as_str(), "-o", out_name, "-g", "-std=c++17"])
+                .args(&compile_args)
                 .current_dir(&cwd)
                 .output();
 
             match compile {
                 Ok(c) if c.status.success() => {
-                    log::info!("Compilation successful, running {}", out_name);
-                    (out_name.to_string(), config.args)
+                    log::info!("Compilation successful, running {:?}", out_path);
+                    (out_str, config.args)
                 },
                 Ok(c) => {
                     return CmdResult::ok(DebugOutput {
@@ -429,11 +502,20 @@ pub fn cmd_debug_run(config: DebugConfig) -> CmdResult<DebugOutput> {
                         exit_code: Some(c.status.code().unwrap_or(1)),
                     });
                 }
-                Err(e) => return CmdResult::ok(DebugOutput {
-                    stdout: String::new(),
-                    stderr: format!("Compiler '{}' not found: {}\n\nInstall MinGW or MSVC Build Tools.", compiler, e),
-                    exit_code: Some(127),
-                }),
+                Err(e) => {
+                    let hint = if cfg!(target_os = "windows") {
+                        "Install MinGW-w64 (https://www.mingw-w64.org) or the Visual C++ Build Tools, then restart Lorica."
+                    } else if cfg!(target_os = "macos") {
+                        "Install Xcode Command Line Tools: `xcode-select --install`."
+                    } else {
+                        "Install g++ / gcc: `sudo apt install build-essential` (Debian/Ubuntu) or equivalent."
+                    };
+                    return CmdResult::ok(DebugOutput {
+                        stdout: String::new(),
+                        stderr: format!("Compiler '{}' not found: {}\n\n{}", compiler, e, hint),
+                        exit_code: Some(127),
+                    });
+                }
             }
         }
         "csharp" => ("dotnet".to_string(), {

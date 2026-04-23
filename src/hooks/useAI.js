@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { hasAIConsentOrPrompt } from '../utils/aiConsent';
 
 // Language context limits (character counts)
 const LANG_CONTEXT_LIMITS = {
@@ -68,6 +69,17 @@ export function useAI(state, dispatch) {
       dispatch({
         type: 'ADD_AI_MESSAGE',
         message: { role: 'assistant', content: '⚠️ Configure your DeepSeek API key in Settings first. Get it at platform.deepseek.com' },
+      });
+      return;
+    }
+
+    // RGPD gate: no data leaves the machine until the user has seen the
+    // consent modal at least once. Opens the modal as a side effect if
+    // not yet accepted — user re-runs the action after agreeing.
+    if (!hasAIConsentOrPrompt(state, dispatch)) {
+      dispatch({
+        type: 'ADD_AI_MESSAGE',
+        message: { role: 'assistant', content: '⏸️ Approbation nécessaire avant le premier envoi à l\'IA. Voir la fenêtre de consentement.' },
       });
       return;
     }

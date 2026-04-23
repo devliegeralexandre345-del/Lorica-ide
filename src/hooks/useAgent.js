@@ -5,6 +5,7 @@ import { buildToolsForPermissions, NON_DESTRUCTIVE_TOOLS } from '../utils/agentT
 import { buildBrainPreamble } from '../utils/projectBrain';
 import { buildIdentityPreamble } from '../utils/agentIdentity';
 import { recordAiLatency } from '../components/PerformanceHUD';
+import { hasAIConsentOrPrompt } from '../utils/aiConsent';
 
 const ANTHROPIC_ENDPOINT = 'https://api.anthropic.com/v1/messages';
 const DEEPSEEK_ENDPOINT = 'https://api.deepseek.com/v1/chat/completions';
@@ -529,6 +530,16 @@ export function useAgent(state, dispatch) {
       dispatch({
         type: 'AGENT_ADD_MESSAGE',
         message: { role: 'assistant', content: `⚠️ Configure ta clé API ${providerLabel} dans les Paramètres.` },
+      });
+      return;
+    }
+
+    // RGPD: block the first call until the user has seen and accepted
+    // the consent modal. Opens it as a side effect if needed.
+    if (!hasAIConsentOrPrompt(state, dispatch)) {
+      dispatch({
+        type: 'AGENT_ADD_MESSAGE',
+        message: { role: 'assistant', content: '⏸️ Ton accord est nécessaire avant le premier envoi à l\'IA. Lis la fenêtre de consentement et réessaie.' },
       });
       return;
     }

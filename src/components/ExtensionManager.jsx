@@ -155,74 +155,97 @@ export default function ExtensionManager({ dispatch }) {
               const color = CATEGORY_COLORS[ext.category] || 'text-lorica-textDim';
               const isInstalling = installing === ext.id;
 
+              // Friendlier message for the apt-get lock race. The raw
+              // dpkg error is overwhelming and not actionable for a
+              // non-sysadmin user.
+              const friendlyError = (raw) => {
+                if (!raw) return raw;
+                if (raw.includes('dpkg/lock') || raw.includes('Could not get lock')) {
+                  return "Another package manager is running (apt / dpkg). Wait for it to finish or close it, then try again.";
+                }
+                return raw;
+              };
+
               return (
-                <div key={ext.id} className="flex items-start gap-3 px-4 py-3 border-b border-lorica-border/30 hover:bg-lorica-panel/50 transition-colors group">
-                  <div className={`mt-0.5 p-1.5 rounded-lg ${ext.installed ? 'bg-green-400/10' : 'bg-lorica-bg'}`}>
-                    <Icon size={16} className={ext.installed ? 'text-green-400' : color} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-semibold text-lorica-text">{ext.name}</span>
-                      <span className="text-[9px] text-lorica-textDim">v{ext.version}</span>
+                <div key={ext.id} className="border-b border-lorica-border/30 hover:bg-lorica-panel/50 transition-colors group">
+                  <div className="flex items-start gap-3 px-4 py-3">
+                    <div className={`mt-0.5 p-1.5 rounded-lg flex-shrink-0 ${ext.installed ? 'bg-green-400/10' : 'bg-lorica-bg'}`}>
+                      <Icon size={16} className={ext.installed ? 'text-green-400' : color} />
                     </div>
-                    <div className="text-[10px] text-lorica-textDim mt-0.5">{ext.description}</div>
-                    <div className="flex gap-1 mt-1">
-                      {ext.languages.map(l => (
-                        <span key={l} className="px-1.5 py-0.5 text-[9px] bg-lorica-bg rounded text-lorica-textDim capitalize">{l}</span>
-                      ))}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold text-lorica-text">{ext.name}</span>
+                        <span className="text-[9px] text-lorica-textDim">v{ext.version}</span>
+                      </div>
+                      <div className="text-[10px] text-lorica-textDim mt-0.5 break-words">{ext.description}</div>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {ext.languages.map(l => (
+                          <span key={l} className="px-1.5 py-0.5 text-[9px] bg-lorica-bg rounded text-lorica-textDim capitalize">{l}</span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex-shrink-0 max-w-[140px]">
+                      {ext.installed ? (
+                        <div className="flex items-center gap-1">
+                          <span className="text-[10px] text-green-400 flex items-center gap-1"><Check size={10} /> Installed</span>
+                          <button
+                            onClick={() => handleUninstall(ext)}
+                            className="opacity-0 group-hover:opacity-100 p-1 text-lorica-textDim hover:text-red-400 transition-all"
+                            title="Uninstall"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-end gap-1">
+                          {isInstalling && progress[ext.id] > 0 ? (
+                            <div className="w-20 h-1.5 bg-lorica-border rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-lorica-accent transition-all duration-200"
+                                style={{ width: `${progress[ext.id]}%` }}
+                              />
+                            </div>
+                          ) : null}
+                          <button
+                            onClick={() => handleInstall(ext)}
+                            disabled={isInstalling}
+                            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] transition-colors ${
+                              isInstalling
+                                ? 'bg-lorica-border text-lorica-textDim'
+                                : !ext.install_cmd && ext.install_note
+                                ? 'bg-amber-400/20 text-amber-400 hover:bg-amber-400/30'
+                                : 'bg-lorica-accent/20 text-lorica-accent hover:bg-lorica-accent/30'
+                            }`}
+                          >
+                            {!ext.install_cmd && ext.install_note ? (
+                              <>
+                                <Info size={10} />
+                                Guide d'install
+                              </>
+                            ) : (
+                              <>
+                                <Download size={10} />
+                                {isInstalling ? 'Installing...' : 'Install'}
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
-                  <div className="flex-shrink-0">
-                    {ext.installed ? (
-                      <div className="flex items-center gap-1">
-                        <span className="text-[10px] text-green-400 flex items-center gap-1"><Check size={10} /> Installed</span>
-                        <button
-                          onClick={() => handleUninstall(ext)}
-                          className="opacity-0 group-hover:opacity-100 p-1 text-lorica-textDim hover:text-red-400 transition-all"
-                          title="Uninstall"
-                        >
-                          <Trash2 size={12} />
-                        </button>
+                  {/* Install error goes on its own full-width row under the
+                      card. Putting it in the right-hand column (old code)
+                      made the flex column expand for long errors, which
+                      crushed the middle column and wrapped the description
+                      one word per line. */}
+                  {installError?.id === ext.id && (
+                    <div className="px-4 pb-2 -mt-1">
+                      <div className="flex items-start gap-1.5 text-[10px] text-red-400 bg-red-500/5 border border-red-500/20 rounded px-2 py-1.5 break-words">
+                        <AlertCircle size={10} className="mt-0.5 flex-shrink-0" />
+                        <span className="break-words min-w-0">{friendlyError(installError.message)}</span>
                       </div>
-                    ) : (
-                      <div className="flex flex-col items-end gap-1">
-                        {isInstalling && progress[ext.id] > 0 ? (
-                          <div className="w-20 h-1.5 bg-lorica-border rounded-full overflow-hidden">
-                            <div 
-                              className="h-full bg-lorica-accent transition-all duration-200"
-                              style={{ width: `${progress[ext.id]}%` }}
-                            />
-                          </div>
-                        ) : null}
-                        {installError?.id === ext.id ? (
-                          <div className="text-[9px] text-red-400 mb-1">{installError.message}</div>
-                        ) : null}
-                        <button
-                          onClick={() => handleInstall(ext)}
-                          disabled={isInstalling}
-                          className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] transition-colors ${
-                            isInstalling
-                              ? 'bg-lorica-border text-lorica-textDim'
-                              : !ext.install_cmd && ext.install_note
-                              ? 'bg-amber-400/20 text-amber-400 hover:bg-amber-400/30'
-                              : 'bg-lorica-accent/20 text-lorica-accent hover:bg-lorica-accent/30'
-                          }`}
-                        >
-                          {!ext.install_cmd && ext.install_note ? (
-                            <>
-                              <Info size={10} />
-                              Guide d'install
-                            </>
-                          ) : (
-                            <>
-                              <Download size={10} />
-                              {isInstalling ? 'Installing...' : 'Install'}
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
               );
             })

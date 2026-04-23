@@ -1,5 +1,19 @@
 # SignPath Foundation Application — Pre-filled Form
 
+> **Status: REJECTED on 2026-04-20.** Reason given by SignPath: insufficient
+> external reputation signals (GitHub stars, community adoption, external
+> articles). Not a judgment on code quality — the Foundation program is
+> reserved for projects with established public trust. Reapply once Lorica
+> has community traction:
+>
+> - 100+ GitHub stars
+> - External contributors (non-trivial PRs from outside the maintainer)
+> - Blog posts / Reddit / HN mentions
+> - Sustained download counts on Releases
+>
+> Keep this doc for the next attempt — the form answers are still good,
+> only the Reputation field will need rewriting with real numbers.
+
 **Where to submit:** https://signpath.org/apply
 **Terms (read first):** https://signpath.org/terms.html
 

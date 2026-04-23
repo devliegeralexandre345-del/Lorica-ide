@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, X, Key, Moon, Palette, Sun, Clock, Shield, Save, Map, Brain, Keyboard, Edit, AlertTriangle, Check, XCircle, Sparkles, Info, Rocket, Github } from 'lucide-react';
+import { Settings as SettingsIcon, X, Key, Moon, Palette, Sun, Clock, Shield, Save, Map, Brain, Keyboard, Edit, AlertTriangle, Check, XCircle, Sparkles, Info, Rocket, Github, RotateCcw } from 'lucide-react';
 import { THEMES } from '../utils/themes';
 import { DEFAULT_SHORTCUTS, getAllShortcuts, loadCustomShortcuts, saveCustomShortcuts, isValidShortcut, findConflicts, eventToShortcut } from '../utils/keymap';
 import { APP_VERSION } from '../version';
+import { FEATURES, FEATURE_CATEGORIES, featureStats } from '../utils/features';
 
 export default function Settings({ state, dispatch, actions }) {
   const [apiKey, setApiKey] = useState(state.aiApiKey);
@@ -106,17 +107,59 @@ export default function Settings({ state, dispatch, actions }) {
     }
   }, [capturing, editingAction]);
 
-  const saveApiKey = () => {
+  // Save the key into the encrypted vault so it survives relaunch. The
+  // old code only dispatched into React state — that's in-memory and
+  // vanishes on reload. We still dispatch for the current session, but
+  // the canonical store is now the vault.
+  const persistKeyToVault = async (vaultKey, value, displayName) => {
+    // If the vault is locked or not yet initialised, warn the user
+    // instead of silently losing the key.
+    if (!state.vaultUnlocked) {
+      dispatch({ type: 'ADD_TOAST', toast: {
+        type: 'warning',
+        message: `${displayName} not persisted — unlock the vault first to save it permanently.`,
+        duration: 4000,
+      }});
+      return false;
+    }
+    try {
+      const res = await window.lorica.security.addSecret(vaultKey, value);
+      if (res?.success === false) {
+        dispatch({ type: 'ADD_TOAST', toast: {
+          type: 'error',
+          message: `Vault save failed: ${res.error || 'unknown'}`,
+        }});
+        return false;
+      }
+      return true;
+    } catch (e) {
+      dispatch({ type: 'ADD_TOAST', toast: {
+        type: 'error',
+        message: `Vault save error: ${String(e)}`,
+      }});
+      return false;
+    }
+  };
+
+  const saveApiKey = async () => {
     dispatch({ type: 'SET_AI_KEY', key: apiKey });
+    const persisted = await persistKeyToVault('anthropic_api_key', apiKey, 'Anthropic API key');
     setSaved(true);
-    if (actions) actions.saveActive && dispatch({ type: 'ADD_TOAST', toast: { type: 'success', message: 'API Key sauvegardée' } });
+    dispatch({ type: 'ADD_TOAST', toast: {
+      type: persisted ? 'success' : 'info',
+      message: persisted ? 'API key saved to vault' : 'API key saved (session only)',
+    }});
     setTimeout(() => setSaved(false), 2000);
   };
 
-  const saveDeepseekKey = () => {
+  const saveDeepseekKey = async () => {
     dispatch({ type: 'SET_DEEPSEEK_KEY', key: deepseekKey });
+    const persisted = await persistKeyToVault('deepseek_api_key', deepseekKey, 'DeepSeek API key');
     setDeepseekSaved(true);
-    if (actions) actions.saveActive && dispatch({ type: 'ADD_TOAST', toast: { type: 'success', message: 'DeepSeek API Key sauvegardée' } });
+    dispatch({ type: 'ADD_TOAST', toast: {
+      type: persisted ? 'success' : 'info',
+      message: persisted ? 'DeepSeek key saved to vault' : 'DeepSeek key saved (session only)',
+    }});
     setTimeout(() => setDeepseekSaved(false), 2000);
   };
 
@@ -565,44 +608,79 @@ export default function Settings({ state, dispatch, actions }) {
 }
 
 // ── Feature toggle grid ──────────────────────────────────────────────
-// One compact switch per opt-in feature. We keep the layout 2-column so
-// the Settings modal stays scannable. Each toggle is pure state-flip —
-// the features themselves hook into the reducer and react to the flag.
+// Full feature catalog toggle — drives the soft extension system.
+// Disabled features disappear from the Omnibar and stop responding to
+// their keyboard shortcuts. Grouped by category so the user can see
+// the shape of what Lorica offers at a glance.
 function FeatureToggleGrid({ state, dispatch }) {
-  const rows = [
-    { label: 'Git Blame gutter',           value: !!state.blameEnabled,        action: 'TOGGLE_BLAME' },
-    { label: 'Code Heatmap tinting',       value: !!state.heatmapEnabled,      action: 'TOGGLE_HEATMAP' },
-    { label: 'Instant Preview side rail',  value: !!state.showInstantPreview,  action: 'TOGGLE_PANEL', panel: 'showInstantPreview' },
-    { label: 'Performance HUD',            value: !!state.showPerformanceHUD,  action: 'TOGGLE_PERFORMANCE_HUD' },
-    { label: 'Focus / Pomodoro timer',     value: !!state.showFocusTimer,      action: 'TOGGLE_PANEL', panel: 'showFocusTimer' },
-    { label: 'Time Scrub bar',             value: !!state.showTimeScrub,       action: 'TOGGLE_PANEL', panel: 'showTimeScrub' },
-    { label: 'Brain preamble in agent',    value: !!state.brainInAgent,        action: 'TOGGLE_BRAIN_IN_AGENT' },
-    { label: 'Semantic Types auto-infer',  value: !!state.semanticAutoEnabled, action: 'TOGGLE_SEMANTIC_AUTO' },
-  ];
+  const enabled = state.enabledFeatures || {};
+  const stats = featureStats(enabled);
 
-  const fire = (row) => {
-    if (row.panel) dispatch({ type: row.action, panel: row.panel });
-    else dispatch({ type: row.action });
+  const toggle = (id) => {
+    dispatch({
+      type: 'SET_FEATURE_ENABLED',
+      featureId: id,
+      enabled: !enabled[id],
+    });
   };
 
+  // Group features by category, then by the category-order declared in
+  // FEATURE_CATEGORIES (keeps Productivity above Diagnostics above the
+  // niche ones).
+  const grouped = Object.values(FEATURES).reduce((acc, f) => {
+    (acc[f.category] ||= []).push(f);
+    return acc;
+  }, {});
+  const orderedCats = Object.entries(FEATURE_CATEGORIES)
+    .sort(([, a], [, b]) => a.order - b.order)
+    .map(([id, meta]) => [id, meta]);
+
   return (
-    <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-      {rows.map((row) => (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between text-[10px] text-lorica-textDim">
+        <span>{stats.on} of {stats.total} features enabled · commands for disabled features disappear from the Omnibar.</span>
         <button
-          key={row.label}
-          onClick={() => fire(row)}
-          className="flex items-center gap-2 px-2 py-1.5 rounded border border-lorica-border hover:border-lorica-accent/40 transition-colors text-left"
+          onClick={() => dispatch({ type: 'RESET_FEATURES' })}
+          className="flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-lorica-border/40 hover:text-lorica-text"
+          title="Reset to recommended defaults"
         >
-          <span className={`relative inline-block w-8 h-4 rounded-full transition-colors ${
-            row.value ? 'bg-lorica-accent' : 'bg-lorica-border'
-          }`}>
-            <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${
-              row.value ? 'translate-x-4' : 'translate-x-0.5'
-            }`} />
-          </span>
-          <span className="text-[11px] text-lorica-text">{row.label}</span>
+          <RotateCcw size={10} /> Reset
         </button>
-      ))}
+      </div>
+
+      {orderedCats.map(([catId, catMeta]) => {
+        const items = grouped[catId] || [];
+        if (!items.length) return null;
+        return (
+          <div key={catId}>
+            <div className="text-[9px] uppercase tracking-widest text-lorica-textDim font-semibold mb-1">
+              {catMeta.label}
+            </div>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+              {items.map((f) => {
+                const on = !!enabled[f.id];
+                return (
+                  <button
+                    key={f.id}
+                    onClick={() => toggle(f.id)}
+                    className="flex items-center gap-2 px-2 py-1.5 rounded border border-lorica-border hover:border-lorica-accent/40 transition-colors text-left"
+                    title={f.desc}
+                  >
+                    <span className={`relative inline-block w-7 h-3.5 rounded-full transition-colors flex-shrink-0 ${
+                      on ? 'bg-lorica-accent' : 'bg-lorica-border'
+                    }`}>
+                      <span className={`absolute top-0.5 w-2.5 h-2.5 rounded-full bg-white transition-transform ${
+                        on ? 'translate-x-3.5' : 'translate-x-0.5'
+                      }`} />
+                    </span>
+                    <span className="text-[11px] text-lorica-text truncate">{f.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

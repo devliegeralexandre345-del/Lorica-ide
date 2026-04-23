@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::AppHandle;
 use zeroize::Zeroize;
 
@@ -457,9 +457,13 @@ pub fn cmd_lock_vault(state: tauri::State<AppState>) -> CmdResult<bool> {
 #[tauri::command]
 pub fn cmd_add_secret(key: String, value: String, state: tauri::State<AppState>) -> CmdResult<bool> {
     let vault = crate::state::lock_or_recover(&state.vault);
-    if !vault.is_unlocked() { return CmdResult::err("Vault is locked"); }
-
-    let dk = vault.derived_key.as_ref().unwrap();
+    // Defensive: `is_unlocked()` already guarantees `derived_key.is_some()`
+    // since we hold the mutex, but avoiding `.unwrap()` shuts down any
+    // future refactor that breaks that invariant.
+    let dk = match vault.derived_key.as_ref() {
+        Some(k) => k,
+        None => return CmdResult::err("Vault is locked"),
+    };
     let encrypted = match vault.encrypt(value.as_bytes(), dk.as_slice()) {
         Ok(e) => e,
         Err(e) => return CmdResult::err(e),
@@ -476,11 +480,13 @@ pub fn cmd_add_secret(key: String, value: String, state: tauri::State<AppState>)
 #[tauri::command]
 pub fn cmd_get_secret(key: String, state: tauri::State<AppState>) -> CmdResult<String> {
     let vault = crate::state::lock_or_recover(&state.vault);
-    if !vault.is_unlocked() { return CmdResult::err("Vault is locked"); }
 
     let vf = match vault.load_vault() { Ok(v) => v, Err(e) => return CmdResult::err(e) };
     let enc = match vf.secrets.get(&key) { Some(e) => e, None => return CmdResult::err("Secret not found") };
-    let dk = vault.derived_key.as_ref().unwrap();
+    let dk = match vault.derived_key.as_ref() {
+        Some(k) => k,
+        None => return CmdResult::err("Vault is locked"),
+    };
 
     match vault.decrypt(enc, dk.as_slice()) {
         Ok(pt) => {

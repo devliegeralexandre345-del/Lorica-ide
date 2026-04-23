@@ -9,6 +9,7 @@ import { Sparkles, Wrench, Bug, ChevronRight, Hash, FileText, TestTube, MessageS
 import { LANGUAGE_MAP } from '../utils/languages';
 import { createEditorTheme } from '../utils/themes';
 import { getCompletionSource } from '../utils/completions';
+import { createLspCompletionSource } from '../utils/lspCodemirror';
 import { bracketPairColorization } from '../extensions/bracketColorizer';
 import { indentGuidesExtension } from '../extensions/indentGuides';
 import { aiGhostExtension, aiGhostConfig, acceptGhost, dismissGhost, triggerGhost, ghostStatusField } from '../extensions/aiGhostText';
@@ -218,6 +219,10 @@ const Editor = React.memo(function Editor({
   blameEnabled = false, projectPath = null,
   bookmarks = null, // lines bookmarked in THIS file (array of numbers)
   semanticMarks = null, // [{line,col,length,severity,message}] from the semantic-types store
+  // LSP completion fetcher: takes (file, line, character) and returns
+  // LSP CompletionItems or null. Passed in from App via useLSP hook so
+  // completion queries route to the right language server session.
+  lspRequestCompletion = null,
 }) {
   const containerRef = useRef(null);
   const viewRef = useRef(null);
@@ -244,6 +249,13 @@ const Editor = React.memo(function Editor({
   // editor on every toggle.
   const bookmarksRef = useRef(bookmarks);
   useEffect(() => { bookmarksRef.current = bookmarks; }, [bookmarks]);
+
+  // LSP completion fetcher via ref — the autocompletion extension is
+  // built once at editor mount, but the underlying LSP session can
+  // change (new language, new project) without rebuilding. The closure
+  // always reads the current fn through this ref.
+  const lspFetcherRef = useRef(lspRequestCompletion);
+  useEffect(() => { lspFetcherRef.current = lspRequestCompletion; }, [lspRequestCompletion]);
 
   // Ghost status ('disabled' | 'idle' | 'thinking' | 'ready' | 'error'), for
   // the tiny indicator chip rendered in the editor corner.
@@ -466,9 +478,25 @@ const Editor = React.memo(function Editor({
             left: '120ch',
           },
         }),
-        // Autocomplétion
+        // Autocompletion: static language dictionary first (0-latency,
+        // works without any install) + LSP second (real symbols from
+        // the user's own code, types, imports — only fires when a
+        // language server is running). Both sources are merged in the
+        // completion UI; LSP results boosted by the server's own
+        // sortText ranking.
         autocompletion({
-          override: [getCompletionSource(file.extension)],
+          override: [
+            getCompletionSource(file.extension),
+            createLspCompletionSource(async (ctx) => {
+              const fetcher = lspFetcherRef.current;
+              if (!fetcher) return null;
+              const doc = ctx.state.doc;
+              const line = doc.lineAt(ctx.pos);
+              const lineNumber = line.number - 1; // LSP is 0-indexed
+              const character = ctx.pos - line.from;
+              return fetcher(file, lineNumber, character);
+            }),
+          ],
           activateOnTyping: true,
           maxRenderedOptions: 15,
         }),

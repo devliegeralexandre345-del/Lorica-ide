@@ -137,6 +137,22 @@ export default function TimeScrubBar({ state, dispatch }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idx, history, state.showTimeScrub]);
 
+  // ALL hooks must run before any early return — React's rules of hooks
+  // require the same hook order on every render. The previous code had
+  // `if (!file) return null` above this `useMemo`, which made the hook
+  // count vary between renders and crashed with "Rendered more hooks
+  // than during the previous render" (triggered e.g. when creating a
+  // new file and the active tab briefly had no `file`).
+  const currentSnap = idx >= 0 ? history[idx] : null;
+  const liveBaseline = liveContentRef.current ?? file?.content ?? '';
+  const diff = useMemo(() => {
+    if (!showDiff || !currentSnap) return null;
+    const aLines = (currentSnap.content || '').split('\n');
+    const bLines = (liveBaseline || '').split('\n');
+    return diffLines(aLines, bLines);
+  }, [showDiff, currentSnap, liveBaseline]);
+
+  // Safe to early-return now — every hook above has been called.
   if (!state.showTimeScrub) return null;
   if (!file) return null;
 
@@ -169,15 +185,6 @@ export default function TimeScrubBar({ state, dispatch }) {
     else if (next >= total) setIdx(total - 1);
     else setIdx(next);
   };
-
-  const currentSnap = idx >= 0 ? history[idx] : null;
-  const liveBaseline = liveContentRef.current ?? file.content;
-  const diff = useMemo(() => {
-    if (!showDiff || !currentSnap) return null;
-    const aLines = (currentSnap.content || '').split('\n');
-    const bLines = (liveBaseline || '').split('\n');
-    return diffLines(aLines, bLines);
-  }, [showDiff, currentSnap, liveBaseline]);
 
   const askIntent = async () => {
     if (!intent.trim() || !history.length || !apiKey) return;

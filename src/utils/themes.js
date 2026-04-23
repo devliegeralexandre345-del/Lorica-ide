@@ -2,6 +2,13 @@ import { EditorView } from '@codemirror/view';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
 
+// Each theme declares a 5-stop `logoBars` palette used by LoricaLogo.
+// Colours go top-bar → bottom-bar, following the brand gradient pattern
+// (image 2 reference): a bright hue in the widest top bar fading into a
+// lighter, more transparent-feeling hue at the narrow bottom. Each
+// theme expresses that pattern in its own colour family so the logo
+// recolours with the rest of the UI instead of looking stuck on the
+// default purple-to-cyan.
 export const THEMES = {
   midnight: {
     name: 'Midnight',
@@ -12,6 +19,7 @@ export const THEMES = {
     accent: '#00d4ff',
     text: '#e2e8f0',
     textDim: '#64748b',
+    logoBars: ['#00d4ff', '#4ac8ff', '#7fb7f5', '#a8a5e3', '#cfb0d8'],
   },
   hacker: {
     name: 'Hacker Green',
@@ -22,6 +30,7 @@ export const THEMES = {
     accent: '#00ff41',
     text: '#c8e6c9',
     textDim: '#5a7a5a',
+    logoBars: ['#00ff41', '#4aff78', '#87f0a0', '#b0e2c4', '#d2f0dc'],
   },
   arctic: {
     name: 'Arctic Light',
@@ -32,6 +41,7 @@ export const THEMES = {
     accent: '#64b5f6',
     text: '#e3f2fd',
     textDim: '#607d8b',
+    logoBars: ['#64b5f6', '#8bc5f7', '#acd0f8', '#c8e0f7', '#e0ecf9'],
   },
   forge: {
     name: 'Forge',
@@ -42,8 +52,13 @@ export const THEMES = {
     accent: '#ff7800',
     text: '#f5e6d0',
     textDim: '#6b4020',
+    logoBars: ['#ff7800', '#ff9628', '#ffb350', '#ffd080', '#ffe4b0'],
   },
   spectre: {
+    // The brand theme — `logoBars` here matches the reference image 2
+    // (magenta → periwinkle → pale cyan). Same palette is baked into
+    // `src-tauri/icons/logo.svg` for OS-level icons which can't read
+    // theme CSS vars.
     name: 'Spectre',
     bg: '#060410',
     surface: '#0e0820',
@@ -52,6 +67,7 @@ export const THEMES = {
     accent: '#a855f7',
     text: '#ede8ff',
     textDim: '#5a3a8a',
+    logoBars: ['#b878f5', '#9c89f0', '#8eb3ed', '#7fd2ec', '#bfeff6'],
   },
   steel: {
     name: 'Steel',
@@ -62,6 +78,7 @@ export const THEMES = {
     accent: '#94c4f0',
     text: '#e8f0f8',
     textDim: '#3a4a5a',
+    logoBars: ['#94c4f0', '#a8cef2', '#bed9f4', '#d3e3f6', '#e7eef8'],
   },
 };
 

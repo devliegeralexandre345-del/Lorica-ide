@@ -38,6 +38,7 @@ import {
   Flame, Wand2, ShieldCheck, UserCircle2, FileCode, Layers, Clock as ClockIcon,
 } from 'lucide-react';
 import { flattenFileTree, fuzzyMatch } from '../utils/mentions';
+import { isFeatureEnabled } from '../utils/features';
 
 // ── Recents + saved searches ───────────────────────────────────────────
 // We persist the 30 most-recent non-empty queries and a user-curated
@@ -77,60 +78,70 @@ const SOURCES = {
 // ── Build the command catalogue (copied/adapted from the old palette) ───
 // Commands live here so the Omnibar is self-contained. If you add a new
 // action in App.jsx, expose it through `actions` and add a row here.
+// Command catalog. Each entry has an optional `feature` key that maps
+// to `utils/features.js`. Commands without a `feature` are "core" and
+// always visible. Commands with a `feature` are only shown / shortcut-
+// activated when the user has that feature enabled in Settings.
 function buildCommands({ state, dispatch, onOpenFolder, onLock, actions, onCodeCanvas, onSwarmReview }) {
   return [
+    // ── Core (always visible) ────────────────────────────────────────────
     { id: 'openFolder',       label: 'Open Folder',              icon: FolderOpen,        run: () => { onOpenFolder(); } },
     { id: 'toggleFileTree',   label: 'Toggle File Explorer',     icon: PanelLeftClose,    run: () => dispatch({ type: 'TOGGLE_PANEL', panel: 'showFileTree' }) },
     { id: 'toggleTerminal',   label: 'Toggle Terminal',          icon: TerminalIcon,      run: () => dispatch({ type: 'TOGGLE_PANEL', panel: 'showTerminal' }) },
     { id: 'toggleAgent',      label: 'Toggle AI Agent',          icon: Bot,               run: () => dispatch({ type: 'TOGGLE_PANEL', panel: 'showAIPanel' }) },
-    { id: 'toggleSpotify',    label: 'Toggle Spotify',           icon: Music,             run: () => dispatch({ type: 'TOGGLE_PANEL', panel: 'showSpotify' }) },
     { id: 'zen',              label: state.zenMode ? 'Exit Zen Mode' : 'Enter Zen Mode', icon: state.zenMode ? Minimize : Maximize, hint: 'Ctrl+K Z', run: () => actions.toggleZen() },
     { id: 'split',            label: state.splitMode ? 'Close Split Editor' : 'Split Editor', icon: SplitSquareHorizontal, hint: 'Ctrl+\\', run: () => actions.toggleSplit() },
     { id: 'minimap',          label: state.showMinimap ? 'Hide Minimap' : 'Show Minimap', icon: Map, run: () => actions.toggleMinimap() },
     { id: 'autoSave',         label: state.autoSave ? 'Disable Auto-Save' : 'Enable Auto-Save', icon: SaveAll, run: () => actions.toggleAutoSave() },
-    { id: 'blame',            label: state.blameEnabled ? 'Git Blame: Hide' : 'Git Blame: Show', icon: GitCommit, hint: 'Ctrl+Alt+B', run: () => dispatch({ type: 'TOGGLE_BLAME' }) },
     { id: 'search',           label: 'Search in Files',          icon: FileSearch,        hint: 'Ctrl+Shift+F', run: () => dispatch({ type: 'SET_PANEL', panel: 'showSearch', value: true }) },
     { id: 'git',              label: 'Git: Status & Commit',     icon: GitBranch,         hint: 'Ctrl+Shift+G', run: () => dispatch({ type: 'SET_PANEL', panel: 'showGit', value: true }) },
-    { id: 'problems',         label: 'Problems Panel',           icon: AlertTriangle,     hint: 'Ctrl+Shift+M', run: () => dispatch({ type: 'TOGGLE_PANEL', panel: 'showProblems' }) },
     { id: 'debug',            label: 'Run & Debug',              icon: Bug,               run: () => dispatch({ type: 'SET_PANEL', panel: 'showDebug', value: true }) },
     { id: 'extensions',       label: 'Extensions',               icon: Package,           run: () => dispatch({ type: 'SET_PANEL', panel: 'showExtensions', value: true }) },
     { id: 'vault',            label: 'Secret Vault',             icon: Shield,            run: () => dispatch({ type: 'TOGGLE_PANEL', panel: 'showSecretVault' }) },
-    { id: 'audit',            label: 'Audit Log',                icon: ClipboardList,     run: () => dispatch({ type: 'TOGGLE_PANEL', panel: 'showAuditLog' }) },
-    { id: 'diff',             label: 'Diff Viewer',              icon: GitCompare,        run: () => dispatch({ type: 'TOGGLE_PANEL', panel: 'showDiffViewer' }) },
-    { id: 'snippets',         label: 'Insert Snippet',           icon: Code2,             hint: 'Ctrl+J', run: () => dispatch({ type: 'SET_PANEL', panel: 'showSnippets', value: true }) },
-    { id: 'perfHUD',          label: state.showPerformanceHUD ? 'Performance HUD: Hide' : 'Performance HUD: Show', icon: Activity, hint: 'Alt+Shift+P', run: () => dispatch({ type: 'TOGGLE_PERFORMANCE_HUD' }) },
-    { id: 'canvas',           label: 'Open Code Canvas',         icon: Network,           run: () => onCodeCanvas?.() },
-    { id: 'swarmReview',      label: 'Multi-Agent Deep Review',  icon: Zap,               run: () => onSwarmReview?.() },
-    { id: 'instantPreview',   label: state.showInstantPreview ? 'Instant Preview: Hide' : 'Instant Preview: Show', icon: Eye, run: () => dispatch({ type: 'TOGGLE_PANEL', panel: 'showInstantPreview' }) },
-    // ── Productivity extensions ──────────────────────────────────────────
-    { id: 'bookmarksPanel',   label: 'Bookmarks: Panel',            icon: Star,             run: () => dispatch({ type: 'TOGGLE_PANEL', panel: 'showBookmarksPanel' }) },
-    { id: 'scratchpad',       label: 'Scratchpad',                  icon: StickyNote,       run: () => dispatch({ type: 'TOGGLE_PANEL', panel: 'showScratchpad' }) },
-    { id: 'todoBoard',        label: 'TODO Board',                  icon: ClipboardCheck,   run: () => dispatch({ type: 'TOGGLE_PANEL', panel: 'showTodoBoard' }) },
-    { id: 'clipboardHistory', label: 'Clipboard History',           icon: Clipboard,        hint: 'Ctrl+Shift+V', run: () => dispatch({ type: 'SET_PANEL', panel: 'showClipboardHistory', value: true }) },
-    { id: 'apiTester',        label: 'API Tester (HTTP client)',    icon: Send,             hint: 'Ctrl+Alt+H',   run: () => dispatch({ type: 'SET_PANEL', panel: 'showApiTester', value: true }) },
-    { id: 'regexBuilder',     label: 'Regex Builder',               icon: Regex,            hint: 'Ctrl+Alt+R',   run: () => dispatch({ type: 'SET_PANEL', panel: 'showRegexBuilder', value: true }) },
-    { id: 'focusTimer',       label: state.showFocusTimer ? 'Focus Timer: Hide' : 'Focus Timer: Show', icon: Clock3, hint: 'Ctrl+Alt+F', run: () => dispatch({ type: 'TOGGLE_PANEL', panel: 'showFocusTimer' }) },
-    // ── Tier-S revolutionary trio ────────────────────────────────────────
-    { id: 'heatmap',          label: state.heatmapEnabled ? 'Code Heatmap: Hide' : 'Code Heatmap: Show', icon: Flame, hint: 'Ctrl+Alt+G', run: () => dispatch({ type: 'TOGGLE_HEATMAP' }) },
-    { id: 'agentBuilder',     label: 'Create Custom Agent…',        icon: Wand2,        run: () => dispatch({ type: 'SET_PANEL', panel: 'showAgentBuilder', value: true }) },
-    { id: 'prReady',          label: 'PR Ready? (pre-push review)', icon: ShieldCheck,  hint: 'Ctrl+Alt+P', run: () => dispatch({ type: 'SET_PANEL', panel: 'showPrReady', value: true }) },
-    { id: 'brainPanel',       label: 'Project Brain',               icon: BrainIcon,    run: () => dispatch({ type: 'TOGGLE_PANEL', panel: 'showProjectBrain' }) },
-    { id: 'autoFix',          label: 'Auto-Fix terminal error',     icon: Wand2,        hint: 'Ctrl+Alt+X', run: () => dispatch({ type: 'SET_PANEL', panel: 'showAutoFix', value: true }) },
-    // ── Tier-Ω ───────────────────────────────────────────────────────
-    { id: 'identity',         label: 'Agent Identity',              icon: UserCircle2, run: () => dispatch({ type: 'SET_PANEL', panel: 'showAgentIdentity', value: true }) },
-    { id: 'sandbox',          label: 'Sandbox (Run / Replay / Probes)', icon: FileCode, hint: 'Ctrl+Alt+S', run: () => dispatch({ type: 'SET_PANEL', panel: 'showSandbox', value: true }) },
-    { id: 'swarmDev',         label: 'Swarm Development',           icon: Layers,     hint: 'Ctrl+Alt+W', run: () => dispatch({ type: 'SET_PANEL', panel: 'showSwarm', value: true }) },
-    { id: 'timeScrub',        label: state.showTimeScrub ? 'Time Scrub: Hide' : 'Time Scrub: Show', icon: ClockIcon, hint: 'Ctrl+Alt+T', run: () => dispatch({ type: 'TOGGLE_PANEL', panel: 'showTimeScrub' }) },
-    { id: 'semTypes',         label: 'Semantic Types panel',        icon: Layers,     hint: 'Ctrl+Alt+Y', run: () => dispatch({ type: 'SET_PANEL', panel: 'showSemanticTypes', value: true }) },
-    { id: 'cheatsheet',       label: 'Keyboard shortcuts',          icon: CommandIcon, hint: '?',          run: () => dispatch({ type: 'SET_PANEL', panel: 'showKeyboardCheatsheet', value: true }) },
-    { id: 'editHistory',      label: 'Inline AI Edit history',      icon: ClockIcon,   run: () => dispatch({ type: 'SET_PANEL', panel: 'showInlineEditHistory', value: true }) },
-    { id: 'layouts',          label: 'Window layout…',              icon: Layers,      hint: 'Ctrl+Alt+L', run: () => dispatch({ type: 'SET_PANEL', panel: 'showLayoutSwitcher', value: true }) },
-    { id: 'releaseNotes',     label: "What's new in Lorica",        icon: Sparkles,   run: () => dispatch({ type: 'SET_PANEL', panel: 'showReleaseNotes', value: true }) },
     { id: 'settings',         label: 'Settings',                 icon: Settings,          run: () => dispatch({ type: 'TOGGLE_PANEL', panel: 'showSettings' }) },
     { id: 'lock',             label: 'Lock IDE',                 icon: Lock,              run: () => onLock() },
+    { id: 'toggleSpotify',    label: 'Toggle Spotify',           icon: Music,             run: () => dispatch({ type: 'TOGGLE_PANEL', panel: 'showSpotify' }) },
     { id: 'themeMidnight',    label: 'Theme: Midnight',          icon: Moon,              run: () => dispatch({ type: 'SET_THEME', theme: 'midnight' }) },
     { id: 'themeHacker',      label: 'Theme: Hacker Green',      icon: Palette,           run: () => dispatch({ type: 'SET_THEME', theme: 'hacker' }) },
     { id: 'themeArctic',      label: 'Theme: Arctic',            icon: Sun,               run: () => dispatch({ type: 'SET_THEME', theme: 'arctic' }) },
+
+    // ── Feature-gated (hidden unless user enables the feature) ───────────
+    // Productivity
+    { id: 'focusTimer',       feature: 'focusTimer',       label: state.showFocusTimer ? 'Focus Timer: Hide' : 'Focus Timer: Show', icon: Clock3,         hint: 'Ctrl+Alt+F', run: () => dispatch({ type: 'TOGGLE_PANEL', panel: 'showFocusTimer' }) },
+    { id: 'scratchpad',       feature: 'scratchpad',       label: 'Scratchpad',                  icon: StickyNote,       run: () => dispatch({ type: 'TOGGLE_PANEL', panel: 'showScratchpad' }) },
+    { id: 'todoBoard',        feature: 'todoBoard',        label: 'TODO Board',                  icon: ClipboardCheck,   run: () => dispatch({ type: 'TOGGLE_PANEL', panel: 'showTodoBoard' }) },
+    { id: 'bookmarksPanel',   feature: 'bookmarks',        label: 'Bookmarks: Panel',            icon: Star,             run: () => dispatch({ type: 'TOGGLE_PANEL', panel: 'showBookmarksPanel' }) },
+    { id: 'clipboardHistory', feature: 'clipboardHistory', label: 'Clipboard History',           icon: Clipboard,        hint: 'Ctrl+Shift+V', run: () => dispatch({ type: 'SET_PANEL', panel: 'showClipboardHistory', value: true }) },
+    // AI advanced
+    { id: 'brainPanel',       feature: 'brain',            label: 'Project Brain',               icon: BrainIcon,    run: () => dispatch({ type: 'TOGGLE_PANEL', panel: 'showProjectBrain' }) },
+    { id: 'swarmReview',      feature: 'swarmReview',      label: 'Multi-Agent Deep Review',     icon: Zap,          run: () => onSwarmReview?.() },
+    { id: 'swarmDev',         feature: 'swarmDev',         label: 'Swarm Development',           icon: Layers,       hint: 'Ctrl+Alt+W', run: () => dispatch({ type: 'SET_PANEL', panel: 'showSwarm', value: true }) },
+    { id: 'prReady',          feature: 'prReady',          label: 'PR Ready? (pre-push review)', icon: ShieldCheck,  hint: 'Ctrl+Alt+P', run: () => dispatch({ type: 'SET_PANEL', panel: 'showPrReady', value: true }) },
+    { id: 'agentBuilder',     feature: 'agentBuilder',     label: 'Create Custom Agent…',        icon: Wand2,        run: () => dispatch({ type: 'SET_PANEL', panel: 'showAgentBuilder', value: true }) },
+    { id: 'identity',         feature: 'agentIdentity',    label: 'Agent Identity',              icon: UserCircle2, run: () => dispatch({ type: 'SET_PANEL', panel: 'showAgentIdentity', value: true }) },
+    { id: 'sandbox',          feature: 'sandbox',          label: 'Sandbox (Run / Replay / Probes)', icon: FileCode, hint: 'Ctrl+Alt+S', run: () => dispatch({ type: 'SET_PANEL', panel: 'showSandbox', value: true }) },
+    { id: 'editHistory',      feature: 'inlineEditHistory',label: 'Inline AI Edit history',      icon: ClockIcon,   run: () => dispatch({ type: 'SET_PANEL', panel: 'showInlineEditHistory', value: true }) },
+    { id: 'autoFix',          feature: 'brain',            label: 'Auto-Fix terminal error',     icon: Wand2,        hint: 'Ctrl+Alt+X', run: () => dispatch({ type: 'SET_PANEL', panel: 'showAutoFix', value: true }) },
+    // Visualization
+    { id: 'instantPreview',   feature: 'instantPreview',   label: state.showInstantPreview ? 'Instant Preview: Hide' : 'Instant Preview: Show', icon: Eye, run: () => dispatch({ type: 'TOGGLE_PANEL', panel: 'showInstantPreview' }) },
+    { id: 'canvas',           feature: 'codeCanvas',       label: 'Open Code Canvas',         icon: Network,           run: () => onCodeCanvas?.() },
+    { id: 'semTypes',         feature: 'semanticTypes',    label: 'Semantic Types panel',        icon: Layers,     hint: 'Ctrl+Alt+Y', run: () => dispatch({ type: 'SET_PANEL', panel: 'showSemanticTypes', value: true }) },
+    { id: 'timeScrub',        feature: 'timeScrub',        label: state.showTimeScrub ? 'Time Scrub: Hide' : 'Time Scrub: Show', icon: ClockIcon, hint: 'Ctrl+Alt+T', run: () => dispatch({ type: 'TOGGLE_PANEL', panel: 'showTimeScrub' }) },
+    { id: 'heatmap',          feature: 'heatmap',          label: state.heatmapEnabled ? 'Code Heatmap: Hide' : 'Code Heatmap: Show', icon: Flame, hint: 'Ctrl+Alt+G', run: () => dispatch({ type: 'TOGGLE_HEATMAP' }) },
+    // Diagnostics
+    { id: 'blame',            feature: 'gitBlame',         label: state.blameEnabled ? 'Git Blame: Hide' : 'Git Blame: Show', icon: GitCommit, hint: 'Ctrl+Alt+B', run: () => dispatch({ type: 'TOGGLE_BLAME' }) },
+    { id: 'perfHUD',          feature: 'performanceHUD',   label: state.showPerformanceHUD ? 'Performance HUD: Hide' : 'Performance HUD: Show', icon: Activity, hint: 'Alt+Shift+P', run: () => dispatch({ type: 'TOGGLE_PERFORMANCE_HUD' }) },
+    { id: 'problems',         feature: 'problemsPanel',    label: 'Problems Panel',           icon: AlertTriangle,     hint: 'Ctrl+Shift+M', run: () => dispatch({ type: 'TOGGLE_PANEL', panel: 'showProblems' }) },
+    { id: 'audit',            feature: 'auditLog',         label: 'Audit Log',                icon: ClipboardList,     run: () => dispatch({ type: 'TOGGLE_PANEL', panel: 'showAuditLog' }) },
+    // Developer tools
+    { id: 'snippets',         feature: 'snippets',         label: 'Insert Snippet',           icon: Code2,             hint: 'Ctrl+J', run: () => dispatch({ type: 'SET_PANEL', panel: 'showSnippets', value: true }) },
+    { id: 'regexBuilder',     feature: 'regexBuilder',     label: 'Regex Builder',               icon: Regex,            hint: 'Ctrl+Alt+R',   run: () => dispatch({ type: 'SET_PANEL', panel: 'showRegexBuilder', value: true }) },
+    { id: 'apiTester',        feature: 'apiTester',        label: 'API Tester (HTTP client)',    icon: Send,             hint: 'Ctrl+Alt+H',   run: () => dispatch({ type: 'SET_PANEL', panel: 'showApiTester', value: true }) },
+    { id: 'diff',             feature: 'diffViewer',       label: 'Diff Viewer',              icon: GitCompare,        run: () => dispatch({ type: 'TOGGLE_PANEL', panel: 'showDiffViewer' }) },
+    { id: 'cheatsheet',       feature: 'keyboardCheatsheet',label: 'Keyboard shortcuts',          icon: CommandIcon, hint: '?',          run: () => dispatch({ type: 'SET_PANEL', panel: 'showKeyboardCheatsheet', value: true }) },
+    // Misc
+    { id: 'layouts',          label: 'Window layout…',              icon: Layers,      hint: 'Ctrl+Alt+L', run: () => dispatch({ type: 'SET_PANEL', panel: 'showLayoutSwitcher', value: true }) },
+    { id: 'releaseNotes',     label: "What's new in Lorica",        icon: Sparkles,   run: () => dispatch({ type: 'SET_PANEL', panel: 'showReleaseNotes', value: true }) },
   ];
 }
 
@@ -188,9 +199,13 @@ export default function Omnibar({
 
   const close = () => dispatch({ type: 'SET_PANEL', panel: 'showOmnibar', value: false });
 
-  // Pre-compute commands and files once per render.
+  // Pre-compute commands and files once per render. Commands tagged
+  // with a `feature` key are filtered out when the user has disabled
+  // that feature in Settings — keeps the Omnibar from drowning the
+  // user in features they don't use.
   const commands = useMemo(
-    () => buildCommands({ state, dispatch, onOpenFolder, onLock, actions, onCodeCanvas, onSwarmReview }),
+    () => buildCommands({ state, dispatch, onOpenFolder, onLock, actions, onCodeCanvas, onSwarmReview })
+            .filter((c) => isFeatureEnabled(state.enabledFeatures, c.feature)),
     [state, dispatch, onOpenFolder, onLock, actions, onCodeCanvas, onSwarmReview],
   );
   const flatFiles = useMemo(
@@ -201,15 +216,21 @@ export default function Omnibar({
 
   // ── Semantic search: debounced. Only triggers when query >= 3 chars and
   //    the project has an index (silent no-op otherwise).
+  // Semantic search is now explicitly-triggered (requires the `#`
+  // prefix) because embedding queries cost real time and the user
+  // almost never wanted them when typing a plain filename. This effect
+  // silently skips unless the query starts with `#`.
   useEffect(() => {
     if (semTimer.current) clearTimeout(semTimer.current);
     setSemantic([]);
-    const q = query.trim();
+    const raw = query.trim();
+    if (raw[0] !== '#') return;
+    const q = raw.slice(1).trim();
     if (q.length < 3 || !state.projectPath) return;
     semTimer.current = setTimeout(async () => {
       try {
         setSemBusy(true);
-        const r = await window.lorica.search.semanticSearch(state.projectPath, q, 6);
+        const r = await window.lorica.search.semanticSearch(state.projectPath, q, 12);
         if (r && r.success !== false) {
           const hits = Array.isArray(r.data) ? r.data : (r.data?.data || []);
           setSemantic(hits);
@@ -251,24 +272,18 @@ export default function Omnibar({
     const { prefix, query: q } = parsePrefix(raw);
     const out = [];
 
-    // Empty query: show saved searches + recent queries + recent files + top commands.
+    // Empty query: fit-in-one-screen default. Previously dumped up to
+    // 28 rows at boot (saved + recents + files + commands). Capped now
+    // at 3 recent files + 3 core commands = 6 rows, no scroll needed
+    // on any reasonable screen. The full catalog is still reachable:
+    // type anything, or use `>` for commands / `@` for symbols /
+    // `#` for semantic / `?` for agent.
     if (!raw) {
-      // Saved searches (user-curated) come first — they represent workflows.
-      saved.slice(0, 6).forEach((s) => out.push({
-        source: 'saved', label: s.name, detail: s.query,
-        run: () => setQuery(s.query),
-      }));
-      // Recent queries — click = replay.
-      recents.slice(0, 6).forEach((q) => out.push({
-        source: 'recent', label: q, detail: 'recent query',
-        run: () => setQuery(q),
-      }));
-      // Recent open files.
-      state.openFiles.slice(-6).reverse().forEach((f, i) => {
+      state.openFiles.slice(-3).reverse().forEach((f) => {
         const origIdx = state.openFiles.indexOf(f);
         out.push({ source: 'recent', label: f.name, detail: f.path, run: () => { dispatch({ type: 'SET_ACTIVE_FILE', index: origIdx }); close(); } });
       });
-      commands.slice(0, 10).forEach((c) => out.push({ source: 'command', label: c.label, hint: c.hint, icon: c.icon, run: () => { c.run(); close(); } }));
+      commands.slice(0, 3).forEach((c) => out.push({ source: 'command', label: c.label, hint: c.hint, icon: c.icon, run: () => { c.run(); close(); } }));
       return out;
     }
 
@@ -305,14 +320,23 @@ export default function Omnibar({
       return out;
     }
 
-    // Source filters: only populate the requested section when a prefix is
-    // set. No prefix = fill every section as before.
+    // Source filters:
+    //   - No prefix: files are the headline use case; show a small number
+    //     of commands as a shortcut. Symbols and semantic are demoted
+    //     behind their prefixes because they added noise without being
+    //     what the typical user was looking for.
+    //   - With a prefix: dedicated mode, show only that source with a
+    //     generous cap.
     const wantFiles    = !prefix;
     const wantCommands = !prefix || prefix === '>';
-    const wantSymbols  = !prefix || prefix === '@';
-    const wantSemantic = !prefix || prefix === '#';
+    const wantSymbols  = prefix === '@';
+    const wantSemantic = prefix === '#';
 
     if (wantFiles) {
+      // 6 files in mixed mode keeps the total visible rows under 9
+      // (6 files + up to 2 commands + a section header), fitting on a
+      // standard laptop without scroll. The full set is searched —
+      // only the render is capped.
       fuzzyMatch(flatFiles, q, 6).forEach((f) => {
         if (f.isDirectory) return;
         out.push({
@@ -322,7 +346,8 @@ export default function Omnibar({
       });
     }
     if (wantCommands && q) {
-      const lim = prefix ? 20 : 6;
+      // 2 suggestions when mixed with files, 15 in dedicated `>` mode.
+      const lim = prefix ? 15 : 2;
       commands.filter((c) => c.label.toLowerCase().includes(q.toLowerCase())).slice(0, lim)
         .forEach((c) => out.push({
           source: 'command', label: c.label, hint: c.hint, icon: c.icon,
@@ -330,8 +355,7 @@ export default function Omnibar({
         }));
     }
     if (wantSymbols && q && activeFile) {
-      const lim = prefix ? 50 : 6;
-      symbols.filter((s) => s.name.toLowerCase().includes(q.toLowerCase())).slice(0, lim)
+      symbols.filter((s) => s.name.toLowerCase().includes(q.toLowerCase())).slice(0, 50)
         .forEach((s) => out.push({
           source: 'symbol',
           label: s.name,
@@ -343,7 +367,7 @@ export default function Omnibar({
         }));
     }
     if (wantSemantic) {
-      const lim = prefix ? 12 : 6;
+      const lim = 12;
       semanticHits.slice(0, lim).forEach((h) => out.push({
         source: 'semantic',
         label: `${(h.relative || '?')}:L${h.start_line ?? 1}`,
@@ -405,20 +429,21 @@ export default function Omnibar({
   const seenSource = new Set();
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-20" onClick={close}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-16" onClick={close}>
       <div
-        className="w-[640px] max-h-[70vh] lorica-glass rounded-2xl shadow-[0_0_60px_rgba(0,212,255,0.18)] overflow-hidden animate-fadeIn flex flex-col"
+        className="w-[560px] max-w-[92vw] max-h-[55vh] lorica-glass rounded-2xl shadow-[0_0_60px_rgba(0,212,255,0.18)] overflow-hidden animate-fadeIn flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Input */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-lorica-border">
-          <Search size={16} className="text-lorica-accent shrink-0" />
+        {/* Input — shorter placeholder fits the narrower omnibar without
+            cutting off. Full prefix help moved to the footer. */}
+        <div className="flex items-center gap-2 px-3 py-2.5 border-b border-lorica-border">
+          <Search size={14} className="text-lorica-accent shrink-0" />
           <input
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKey}
-            placeholder="Type to search · > command · @ symbol · # semantic · ? agent · :line"
+            placeholder="Search files · > cmd · @ symbol · # semantic · ? agent"
             className="flex-1 bg-transparent text-sm text-lorica-text outline-none placeholder:text-lorica-textDim/60"
           />
           {semanticBusy && (
@@ -461,7 +486,7 @@ export default function Omnibar({
                     </div>
                   )}
                   <button
-                    className={`w-full flex items-center gap-3 px-4 py-2 text-xs transition-colors ${
+                    className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-xs transition-colors ${
                       i === selectedIdx
                         ? 'bg-lorica-accent/15 text-lorica-accent'
                         : 'text-lorica-text hover:bg-lorica-accent/10 hover:text-lorica-accent'
@@ -469,10 +494,10 @@ export default function Omnibar({
                     onClick={row.run}
                     onMouseEnter={() => setSelectedIdx(i)}
                   >
-                    <Icon size={14} className={`opacity-60 flex-shrink-0 ${src.color}`} />
+                    <Icon size={13} className={`opacity-60 flex-shrink-0 ${src.color}`} />
                     <span className="flex-1 text-left truncate">{row.label}</span>
                     {row.detail && (
-                      <span className="text-[10px] text-lorica-textDim truncate max-w-[220px]">{row.detail}</span>
+                      <span className="text-[10px] text-lorica-textDim truncate max-w-[160px]">{row.detail}</span>
                     )}
                     {row.hint && (
                       <kbd className="px-1.5 py-0.5 bg-lorica-bg border border-lorica-border rounded text-[9px] text-lorica-textDim font-mono flex-shrink-0">{row.hint}</kbd>

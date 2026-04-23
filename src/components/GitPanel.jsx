@@ -90,6 +90,9 @@ export default function GitPanel({ state, dispatch }) {
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [generatingMsg, setGeneratingMsg] = useState(false);
   const [showPrModal, setShowPrModal] = useState(false);
+  // When commit fails because git user.name/user.email aren't set, we
+  // open an inline form instead of dumping the raw git error in a toast.
+  const [authorPrompt, setAuthorPrompt] = useState(null); // null | { name, email, pendingMsg }
   const generateAbortRef = useRef(null);
 
   // Refs for debouncing + single-flight + stale-close protection
@@ -234,10 +237,41 @@ export default function GitPanel({ state, dispatch }) {
       setCommitMsg('');
       dispatch({ type: 'ADD_TOAST', toast: { type: 'success', message: 'Committed!', duration: 2000 } });
       scheduleRefresh();
-    } else {
-      dispatch({ type: 'ADD_TOAST', toast: { type: 'error', message: res?.error || 'Commit failed' } });
+      return;
     }
+    // Special-case: the backend signals missing git identity with a
+    // `GIT_AUTHOR_MISSING:` prefix so we can open a form instead of
+    // dumping a multi-line git error in a tiny toast.
+    const err = res?.error || 'Commit failed';
+    if (typeof err === 'string' && err.startsWith('GIT_AUTHOR_MISSING')) {
+      setAuthorPrompt({ name: '', email: '', pendingMsg: commitMsg });
+      return;
+    }
+    dispatch({ type: 'ADD_TOAST', toast: { type: 'error', message: err } });
   }, [commitMsg, state.projectPath, scheduleRefresh, dispatch]);
+
+  // Called when the user fills in name + email in the inline author form.
+  // Persists the identity (globally by default so every future repo
+  // inherits it), then retries the commit that was blocked.
+  const handleSetAuthor = useCallback(async () => {
+    if (!authorPrompt) return;
+    const { name, email, pendingMsg } = authorPrompt;
+    const res = await window.lorica.git.setAuthor(state.projectPath, name, email, true);
+    if (res?.success === false) {
+      dispatch({ type: 'ADD_TOAST', toast: { type: 'error', message: res?.error || 'Could not set git identity' } });
+      return;
+    }
+    setAuthorPrompt(null);
+    // Retry the commit that got blocked.
+    const commit = await window.lorica.git.commit(state.projectPath, pendingMsg);
+    if (commit?.success !== false) {
+      setCommitMsg('');
+      dispatch({ type: 'ADD_TOAST', toast: { type: 'success', message: 'Identity saved and committed!' } });
+      scheduleRefresh();
+    } else {
+      dispatch({ type: 'ADD_TOAST', toast: { type: 'error', message: commit?.error || 'Commit failed after setting identity' } });
+    }
+  }, [authorPrompt, state.projectPath, scheduleRefresh, dispatch]);
 
   // --------------------------------------------------------------
   // AI-generated commit message.
@@ -398,6 +432,49 @@ export default function GitPanel({ state, dispatch }) {
       </div>
 
       <div className="flex-1 overflow-y-auto">
+        {/* Git author setup — shown only when commit fails because
+            user.name/user.email aren't configured. Form persists the
+            pending commit message so the retry is seamless. */}
+        {authorPrompt && (
+          <div className="px-2 py-2 border-b border-lorica-border bg-amber-500/5">
+            <div className="text-[11px] text-amber-400 font-semibold mb-1.5">
+              Git identity missing
+            </div>
+            <div className="text-[10px] text-lorica-textDim mb-2">
+              Git needs your name and email before it can commit. These are saved globally so every future repo uses them.
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <input
+                value={authorPrompt.name}
+                onChange={(e) => setAuthorPrompt({ ...authorPrompt, name: e.target.value })}
+                placeholder="Name (e.g. Alex Devlieger)"
+                className="bg-lorica-bg border border-lorica-border rounded px-2 py-1.5 text-xs text-lorica-text outline-none focus:border-lorica-accent placeholder:text-lorica-textDim/50"
+              />
+              <input
+                value={authorPrompt.email}
+                onChange={(e) => setAuthorPrompt({ ...authorPrompt, email: e.target.value })}
+                placeholder="Email (e.g. alex@example.com)"
+                className="bg-lorica-bg border border-lorica-border rounded px-2 py-1.5 text-xs text-lorica-text outline-none focus:border-lorica-accent placeholder:text-lorica-textDim/50"
+              />
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={handleSetAuthor}
+                  disabled={!authorPrompt.name.trim() || !authorPrompt.email.trim()}
+                  className="flex-1 bg-lorica-accent/20 text-lorica-accent rounded py-1 text-[11px] hover:bg-lorica-accent/30 disabled:opacity-40"
+                >
+                  Save &amp; commit
+                </button>
+                <button
+                  onClick={() => setAuthorPrompt(null)}
+                  className="px-2 py-1 text-[11px] text-lorica-textDim hover:text-lorica-text"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Commit input */}
         <div className="px-2 py-2 border-b border-lorica-border">
           <div className="flex items-center gap-1">

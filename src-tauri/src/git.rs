@@ -214,10 +214,65 @@ pub fn cmd_git_stage_all(project_path: String) -> CmdResult<bool> {
 
 #[tauri::command]
 pub fn cmd_git_commit(project_path: String, message: String) -> CmdResult<String> {
+    // Pre-check: without a configured user.name / user.email, git's own
+    // error is a wall of text. Detect the condition up front and return a
+    // short machine-parseable error prefix the frontend recognises as
+    // "needs author setup" so it can open the right prompt.
+    let name  = run_git(&project_path, &["config", "user.name"]).unwrap_or_default();
+    let email = run_git(&project_path, &["config", "user.email"]).unwrap_or_default();
+    if name.trim().is_empty() || email.trim().is_empty() {
+        return CmdResult::err(
+            "GIT_AUTHOR_MISSING: Git needs your name and email before it can commit. \
+             Set them in Settings → Git, or run:\n  \
+             git config --global user.name \"Your Name\"\n  \
+             git config --global user.email \"you@example.com\""
+        );
+    }
     match run_git(&project_path, &["commit", "-m", &message]) {
         Ok(output) => CmdResult::ok(output.trim().to_string()),
         Err(e) => CmdResult::err(e),
     }
+}
+
+/// Read the effective git user.name / user.email for this repo. Returns
+/// `{name, email}` — either field can be empty if not yet set.
+#[tauri::command]
+pub fn cmd_git_get_author(project_path: String) -> CmdResult<serde_json::Value> {
+    let name  = run_git(&project_path, &["config", "user.name"])
+        .unwrap_or_default().trim().to_string();
+    let email = run_git(&project_path, &["config", "user.email"])
+        .unwrap_or_default().trim().to_string();
+    CmdResult::ok(serde_json::json!({ "name": name, "email": email }))
+}
+
+/// Set git user.name and user.email. When `global = true`, writes to
+/// `~/.gitconfig` so every repo inherits the author — this is the usual
+/// first-time setup. When false, writes only to the current repo.
+#[tauri::command]
+pub fn cmd_git_set_author(
+    project_path: String,
+    name: String,
+    email: String,
+    global: Option<bool>,
+) -> CmdResult<bool> {
+    let name = name.trim();
+    let email = email.trim();
+    if name.is_empty() || email.is_empty() {
+        return CmdResult::err("Name and email cannot be empty");
+    }
+    // Very light sanity on the email — a bad address here would just
+    // mean broken commits later, so we bounce it now.
+    if !email.contains('@') || email.contains(' ') {
+        return CmdResult::err("Email looks malformed");
+    }
+    let scope = if global.unwrap_or(true) { "--global" } else { "--local" };
+    if let Err(e) = run_git(&project_path, &["config", scope, "user.name", name]) {
+        return CmdResult::err(format!("Failed to set name: {}", e));
+    }
+    if let Err(e) = run_git(&project_path, &["config", scope, "user.email", email]) {
+        return CmdResult::err(format!("Failed to set email: {}", e));
+    }
+    CmdResult::ok(true)
 }
 
 #[tauri::command]

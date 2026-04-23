@@ -86,6 +86,20 @@ impl<T: Serialize> CmdResult<T> {
     pub fn err(msg: impl Into<String>) -> Self {
         Self { success: false, data: None, error: Some(msg.into()) }
     }
+    /// Convert into a plain `Result<T, String>`. Tauri requires this exact
+    /// return type for async commands that borrow their inputs (e.g.
+    /// `tauri::State<'_, _>`), so the async DAP/LSP commands use it as
+    /// the last step before returning to the IPC layer.
+    pub fn into_result(self) -> Result<T, String> {
+        if self.success {
+            match self.data {
+                Some(d) => Ok(d),
+                None => Err("CmdResult: success but no data".to_string()),
+            }
+        } else {
+            Err(self.error.unwrap_or_else(|| "Unknown error".to_string()))
+        }
+    }
 }
 
 // ======================================================

@@ -178,95 +178,114 @@ impl DapManager {
         }
     }
 
-    // Get DAP adapter command for a language
+    /// Cross-platform `which`: looks for `bin` on PATH. Returns the absolute
+    /// path if found. Uses `where` on Windows (it's the correct equivalent
+    /// of `which`; the old code called `which` unconditionally, which
+    /// silently failed on every Windows install).
+    fn find_on_path(bin: &str) -> Option<String> {
+        let finder = if cfg!(target_os = "windows") { "where" } else { "which" };
+        let output = std::process::Command::new(finder).arg(bin).output().ok()?;
+        if !output.status.success() { return None; }
+        let first_line = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .next()?
+            .trim()
+            .to_string();
+        if first_line.is_empty() { None } else { Some(first_line) }
+    }
+
+    /// DAP adapter selection.
+    ///
+    /// Each arm returns `(binary, args, transport)` when a usable adapter
+    /// is detected, or `None` when the user needs to install something.
+    /// The frontend surfaces the `None` path as an actionable error; we
+    /// never silently fall back to a non-DAP tool (the old code fell
+    /// back to bare `lldb`, which is NOT a DAP server, so `cpp` sessions
+    /// would spawn an interactive debugger the IDE couldn't talk to).
     pub fn get_dap_adapter(language: &str) -> Option<(String, Vec<String>, DapTransport)> {
         match language {
-            "python" => Some((
-                "python".to_string(),
-                vec!["-m".to_string(), "debugpy".to_string(), "--listen".to_string(), "0".to_string()],
-                DapTransport::Tcp { port: None },
-            )),
-            "javascript" | "typescript" => Some((
-                "node".to_string(),
-                vec!["--inspect".to_string(), "--inspect-brk=0".to_string()],
-                DapTransport::Tcp { port: None },
-            )),
+            "python" => {
+                // debugpy is importable under whatever `python` is on PATH.
+                // Port 0 ≠ valid — adapter needs a concrete port or
+                // `--listen localhost:PORT`. We pick 0 here only to let
+                // the OS allocate; the frontend should parse the banner
+                // printed by debugpy to learn the actual port.
+                let python = if cfg!(target_os = "windows") { "python" } else { "python3" };
+                Some((
+                    python.to_string(),
+                    vec![
+                        "-m".into(), "debugpy.adapter".into(),
+                        "--host".into(), "127.0.0.1".into(),
+                        "--port".into(), "0".into(),
+                    ],
+                    DapTransport::Tcp { port: None },
+                ))
+            }
+            "javascript" | "typescript" => {
+                // `js-debug` (the bundled VSCode Node debugger) IS a DAP
+                // adapter; `node --inspect` is NOT. The old config was
+                // wrong on both counts. We document the real requirement.
+                if let Some(path) = Self::find_on_path("js-debug") {
+                    Some((path, vec![], DapTransport::Stdio))
+                } else {
+                    log::warn!("DAP: install 'js-debug' for JS/TS debugging (npm i -g @vscode/js-debug or the bundled adapter).");
+                    None
+                }
+            }
             "c" | "cpp" | "rust" => {
-                // Use codelldb if available
-                if let Ok(output) = std::process::Command::new("which")
-                    .arg("codelldb")
-                    .output()
-                {
-                    if output.status.success() {
-                        return Some((
-                            "codelldb".to_string(),
-                            vec!["--port".to_string(), "0".to_string()],
-                            DapTransport::Tcp { port: None },
-                        ));
+                // Preferred, in order:
+                //   1. lldb-dap  — modern LLDB ships this as a DAP server
+                //      (formerly named `lldb-vscode`). Stdio transport.
+                //   2. codelldb  — VSCode's LLDB wrapper, also a DAP
+                //      server; runs over TCP. Needs the caller to read
+                //      stdout for the chosen port.
+                //
+                // Raw `lldb` is NOT a DAP server and was removed from
+                // the fallback path.
+                for candidate in &["lldb-dap", "lldb-vscode"] {
+                    if let Some(path) = Self::find_on_path(candidate) {
+                        return Some((path, vec![], DapTransport::Stdio));
                     }
                 }
-                // Fallback to lldb
-                Some((
-                    "lldb".to_string(),
-                    vec!["--batch".to_string(), "-o".to_string(), "run".to_string()],
+                if let Some(path) = Self::find_on_path("codelldb") {
+                    return Some((
+                        path,
+                        vec!["--port".into(), "0".into()],
+                        DapTransport::Tcp { port: None },
+                    ));
+                }
+                log::warn!("DAP: install lldb-dap (ships with LLVM 18+) or codelldb for C/C++/Rust debugging.");
+                None
+            }
+            "csharp" => {
+                Self::find_on_path("netcoredbg").map(|path| (
+                    path,
+                    vec!["--interpreter=vscode".into()],
                     DapTransport::Stdio,
                 ))
             }
-            "csharp" => {
-                if let Ok(output) = std::process::Command::new("which")
-                    .arg("netcoredbg")
-                    .output()
-                {
-                    if output.status.success() {
-                        return Some((
-                            "netcoredbg".to_string(),
-                            vec!["--interpreter=vscode".to_string()],
-                            DapTransport::Stdio,
-                        ));
-                    }
-                }
-                None
-            }
             "java" => {
-                // jdtls with DAP
-                if let Ok(output) = std::process::Command::new("which")
-                    .arg("java")
-                    .output()
-                {
-                    if output.status.success() {
-                        return Some((
-                            "java".to_string(),
-                            vec![
-                                "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005".to_string(),
-                            ],
-                            DapTransport::Tcp { port: Some(5005) },
-                        ));
-                    }
-                }
+                // The previous config was fundamentally wrong: it used
+                // JDWP (the Java Debug Wire Protocol), not DAP. DAP
+                // support for Java requires the Eclipse `java-debug`
+                // adapter invoked via jdtls. Until we embed that, Java
+                // debugging goes through the Run tab only.
+                log::warn!("DAP: Java debugging requires the Eclipse java-debug adapter — not yet bundled.");
                 None
             }
             "php" => {
-                // Xdebug
-                Some((
-                    "php".to_string(),
-                    vec!["-dxdebug.mode=debug".to_string(), "-dxdebug.start_with_request=yes".to_string()],
-                    DapTransport::Tcp { port: Some(9003) },
-                ))
+                // Same story — Xdebug is a protocol, not a DAP adapter.
+                // Real PHP DAP needs `vscode-php-debug` which wraps
+                // Xdebug. Not detected automatically here.
+                log::warn!("DAP: PHP debugging requires the vscode-php-debug adapter.");
+                None
             }
             "go" => {
-                if let Ok(output) = std::process::Command::new("which")
-                    .arg("dlv")
-                    .output()
-                {
-                    if output.status.success() {
-                        return Some((
-                            "dlv".to_string(),
-                            vec!["dap".to_string(), "--listen=:38697".to_string()],
-                            DapTransport::Tcp { port: Some(38697) },
-                        ));
-                    }
-                }
-                None
+                Self::find_on_path("dlv").map(|path| (
+                    path,
+                    vec!["dap".into(), "--listen=127.0.0.1:0".into()],
+                    DapTransport::Tcp { port: None },
+                ))
             }
             _ => None,
         }
@@ -276,7 +295,32 @@ impl DapManager {
     pub async fn launch_session(&self, config: DapLaunchConfig) -> CmdResult<String> {
         let adapter = match Self::get_dap_adapter(&config.language) {
             Some(adapter) => adapter,
-            None => return CmdResult::err(format!("No DAP adapter found for language: {}", config.language)),
+            None => {
+                // Hand the user an actionable install hint rather than a
+                // generic "not found" — the old message told users
+                // nothing about how to fix it.
+                let hint = match config.language.as_str() {
+                    "c" | "cpp" | "rust" =>
+                        "Install lldb-dap (LLVM 18+ ships it) or codelldb, and ensure it's on PATH.",
+                    "python" =>
+                        "Install debugpy: `python -m pip install debugpy`.",
+                    "javascript" | "typescript" =>
+                        "Install the VSCode js-debug adapter (@vscode/js-debug) and expose `js-debug` on PATH.",
+                    "csharp" =>
+                        "Install netcoredbg (https://github.com/Samsung/netcoredbg/releases).",
+                    "go" =>
+                        "Install delve: `go install github.com/go-delve/delve/cmd/dlv@latest`.",
+                    "java" =>
+                        "Java debugging requires the Eclipse `java-debug` adapter — not yet bundled in Lorica.",
+                    "php" =>
+                        "PHP debugging requires the `vscode-php-debug` adapter — not yet bundled in Lorica.",
+                    _ => "No DAP adapter is registered for this language.",
+                };
+                return CmdResult::err(format!(
+                    "No debug adapter found for '{}'. {}",
+                    config.language, hint
+                ));
+            }
         };
 
         let (command, args, transport) = adapter;
@@ -587,20 +631,25 @@ pub enum DapTransport {
 // processes and sessions on every call, making breakpoints impossible
 // to set after launch.
 
+// Tauri requires async commands that borrow their inputs (via
+// `tauri::State<'_, _>`) to return `Result<T, E>` directly, not a custom
+// struct. The inner manager methods keep using `CmdResult<T>` for IPC
+// consistency; we convert at the boundary with `.into_result()`.
+
 #[tauri::command]
 pub async fn cmd_dap_launch(
     state: tauri::State<'_, crate::state::AppState>,
     config: DapLaunchConfig,
-) -> CmdResult<String> {
-    state.dap.launch_session(config).await
+) -> Result<String, String> {
+    state.dap.launch_session(config).await.into_result()
 }
 
 #[tauri::command]
 pub async fn cmd_dap_continue(
     state: tauri::State<'_, crate::state::AppState>,
     session_id: String,
-) -> CmdResult<()> {
-    state.dap.continue_execution(&session_id).await
+) -> Result<(), String> {
+    state.dap.continue_execution(&session_id).await.into_result()
 }
 
 #[tauri::command]
@@ -608,8 +657,8 @@ pub async fn cmd_dap_step_over(
     state: tauri::State<'_, crate::state::AppState>,
     session_id: String,
     thread_id: u64,
-) -> CmdResult<()> {
-    state.dap.step_over(&session_id, thread_id).await
+) -> Result<(), String> {
+    state.dap.step_over(&session_id, thread_id).await.into_result()
 }
 
 #[tauri::command]
@@ -617,8 +666,8 @@ pub async fn cmd_dap_step_in(
     state: tauri::State<'_, crate::state::AppState>,
     session_id: String,
     thread_id: u64,
-) -> CmdResult<()> {
-    state.dap.step_in(&session_id, thread_id).await
+) -> Result<(), String> {
+    state.dap.step_in(&session_id, thread_id).await.into_result()
 }
 
 #[tauri::command]
@@ -626,24 +675,24 @@ pub async fn cmd_dap_step_out(
     state: tauri::State<'_, crate::state::AppState>,
     session_id: String,
     thread_id: u64,
-) -> CmdResult<()> {
-    state.dap.step_out(&session_id, thread_id).await
+) -> Result<(), String> {
+    state.dap.step_out(&session_id, thread_id).await.into_result()
 }
 
 #[tauri::command]
 pub async fn cmd_dap_pause(
     state: tauri::State<'_, crate::state::AppState>,
     session_id: String,
-) -> CmdResult<()> {
-    state.dap.pause(&session_id).await
+) -> Result<(), String> {
+    state.dap.pause(&session_id).await.into_result()
 }
 
 #[tauri::command]
 pub async fn cmd_dap_terminate(
     state: tauri::State<'_, crate::state::AppState>,
     session_id: String,
-) -> CmdResult<()> {
-    state.dap.terminate(&session_id).await
+) -> Result<(), String> {
+    state.dap.terminate(&session_id).await.into_result()
 }
 
 #[tauri::command]
@@ -652,8 +701,8 @@ pub async fn cmd_dap_set_breakpoints(
     session_id: String,
     file: String,
     lines: Vec<u32>,
-) -> CmdResult<Vec<Breakpoint>> {
-    state.dap.set_breakpoints(&session_id, file, lines).await
+) -> Result<Vec<Breakpoint>, String> {
+    state.dap.set_breakpoints(&session_id, file, lines).await.into_result()
 }
 
 #[tauri::command]
@@ -661,8 +710,8 @@ pub async fn cmd_dap_get_variables(
     state: tauri::State<'_, crate::state::AppState>,
     session_id: String,
     variables_reference: u64,
-) -> CmdResult<Vec<Variable>> {
-    state.dap.get_variables(&session_id, variables_reference).await
+) -> Result<Vec<Variable>, String> {
+    state.dap.get_variables(&session_id, variables_reference).await.into_result()
 }
 
 #[tauri::command]
@@ -671,8 +720,8 @@ pub async fn cmd_dap_evaluate(
     session_id: String,
     expression: String,
     frame_id: u64,
-) -> CmdResult<String> {
-    state.dap.evaluate(&session_id, expression, frame_id).await
+) -> Result<String, String> {
+    state.dap.evaluate(&session_id, expression, frame_id).await.into_result()
 }
 
 #[tauri::command]
@@ -680,6 +729,6 @@ pub async fn cmd_dap_get_stack_trace(
     state: tauri::State<'_, crate::state::AppState>,
     session_id: String,
     thread_id: u64,
-) -> CmdResult<Vec<StackFrame>> {
-    state.dap.get_stack_trace(&session_id, thread_id).await
+) -> Result<Vec<StackFrame>, String> {
+    state.dap.get_stack_trace(&session_id, thread_id).await.into_result()
 }

@@ -84,6 +84,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             git::cmd_git_unstage,
             git::cmd_git_stage_all,
             git::cmd_git_commit,
+            git::cmd_git_get_author,
+            git::cmd_git_set_author,
             git::cmd_git_push,
             git::cmd_git_pull,
             git::cmd_git_log,

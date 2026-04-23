@@ -13,7 +13,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import {
   Brain, Plus, Trash2, Save, Search, RefreshCw, Sparkles,
   FileText as FileIcon, Check, X as XIcon, List, Calendar, Network,
-  ArrowRight, Link2,
+  ArrowRight, Link2, ArrowLeft,
 } from 'lucide-react';
 import {
   BRAIN_TYPES, searchBrain, saveBrainEntry, deleteBrainEntry,
@@ -153,29 +153,99 @@ export default function ProjectBrainPanel({ state, dispatch, brainRefresh }) {
     );
   }
 
+  // What to render in the main body area.
+  //   - `edit`     : EntryEditor (new or existing entry being edited)
+  //   - `detail`   : EntryView (an entry is selected)
+  //   - `timeline` : TimelineView (chrono grid of all entries)
+  //   - `graph`    : GraphView (link graph of all entries)
+  //   - `list`     : entry list (default — used to be the left sidebar)
+  //
+  // The previous layout rendered the list AND the detail side-by-side
+  // in a 240px + flex-1 flex row. When the Brain panel was docked in
+  // the narrow app sidebar, the flex-1 detail column still wanted its
+  // content width, leaked past `overflow-hidden`, and text bled through
+  // the editor. Stacking them resolves the overflow for good.
+  const bodyMode =
+    mode === 'edit' ? 'edit'
+    : selected && mode === 'read' ? 'detail'
+    : view === 'timeline' ? 'timeline'
+    : view === 'graph' ? 'graph'
+    : 'list';
+
+  const goBackToList = () => {
+    setSelectedPath(null);
+    setMode('read');
+    setView('list');
+  };
+
   return (
-    <div className="h-full flex">
-      {/* Sidebar: list */}
-      <div className="w-[240px] border-r border-lorica-border flex flex-col shrink-0">
-        <div className="px-3 py-2 border-b border-lorica-border flex items-center gap-2">
-          <Brain size={13} className="text-lorica-accent" />
-          <span className="text-[10px] uppercase tracking-widest text-lorica-textDim font-semibold">Brain</span>
-          <button
-            onClick={brainRefresh}
-            className="ml-auto p-1 rounded text-lorica-textDim hover:text-lorica-accent hover:bg-lorica-border/40 transition-colors"
-            title="Reload from disk"
-          >
-            <RefreshCw size={11} />
-          </button>
-          <button
-            onClick={startNew}
-            className="p-1 rounded text-lorica-textDim hover:text-lorica-accent hover:bg-lorica-border/40 transition-colors"
-            title="New entry"
-          >
-            <Plus size={12} />
-          </button>
+    <div className="h-full flex flex-col overflow-hidden">
+      {/* Top toolbar — always visible. Shows either navigation chrome
+          for the list view, or a back-to-list button when drilled in. */}
+      <div className="px-3 py-2 border-b border-lorica-border flex items-center gap-2 shrink-0">
+        {bodyMode === 'list' ? (
+          <>
+            <Brain size={13} className="text-lorica-accent" />
+            <span className="text-[10px] uppercase tracking-widest text-lorica-textDim font-semibold">Brain</span>
+            <button
+              onClick={brainRefresh}
+              className="ml-auto p-1 rounded text-lorica-textDim hover:text-lorica-accent hover:bg-lorica-border/40 transition-colors"
+              title="Reload from disk"
+            >
+              <RefreshCw size={11} />
+            </button>
+            <button
+              onClick={startNew}
+              className="p-1 rounded text-lorica-textDim hover:text-lorica-accent hover:bg-lorica-border/40 transition-colors"
+              title="New entry"
+            >
+              <Plus size={12} />
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={goBackToList}
+              className="flex items-center gap-1 p-1 rounded text-lorica-textDim hover:text-lorica-accent hover:bg-lorica-border/40 transition-colors"
+              title="Back to list"
+            >
+              <ArrowLeft size={12} />
+              <span className="text-[10px]">Back</span>
+            </button>
+            <span className="text-[10px] uppercase tracking-widest text-lorica-textDim font-semibold">
+              {bodyMode === 'edit' ? 'Edit' : bodyMode === 'timeline' ? 'Timeline' : bodyMode === 'graph' ? 'Graph' : 'Entry'}
+            </span>
+          </>
+        )}
+      </div>
+
+      {/* View switcher — only meaningful in the list view (timeline /
+          graph are overlay modes over the same set of entries). */}
+      {bodyMode === 'list' && (
+        <div className="flex border-b border-lorica-border shrink-0">
+          {[
+            { id: 'list',     label: 'Entries',  Icon: List },
+            { id: 'timeline', label: 'Timeline', Icon: Calendar },
+            { id: 'graph',    label: 'Graph',    Icon: Network },
+          ].map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setView(t.id)}
+              className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-[10px] transition-colors ${
+                view === t.id
+                  ? 'text-lorica-accent border-b border-lorica-accent bg-lorica-accent/5'
+                  : 'text-lorica-textDim hover:text-lorica-text hover:bg-lorica-border/30'
+              }`}
+            >
+              <t.Icon size={10} /> {t.label}
+            </button>
+          ))}
         </div>
-        <div className="px-2 py-1.5 border-b border-lorica-border">
+      )}
+
+      {/* Search + filters — only when browsing the list. */}
+      {bodyMode === 'list' && view === 'list' && (
+        <div className="px-2 py-1.5 border-b border-lorica-border shrink-0">
           <div className="relative">
             <Search size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-lorica-textDim" />
             <input
@@ -214,40 +284,76 @@ export default function ProjectBrainPanel({ state, dispatch, brainRefresh }) {
             {extracting ? 'Extracting…' : 'Auto-extract from last chat'}
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto">
-          {filtered.length === 0 && (
-            <div className="p-3 text-center text-[10px] text-lorica-textDim">
-              {entries.length === 0 ? 'No brain entries yet.' : 'No matches.'}
-            </div>
-          )}
-          {Array.from(grouped.entries()).map(([typeId, list]) => {
-            const t = BRAIN_TYPES.find((x) => x.id === typeId) || BRAIN_TYPES[4];
-            return (
-              <div key={typeId}>
-                <div className={`px-2.5 py-1 text-[9px] uppercase tracking-widest font-semibold ${t.color} border-b border-lorica-border/50 bg-lorica-bg/40 sticky top-0`}>
-                  {t.emoji} {t.label} · {list.length}
-                </div>
-                {list.map((e) => (
-                  <button
-                    key={e.path}
-                    onClick={() => { setSelectedPath(e.path); setMode('read'); }}
-                    className={`w-full text-left px-3 py-1.5 border-b border-lorica-border/30 transition-colors ${
-                      selectedPath === e.path ? 'bg-lorica-accent/10' : 'hover:bg-lorica-border/30'
-                    }`}
-                  >
-                    <div className={`text-[11px] font-medium truncate ${selectedPath === e.path ? 'text-lorica-accent' : 'text-lorica-text'}`}>
-                      {e.title}
-                    </div>
-                    <div className="text-[9px] text-lorica-textDim truncate">
-                      {e.date}{e.tags.length ? ` · ${e.tags.slice(0, 2).join(', ')}` : ''}
-                    </div>
-                  </button>
-                ))}
+      )}
+
+      {/* Main body — fills remaining space, scrolls internally. */}
+      <div className="flex-1 overflow-y-auto min-h-0">
+        {bodyMode === 'edit' && editing && (
+          <EntryEditor
+            draft={editing}
+            onChange={setEditing}
+            onSave={save}
+            onCancel={cancelEdit}
+          />
+        )}
+
+        {bodyMode === 'detail' && selected && (
+          <EntryView
+            entry={selected}
+            entries={entries}
+            onEdit={startEdit}
+            onDelete={() => { remove(); goBackToList(); }}
+            onOpenEntry={(e) => { setSelectedPath(e.path); setMode('read'); setView('list'); }}
+          />
+        )}
+
+        {bodyMode === 'timeline' && (
+          <TimelineView entries={entries} onOpenEntry={(e) => { setSelectedPath(e.path); setMode('read'); setView('list'); }} />
+        )}
+
+        {bodyMode === 'graph' && (
+          <GraphView entries={entries} onOpenEntry={(e) => { setSelectedPath(e.path); setMode('read'); setView('list'); }} />
+        )}
+
+        {bodyMode === 'list' && (
+          <>
+            {filtered.length === 0 ? (
+              <div className="p-4 text-center text-[10px] text-lorica-textDim">
+                {entries.length === 0 ? 'No brain entries yet.' : 'No matches.'}
               </div>
-            );
-          })}
-        </div>
-        <div className="px-3 py-1.5 border-t border-lorica-border text-[9px] text-lorica-textDim">
+            ) : (
+              Array.from(grouped.entries()).map(([typeId, list]) => {
+                const t = BRAIN_TYPES.find((x) => x.id === typeId) || BRAIN_TYPES[4];
+                return (
+                  <div key={typeId}>
+                    <div className={`px-2.5 py-1 text-[9px] uppercase tracking-widest font-semibold ${t.color} border-b border-lorica-border/50 bg-lorica-bg/40 sticky top-0`}>
+                      {t.emoji} {t.label} · {list.length}
+                    </div>
+                    {list.map((e) => (
+                      <button
+                        key={e.path}
+                        onClick={() => { setSelectedPath(e.path); setMode('read'); }}
+                        className="w-full text-left px-3 py-1.5 border-b border-lorica-border/30 transition-colors hover:bg-lorica-border/30"
+                      >
+                        <div className="text-[11px] font-medium truncate text-lorica-text">
+                          {e.title}
+                        </div>
+                        <div className="text-[9px] text-lorica-textDim truncate">
+                          {e.date}{e.tags.length ? ` · ${e.tags.slice(0, 2).join(', ')}` : ''}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                );
+              })
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Footer toggle — only in list mode. */}
+      {bodyMode === 'list' && (
+        <div className="px-3 py-1.5 border-t border-lorica-border text-[9px] text-lorica-textDim shrink-0">
           <label className="flex items-center gap-1.5 cursor-pointer">
             <input
               type="checkbox"
@@ -258,57 +364,7 @@ export default function ProjectBrainPanel({ state, dispatch, brainRefresh }) {
             <span>Include in agent context</span>
           </label>
         </div>
-      </div>
-
-      {/* Main: view switcher + content */}
-      <div className="flex-1 overflow-hidden flex flex-col">
-        {mode !== 'edit' && (
-          <div className="flex border-b border-lorica-border shrink-0">
-            {[
-              { id: 'list',     label: 'Entry',    Icon: List },
-              { id: 'timeline', label: 'Timeline', Icon: Calendar },
-              { id: 'graph',    label: 'Graph',    Icon: Network },
-            ].map((t) => (
-              <button
-                key={t.id}
-                onClick={() => setView(t.id)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] transition-colors ${
-                  view === t.id
-                    ? 'text-lorica-accent border-b border-lorica-accent bg-lorica-accent/5'
-                    : 'text-lorica-textDim hover:text-lorica-text hover:bg-lorica-border/30'
-                }`}
-              >
-                <t.Icon size={11} /> {t.label}
-              </button>
-            ))}
-          </div>
-        )}
-        {mode === 'edit' && editing ? (
-          <EntryEditor
-            draft={editing}
-            onChange={setEditing}
-            onSave={save}
-            onCancel={cancelEdit}
-          />
-        ) : view === 'list' && selected ? (
-          <EntryView
-            entry={selected}
-            entries={entries}
-            onEdit={startEdit}
-            onDelete={remove}
-            onOpenEntry={(e) => { setSelectedPath(e.path); setView('list'); }}
-          />
-        ) : view === 'timeline' ? (
-          <TimelineView entries={entries} onOpenEntry={(e) => { setSelectedPath(e.path); setView('list'); }} />
-        ) : view === 'graph' ? (
-          <GraphView entries={entries} onOpenEntry={(e) => { setSelectedPath(e.path); setView('list'); }} />
-        ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-[11px] text-lorica-textDim">
-            <Brain size={28} className="opacity-30 mb-2" />
-            Select an entry, create a new one, or auto-extract from your last chat.
-          </div>
-        )}
-      </div>
+      )}
     </div>
   );
 }

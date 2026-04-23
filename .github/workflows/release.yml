@@ -153,18 +153,17 @@ jobs:
           releaseBody: |
             See the changelog in [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md).
 
-            ### 🔏 Code signing
+            ### Integrity
 
-            Windows binaries in this release are code-signed by the
-            [**SignPath Foundation**](https://signpath.org) — a non-profit
-            that provides free Authenticode code signing for qualifying
-            open-source projects. Smart App Control and SmartScreen accept
-            these binaries without requiring end users to disable any OS
-            security setting.
+            Windows binaries in this release are currently **unsigned** —
+            Lorica hasn't yet obtained an Authenticode code-signing
+            certificate. Verify a downloaded artifact by checking its
+            SHA-256 against the checksums attached to this release, and
+            confirm the build came from the tagged commit on GitHub.
 
-            Signing infrastructure: SignPath.io platform (HSM-backed).
-            Verify a downloaded artifact with:
-            `Get-AuthenticodeSignature Lorica_x.y.z_x64_en-US.msi`
+            On Windows, SmartScreen may warn about the installer.
+            See the [README → Avertissement SmartScreen](https://github.com/${{ github.repository }}#-avertissement-smartscreen-sur-windows)
+            for how to proceed.
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.platform == 'macos' && '--target universal-apple-darwin' || '' }}
