@@ -36,7 +36,99 @@ _Append-only. Most recent at the top._
 - Build must stay green: `npm run build` after every code change.
 - Theme-aware via `var(--color-*)` everywhere.
 
+## Roadmap — upcoming waves
+
+### Wave 5 — finishing v2.3 polish (firing now)
+- **Agent A**: Nim autocomplete generator to 2k+ (current 883)
+- **Agent B**: Crystal autocomplete generator to 2k+ (current 886)
+- **Agent C**: Perf pass 4 — vendors bundle audit + lucide-react tree-shake (target: vendors 250 → 180 KiB)
+- **Local (no agent)**: CHANGELOG.md v2.3.0 entry + new `docs/RELEASE_NOTES_v2.3.md`
+
+### Wave 6 — V2.3 medium-tier features (queued, fire after W5 + LEDGER bilan)
+- Floating / detachable editor windows (Tauri multi-window API)
+- Agent worktree isolation (extends existing Swarm Dev)
+
+### Wave 7 — Test coverage seed
+- Vitest setup if not present
+- Tests for the pure functions added in Waves 1-3:
+  - `gitGraphLayout` (lane assignment edge cases)
+  - `conflictMarkers.findConflicts` (diff3, nested, malformed)
+  - `promptTemplates.expandPrompt` ({{...}} substitution)
+  - `aiCoauthor.appendTrailer` (dedup, provider-aware)
+  - `parseDiffNewLineRanges` (already has 5 inline tests — formalize)
+
+### Wave 8 — V2.3 medium-tier extras
+- Voice input (Web Speech API, Win+Mac, opt-in)
+- Native devcontainer (read-only first pass: open shell in container)
+- MCP marketplace inside Extensions panel
+
+### Wave 9+ — Phase C2 v2.4 territory
+- Extensions architecture v1 (dynamic-import + manifest + sandboxing)
+- Spec drafted in v2.3, ship in v2.4
+- Reference extension (Focus Timer is the easiest candidate)
+
 ## Bilan log
+
+### 2026-05-08 — Wave 5 complete (3 agents, all ✅)
+
+**Niche autocomplete completion (sequential agents to dodge rate limits):**
+
+| Language | Before | After | Status |
+|---|---|---|---|
+| nim | 883 | **2,025** | ✅ (87% detail / 100% info) |
+| crystal | 886 | **2,353** | ✅ (80.6% detail / 100% info) |
+
+**All 5 niche languages now at parity** (haskell 2,448 / ocaml 2,131 / zig 4,744 / nim 2,025 / crystal 2,353). Total niche: **13,701 entries** vs 633 baseline = ×21.6.
+
+**Perf pass 4 — first sub-1 MB entrypoint:**
+
+| Chunk | Before | After | Δ |
+|---|---|---|---|
+| `vendors.bundle.js` | 250 KiB | **181 KiB** | **-27%** |
+| `codemirror.bundle.js` | 426 KiB | 413 KiB | -13 KiB |
+| `main.bundle.js` | 285 KiB | 286 KiB | +0.6 KiB |
+| **Entrypoint total** | **1.04 MiB** | **0.96 MiB** | **-83 KiB** |
+
+Wins:
+- **Tauri ESM/CJS duplication fix** in `useSpotify.js` — was `require()`-ing CJS while the rest used ESM, doubling Tauri code in vendors.
+- **`spotify-web-api-js` lazy-loaded** — 96 KiB out of entrypoint, only fetched if user signs into Spotify.
+- **`lucide-react` already optimal** — sideEffects:false, per-icon ESM, ~470 bytes/icon. No change needed.
+- **splitChunks tuning** — moved `@lezer/*` + helpers into the codemirror cacheGroup; new `spotifyApi` cacheGroup.
+
+**Cumulative v2.1 → v2.3 perf:** main bundle **989 → 286 KiB (-71%)**, entrypoint **~1.6 → 0.96 MiB (-40%)**.
+
+**Local docs work (no agent):**
+- CHANGELOG.md: new v2.3.0 entry at top, v2.2.0 stays as historical.
+- New `docs/RELEASE_NOTES_v2.3.md` for the GitHub Release.
+- This LEDGER updated with Wave 4 + 5 + roadmap for Waves 6-9.
+
+**Build**: green (npm + cargo). 1 pre-existing warning unchanged.
+
+### 2026-05-05 (afternoon) — Wave 4 hotfix: LSP registry + queue + v2.3.0 bump
+
+**User reported two regressions in Extensions panel:**
+1. LSP downloads "impossible"
+2. Install queue removed
+
+**Root causes found via local debug (no agent):**
+1. The 10 original LSPs (`lsp-python`, `lsp-typescript`, `lsp-rust`, `lsp-go`, `lsp-clangd`, `lsp-csharp`, `lsp-web`, `lsp-php`, `lsp-sql`, `lsp-java`) had been deleted from `extensions.rs` registry — only the 7 Wave-2 additions remained. Users couldn't see/install the LSPs they actually wanted.
+2. ExtensionManager.jsx had been simplified by Wave 2 LSP+7 agent, removing `queueRef`/`installingNow`/"Queued #N" pills logic.
+
+**Fixes (all local, no agent):**
+- Re-added 10 LSP entries to `extensions.rs` matching Wave-2 pattern (per-OS install_cmd + XXX_MISSING toolchain pre-checks).
+- C# auto-bootstraps .NET SDK via `dot.net/v1/dotnet-install` script.
+- Python install on Windows fixed (no bracket re-quoting via cmd).
+- Restored install queue: `queueRef` (sync source of truth) + `queue` (state mirror) + `installingNow` + sequential `runInstall` recursion via `setTimeout`. Cancel-X on each "Queued #N" pill.
+- `find_binary()` extended: `~/.dotnet/tools`, `~/go/bin`, `~/.npm-global/bin`, Python user-install Scripts paths.
+
+**Versioning bumped 2.2.0 → 2.3.0** in: `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, `src/version.js`, `README.md` (download URLs).
+
+**Branches**:
+- `wave-4` snapshot at `75ddbac`
+- `waves-1-3-snapshot` reset to `15ee93b` (pre-wave-4)
+- `main` advanced to `75ddbac`
+
+**Build**: green (npm + cargo). 1 pre-existing warning unchanged.
 
 ### 2026-05-05 — Wave 3 complete + niche recovery, ready to commit
 

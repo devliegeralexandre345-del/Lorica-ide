@@ -3,6 +3,112 @@
 All notable changes to Lorica IDE. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] — 2026-05-05
+
+Lorica v2.3 ships ~13 new features (drawn from a competitor scan + a
+community pain-point pass), three perf passes that cut first-paint cost
+by **33% (1.56 → 1.04 MiB)** while keeping the entire 30-language
+autocomplete dictionary intact, +7 LSP servers (10 → 17), +4 themes
+(6 → 10), and a new generator pipeline for scaling niche-language
+completions to mainstream parity.
+
+### Added
+
+#### Editor & v2.3 features
+- **Git status decorations in file tree** — M / A / U / D / R / C / !
+  letters next to filenames, theme-aware via `var(--color-*)`. Folders
+  containing changes get a subtle dot.
+- **AI conflict resolution** — inline toolbar above each `<<<<<<<`
+  marker with **Resolve with AI** / Keep ours / Keep theirs / Keep
+  both. Clicking AI opens the agent panel pre-loaded with a structured
+  OURS/THEIRS prompt + 5 lines of context.
+- **Multi-line search & replace** — toggle in both the in-editor
+  panel (`Ctrl+F`) and GlobalSearch (`Ctrl+Shift+F`). Backend
+  `cmd_search_in_files` extended with `multiline: Option<bool>`.
+- **Reusable prompt files & instructions** — `.lorica/instructions.md`
+  auto-prepended to the agent system prompt; `.lorica/prompts/*.md`
+  with frontmatter appear in the slash menu with a "project" badge.
+  Templates support `{{selection}}`, `{{file}}`, `{{open_files}}`.
+- **Git graph visualization** — pure-SVG branch / commit topology.
+  Lazy-loaded chunk, manual virtualization > 200 commits, octopus
+  merge support. Toggle Log / Graph in Git Panel persists in
+  localStorage.
+- **Staged-changes gutter** — green bars for staged lines, yellow for
+  unstaged-modified, gradient for both. Reuses `cmd_git_diff_staged`
+  (extended with optional `file_path`).
+- **AI co-author commit trailer** — opt-in toggle in Settings → Git.
+  Auto-appends `Co-authored-by: Claude <noreply@anthropic.com>` (or
+  DeepSeek) when an edit was AI-driven within the last 30 minutes.
+  Pure-function `appendTrailer` with case-insensitive dedup.
+- **`@diff` / `@branch-diff` agent context mention** — type `@diff` in
+  the agent panel to attach the full branch diff vs. main as context.
+  Dual payload: model sees the diff, chat history shows a clean
+  placeholder. 30 KB cap with friendly warning.
+
+#### Autocomplete UX polish
+- **Recency ranking** — per-language LRU 200 in localStorage; recently
+  accepted entries float to the top with a bounded boost (max +20,
+  decays over 30 days).
+- **Fuzzy match on `detail`** — typing `vec` now also surfaces entries
+  whose `detail` contains `Vec<T>` (lower-priority than label
+  matches).
+- **Snippet template insertion** — entries with `${1:placeholder}`
+  markers route through `@codemirror/autocomplete`'s `snippet()` for
+  tab-stop fields.
+
+#### Niche language autocomplete (new generator pipeline)
+- New `scripts/completions-gen/` infrastructure: `EntrySet` helpers
+  with dedup + sort + serialize, run via `node
+  scripts/completions-gen/build.mjs`.
+- haskell, ocaml, zig, nim, crystal expanded from baselines of
+  100-150 entries each to **2,000+ each** (zig at 4,744). Total niche
+  entries went from 633 → 13,000+.
+
+#### Language Server Protocol
+- **+7 new LSP server one-click installers**: Ruby (`solargraph`),
+  Bash (`bash-language-server`), Lua (`lua-language-server`), Elixir
+  (`elixir-ls`), Dart (built-in to SDK), Kotlin
+  (`kotlin-language-server`), Swift (`sourcekit-lsp`). Total: **17
+  LSPs**. Toolchain pre-checks emit friendly `XXX_MISSING:` markers.
+- **`get_lsp_server()` harmonized** with the registry — all 17 servers
+  wired both client-side and registry-side.
+
+#### Themes & branding
+- **+4 themes**: Solarized Dark, Solarized Light, Catppuccin Mocha,
+  Gruvbox Dark. Total 10 themes. 5-stop `logoBars` per theme for
+  the theme-aware logo.
+
+#### Performance push (three passes)
+- **Pass 1**: lazy-load completion chunks. Main bundle 989 KiB → 321 KiB.
+- **Pass 2**: lazy-load `FilePreview` nested previews
+  (Html/Pdf/Docx/Xml/Sql). 321 → 304 KiB.
+- **Pass 3**: lazy-load Terminal (xterm out of entrypoint) +
+  AgentCopilot + LockScreen. Idle-defer 4 hooks. Boot times
+  instrumentation in PerformanceHUD. **304 → 285 KiB**, entrypoint
+  total **1.56 → 1.04 MiB (-33%)**.
+
+### Fixed
+
+- **LSP install regression**: 10 original LSP entries (`lsp-python`,
+  `lsp-typescript`, `lsp-rust`, `lsp-go`, `lsp-clangd`, `lsp-csharp`,
+  `lsp-web`, `lsp-php`, `lsp-sql`, `lsp-java`) had been dropped from
+  the Extensions registry. Restored.
+- **Install queue regression**: "Queued #N" pills + cancel-X had been
+  removed from `ExtensionManager.jsx`. Restored with `queueRef` source
+  of truth + sequential `runInstall` recursion.
+- **Python LSP install on Windows**: cmd.exe doesn't need quoting for
+  `[all]` brackets; previous code re-quoted via Rust's `Command::args`
+  producing literal `""..."` that pip rejected.
+- **C# auto-bootstrap .NET SDK**: `csharp-ls` install now invokes
+  Microsoft's `dotnet-install` script when `dotnet` is missing — no
+  admin required, installs to `$HOME/.dotnet`.
+- **`find_binary()`** extended to walk `~/.dotnet/tools`, `~/go/bin`,
+  `~/.npm-global/bin`, Python user-install Scripts/Library paths.
+
+### Changed
+- All version pins (`package.json`, `Cargo.toml`, `tauri.conf.json`,
+  `src/version.js`) and download URLs in `README.md` bumped to 2.3.0.
+
 ## [2.2.0] — 2026-04-20
 
 Privacy, correctness, and the C++ debugger finally works. This release

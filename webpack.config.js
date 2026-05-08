@@ -48,10 +48,23 @@ module.exports = {
       // into the async chunk that triggered them, shrinking the initial
       // paint.
       cacheGroups: {
+        // CodeMirror itself plus every direct runtime dep it pulls in.
+        // Pre-pass-4 these helpers (`@lezer/common`, `@lezer/highlight`,
+        // `style-mod`, `crelt`, `w3c-keyname`, `@marijn/find-cluster-break`)
+        // landed in `vendors.bundle.js` because the cacheGroup test only
+        // matched `@codemirror/*`. They're never used outside the editor
+        // graph, so co-locating them with `codemirror.bundle.js` keeps the
+        // entrypoint vendors slim without changing what's loaded for first
+        // paint (codemirror is already an initial chunk).
+        //
+        // `chunks: 'initial'` matters here: it stops async-only @lezer
+        // deps (like `@lezer/markdown`, only reached through dynamic
+        // `import()` for the markdown viewer) from being pulled into the
+        // eager codemirror bundle. They keep their own async chunks.
         codemirror: {
-          test: /[\\/]node_modules[\\/]@codemirror[\\/]/,
+          test: /[\\/]node_modules[\\/](@codemirror|@lezer|style-mod|crelt|w3c-keyname|@marijn[\\/]find-cluster-break)[\\/]/,
           name: 'codemirror',
-          chunks: 'all',
+          chunks: 'initial',
           priority: 30,
         },
         xterm: {
@@ -65,6 +78,17 @@ module.exports = {
         mammoth: {
           test: /[\\/]node_modules[\\/]mammoth[\\/]/,
           name: 'mammoth',
+          chunks: 'async',
+          priority: 25,
+        },
+        // Spotify is gated behind `useSpotify`'s dynamic imports — split
+        // the API client into its own async chunk so login-time fetches
+        // arrive in one round-trip rather than several. We keep this
+        // separate from the lazy `spotify` panel chunk (the React component
+        // itself, see `SpotifyPlayer` lazy import in App.jsx).
+        spotifyApi: {
+          test: /[\\/]node_modules[\\/]spotify-web-api-js[\\/]/,
+          name: 'spotify-api',
           chunks: 'async',
           priority: 25,
         },

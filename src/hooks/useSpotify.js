@@ -1,15 +1,49 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import SpotifyWebApi from 'spotify-web-api-js';
 
-// Tauri imports
-let listen, openInBrowser, getCurrentWindow;
-if (typeof window !== 'undefined' && window.__TAURI__) {
-  ({ listen } = require('@tauri-apps/api/event'));
-  ({ open: openInBrowser } = require('@tauri-apps/plugin-shell'));
-  ({ getCurrentWindow } = require('@tauri-apps/api/window'));
+// Pass-4 perf: Spotify is rarely the first feature a user touches. The web
+// API client (`spotify-web-api-js`, ~96 KiB) plus the Tauri sub-modules
+// pulled in by openInBrowser/getCurrentWindow used to land in the
+// entrypoint vendors bundle — and worse, the original `require(...)` calls
+// duplicated every Tauri sub-module in CJS form *alongside* the ESM copy
+// already loaded by the rest of the app. That's where ~226 KiB of
+// vendors.bundle.js bloat came from.
+//
+// We now defer the heavy bits behind the same dynamic-import boundary the
+// lazy `<SpotifyPlayer>` already uses. The hook returns a stub interface
+// at first paint; the real implementations are wired in via dynamic ESM
+// imports after the user clicks "Connect Spotify" or already has a token.
+let spotifyApi = null;
+let _loadingSpotifyApi = null;
+async function loadSpotifyApi() {
+  if (spotifyApi) return spotifyApi;
+  if (_loadingSpotifyApi) return _loadingSpotifyApi;
+  _loadingSpotifyApi = import(/* webpackChunkName: "spotify-api" */ 'spotify-web-api-js').then((m) => {
+    const Ctor = m.default || m;
+    spotifyApi = new Ctor();
+    return spotifyApi;
+  });
+  return _loadingSpotifyApi;
 }
 
-const spotifyApi = new SpotifyWebApi();
+// Tauri ESM helpers — same paths the rest of the codebase uses, so webpack
+// shares one copy. We resolve them lazily so no Tauri module is loaded in
+// pure-web previews where `window.__TAURI__` is missing.
+let _tauriDeps = null;
+async function loadTauriDeps() {
+  if (_tauriDeps) return _tauriDeps;
+  if (typeof window === 'undefined' || !window.__TAURI__) return null;
+  const [eventMod, shellMod, windowMod] = await Promise.all([
+    import(/* webpackChunkName: "spotify-tauri" */ '@tauri-apps/api/event'),
+    import(/* webpackChunkName: "spotify-tauri" */ '@tauri-apps/plugin-shell'),
+    import(/* webpackChunkName: "spotify-tauri" */ '@tauri-apps/api/window'),
+  ]);
+  _tauriDeps = {
+    listen: eventMod.listen,
+    openInBrowser: shellMod.open,
+    getCurrentWindow: windowMod.getCurrentWindow,
+  };
+  return _tauriDeps;
+}
 
 const CLIENT_ID = '57b0685cc3574d10a21bc43c6ed546f4';
 const SCOPES = ['user-read-currently-playing', 'user-modify-playback-state', 'user-read-playback-state'];
@@ -133,10 +167,12 @@ export function useSpotify() {
         setToken(data.access_token);
         
         // Refocaliser la fenêtre Tauri après réception du token
-        if (typeof window !== 'undefined' && window.__TAURI__ && getCurrentWindow) {
+        if (typeof window !== 'undefined' && window.__TAURI__) {
           focusWindowTimeoutRef.current = setTimeout(async () => {
             try {
-              const win = getCurrentWindow();
+              const deps = await loadTauriDeps();
+              if (!deps?.getCurrentWindow) return;
+              const win = deps.getCurrentWindow();
               await win.show();
               await win.unminimize();
               await win.setFocus();
@@ -211,14 +247,16 @@ export function useSpotify() {
   
   // Écouter l'événement Tauri pour récupérer le code OAuth
   useEffect(() => {
-    if (!window.__TAURI__ || !listen) return;
-    
+    if (!window.__TAURI__) return;
+
     let unlistenFn;
     let mounted = true;
-    
+
     const setupListener = async () => {
       try {
-        const unlisten = await listen('spotify-oauth-callback', async (event) => {
+        const deps = await loadTauriDeps();
+        if (!deps?.listen || !mounted) return;
+        const unlisten = await deps.listen('spotify-oauth-callback', async (event) => {
           if (!mounted) return;
           // Backward-compat: older backend emits a bare string, newer emits
           // {code, state}. We accept both so upgrades don't break in flight.
@@ -272,11 +310,15 @@ export function useSpotify() {
     }
     
     if (token) {
-      spotifyApi.setAccessToken(token);
-      
+      let cancelled = false;
+      let interval = null;
+
       const fetchCurrentTrack = async () => {
         try {
-          const data = await spotifyApi.getMyCurrentPlayingTrack();
+          const api = await loadSpotifyApi();
+          if (cancelled) return;
+          const data = await api.getMyCurrentPlayingTrack();
+          if (cancelled) return;
           if (data && data.item) {
             setCurrentTrack({
               name: data.item.name,
@@ -298,12 +340,23 @@ export function useSpotify() {
           }
         }
       };
-      
-      fetchCurrentTrack();
-      // FIX: Intervalle augmenté à 5 secondes pour économiser les appels API
-      const interval = setInterval(fetchCurrentTrack, 5000);
-      
-      return () => clearInterval(interval);
+
+      // Kick off the API load + first poll asynchronously, then start the
+      // interval. Keeping this all gated behind `loadSpotifyApi` means
+      // signed-out users never download the 96 KiB API client.
+      (async () => {
+        const api = await loadSpotifyApi();
+        if (cancelled) return;
+        api.setAccessToken(token);
+        fetchCurrentTrack();
+        // FIX: Intervalle augmenté à 5 secondes pour économiser les appels API
+        interval = setInterval(fetchCurrentTrack, 5000);
+      })();
+
+      return () => {
+        cancelled = true;
+        if (interval) clearInterval(interval);
+      };
     }
   }, [token, fetchToken, refreshAccessToken]);
   
@@ -338,25 +391,36 @@ export function useSpotify() {
     const fullAuthUrl = `${authUrl}?${params.toString()}`;
     
     // Ouvrir dans le navigateur système via Tauri, ou rediriger la webview en dev
-    if (typeof window !== 'undefined' && window.__TAURI__ && openInBrowser) {
-      await openInBrowser(fullAuthUrl);
-    } else {
-      window.location.href = fullAuthUrl;
+    if (typeof window !== 'undefined' && window.__TAURI__) {
+      const deps = await loadTauriDeps();
+      if (deps?.openInBrowser) {
+        await deps.openInBrowser(fullAuthUrl);
+        return;
+      }
     }
+    window.location.href = fullAuthUrl;
   }, [getRedirectUri]);
-  
-  const play = useCallback(() => {
-    spotifyApi.play();
+
+  const play = useCallback(async () => {
+    const api = await loadSpotifyApi();
+    api.play();
     setCurrentTrack(prev => prev ? { ...prev, isPlaying: true } : null);
   }, []);
-  
-  const pause = useCallback(() => {
-    spotifyApi.pause();
+
+  const pause = useCallback(async () => {
+    const api = await loadSpotifyApi();
+    api.pause();
     setCurrentTrack(prev => prev ? { ...prev, isPlaying: false } : null);
   }, []);
-  
-  const next = useCallback(() => spotifyApi.skipToNext(), []);
-  const previous = useCallback(() => spotifyApi.skipToPrevious(), []);
+
+  const next = useCallback(async () => {
+    const api = await loadSpotifyApi();
+    api.skipToNext();
+  }, []);
+  const previous = useCallback(async () => {
+    const api = await loadSpotifyApi();
+    api.skipToPrevious();
+  }, []);
   
   const selectPlaylist = useCallback((playlist) => setCurrentPlaylist(playlist), []);
   

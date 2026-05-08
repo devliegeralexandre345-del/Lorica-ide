@@ -208,3 +208,133 @@ Stack-ranked roughly by ROI:
    none of which need to be in the entrypoint.
 
 Each of these is its own change; do not bundle them.
+
+---
+
+## Pass 4 — 2026-05-08
+
+Targets the two suggestions above that were still unaddressed after passes
+1–3: vendors-bundle audit and lucide-react tree-shake verification.
+
+### Bundle size — current state
+
+| Chunk                  | Size (bytes) | Size (KiB) |
+| ---------------------- | ------------ | ---------- |
+| `vendors.bundle.js`    | 185 335      | 181.0      |
+| `codemirror.bundle.js` | 423 182      | 413.3      |
+| `main.bundle.js`       | 292 748      | 285.9      |
+| `styles.css`           | 103 995      | 101.6      |
+| **Entrypoint total**   | **1 005 260** | **981.7** (≈ 0.96 MiB) |
+
+Webpack reports this as: `Entrypoint main 982 KiB`.
+
+### Pass 4 deltas (vs end of pass 3)
+
+| Metric                | Pass 3 end | Pass 4 end | Δ            |
+| --------------------- | ---------- | ---------- | ------------ |
+| `vendors.bundle.js`   | 250 KiB    | 181 KiB    | **-69 KiB (-27%)** |
+| `codemirror.bundle.js` | 426 KiB   | 413 KiB    | -13 KiB     |
+| `main.bundle.js`      | 285 KiB    | 286 KiB    | +0.6 KiB (effectively flat) |
+| Entrypoint total      | 1.04 MiB   | 0.96 MiB   | **-83 KiB**       |
+
+### Top vendors contributors before pass 4 (decisions taken)
+
+Parsed sizes (unminified) from `webpack --json`. Decisions log:
+
+| #  | Module                                  | Bytes  | Decision |
+| -- | --------------------------------------- | -----: | -------- |
+| 1  | `react-dom/cjs/react-dom.production.min.js` | 131 685 | Keep — eager runtime |
+| 2  | `spotify-web-api-js/src/spotify-web-api.js` |  96 016 | **Lazy** — split to `spotify-api.chunk.js` |
+| 3  | `@lezer/common/dist/index.js`           |  83 319 | **Move** to `codemirror.bundle.js` (CodeMirror runtime dep) |
+| 4  | `@tauri-apps/api/window.js` (+2)        |  80 661 | Keep — eager (loricaBridge) |
+| 5  | `@tauri-apps/api/window.cjs`            |  67 856 | **Remove** — duplicate of `window.js`, only loaded because `useSpotify` used `require()` |
+| 6  | `lucide-react` (99 icons in vendors)    |  46 246 | Keep — already optimal (per-icon ESM, see lucide-react audit below) |
+| 7  | `@lezer/highlight/dist/index.js`        |  29 915 | **Move** to `codemirror.bundle.js` |
+| 8  | `@tauri-apps/plugin-shell` (CJS)        |  15 393 | **Remove** — duplicate, same fix as #5 |
+| 9  | `@tauri-apps/api/core.js` (+1)          |  12 877 | Keep — eager |
+| 10 | `@tauri-apps/api/core.cjs`              |  11 170 | **Remove** — duplicate, same fix as #5 |
+| 11 | `@tauri-apps/api/dpi.cjs`               |  10 984 | **Remove** — duplicate, same fix as #5 |
+| 12 | `@tauri-apps/plugin-http`               |   7 011 | Keep — used by many eager utils |
+| 13 | `style-mod`                             |   6 935 | **Move** to `codemirror.bundle.js` |
+| 14 | `react/cjs/react.production.min.js`     |   6 930 | Keep — eager runtime |
+| 15 | `@tauri-apps/plugin-dialog`             |   6 807 | Keep — eager (loricaBridge) |
+
+Two attack surfaces accounted for the bulk of the win:
+
+1. **Tauri ESM/CJS duplication.** `src/hooks/useSpotify.js` was using
+   `require('@tauri-apps/api/event')` etc. inside an `if (window.__TAURI__)`
+   guard. Webpack treated the `require(...)` as CommonJS and resolved to
+   `*.cjs`, but the rest of the codebase imports the same modules with the
+   ESM `*.js` paths. Both copies ended up in `vendors.bundle.js`. Pass 4
+   converts those to dynamic ESM `import()` calls so a) the same copy that
+   loricaBridge already loads is shared, and b) the Tauri plugin-shell
+   binding moves to a tiny `spotify-tauri.chunk.js` that only loads when
+   the user clicks "Connect Spotify". Combined CJS bytes removed ≈ 105 KiB
+   parsed, ≈ 35 KiB minified.
+
+2. **`spotify-web-api-js` was eagerly imported.** The hook was constructed
+   at module-eval time (`const spotifyApi = new SpotifyWebApi();`) so the
+   library landed in the entrypoint even for users who never log into
+   Spotify. Pass 4 lazy-loads the constructor inside an internal
+   `loadSpotifyApi()` helper that the play/pause/next/prev/poll handlers
+   await. The hook itself still mounts on first render so the MenuBar
+   "Connect Spotify" pill renders without flicker; only the API wrapper
+   defers. Saves 96 KiB parsed, ≈ 12 KiB minified once gzipped (the lib
+   is now in `spotify-api.chunk.js`, 12 KiB minified, 11.8 KiB on disk).
+
+### lucide-react tree-shake — verified, no change needed
+
+Local `lucide-react` is `0.263.1`. `package.json` declares `"sideEffects":
+false` and per-icon ESM modules at `dist/esm/icons/<name>.mjs`. Webpack
+pulls only the named icons each file imports. Stats confirm: 99 icons in
+`vendors.bundle.js` totalling 46 KiB parsed, average ≈ 470 bytes per
+icon. The other ~1 100 icons in the package are listed as `chunks: []`
+(orphan / tree-shaken). No code change required.
+
+### Webpack splitChunks config changes
+
+Two changes in `webpack.config.js`:
+
+1. The `codemirror` cacheGroup now also matches `@lezer/*`, `style-mod`,
+   `crelt`, `w3c-keyname`, and `@marijn/find-cluster-break` — every
+   transitive runtime dep CodeMirror reaches synchronously. With
+   `chunks: 'initial'` the rule still excludes async-only deps (e.g.
+   `@lezer/markdown`, only loaded by the markdown viewer), so they keep
+   their existing async chunks.
+2. New `spotifyApi` cacheGroup splits `spotify-web-api-js` into a single
+   `spotify-api.chunk.js` async chunk (instead of being co-bundled with
+   whichever caller first reaches it).
+
+### New chunks created in pass 4
+
+| Chunk                    | Size (bytes) | Notes |
+| ------------------------ | -----------: | ----- |
+| `spotify-api.chunk.js`   | 12 038       | Loaded only after first Spotify API call |
+| `spotify-tauri.chunk.js` |  2 306       | Tauri ESM bindings, loaded with the API or at connect time |
+
+Both are 0 bytes for any signed-out user.
+
+### Build status
+
+`webpack 5.106.2 compiled successfully`. No new warnings. The pre-existing
+`Entrypoint main [big]` warning shrank but didn't disappear (the 500 KiB
+threshold in `performance.maxEntrypointSize` is still under-tuned versus
+our 982 KiB reality). Bumping that threshold remains a follow-up; it has
+no bundle-size impact.
+
+### Suggested next perf passes (later)
+
+Most of the original list is now done. What's left:
+
+1. **Split `codemirror` extensions** — still 413 KiB at first paint. Core
+   editor (state + view) is irreducible, but we could lazy-load `search`,
+   `lint`, and `autocomplete` extensions until the user actually opens a
+   panel that uses them.
+2. **Bump `performance.maxEntrypointSize`** in `webpack.config.js` to
+   1 MiB or so to stop the `[big]` warning.
+3. **Drop `spotify-web-api-js`** entirely — the hook only uses 5 calls
+   (`getMyCurrentPlayingTrack`, `play`, `pause`, `skipToNext`,
+   `skipToPrevious`, `setAccessToken`). They're plain `fetch` calls; a
+   ~30-line in-house wrapper would replace the 96 KiB lib. That's a
+   v2.4-class change though — out of scope for this pass.
+
