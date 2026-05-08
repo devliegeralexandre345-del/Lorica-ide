@@ -10,7 +10,12 @@ const CATEGORY_COLORS = { debugger: 'text-red-400', tool: 'text-blue-400', langu
 export default function ExtensionManager({ dispatch }) {
   const [extensions, setExtensions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [installing, setInstalling] = useState(null);
+  // `installingNow` is the id currently running. `queue` mirrors `queueRef`
+  // for render purposes only — the ref is the source of truth so a fast
+  // double-click doesn't lose its second item to a stale-state read.
+  const [installingNow, setInstallingNow] = useState(null);
+  const [queue, setQueue] = useState([]);
+  const queueRef = useRef([]);
   const [filter, setFilter] = useState('');
   const [category, setCategory] = useState('all');
   const [progress, setProgress] = useState({}); // { [id]: 0-100 }
@@ -29,18 +34,31 @@ export default function ExtensionManager({ dispatch }) {
   useEffect(() => { refresh(); }, []);
 
   // Per-extension duration estimates (ms) feeding the progress bar.
-  // LSPs that pull a GitHub release tarball (lua, elixir-ls, kotlin)
-  // are slower than `gem`/`npm` installs which talk to a CDN. Defaulting
-  // by category was misleading for LSPs — most finish in ~45s but
-  // GitHub-tarball ones easily hit 90s on slow links.
+  // LSPs that pull a GitHub release tarball (lua, elixir-ls, kotlin) or
+  // bootstrap a toolchain (csharp-ls auto-installs .NET SDK) are slower
+  // than `gem`/`npm`/`pip` installs which talk to a CDN. Defaulting by
+  // category was misleading for LSPs — most finish in ~45s but the
+  // toolchain-bootstrap ones easily hit 120s on slow links.
   const INSTALL_DURATION_MS = {
+    // Original 10
+    'lsp-python': 45000,
+    'lsp-typescript': 45000,
+    'lsp-rust': 45000,
+    'lsp-go': 60000,        // `go install` compiles, slower than CDN pull
+    'lsp-clangd': 90000,    // LLVM is a fat package
+    'lsp-csharp': 120000,   // .NET SDK bootstrap if missing
+    'lsp-web': 45000,
+    'lsp-php': 45000,
+    'lsp-sql': 45000,
+    'lsp-java': 30000,      // documentation-only
+    // Wave-2 additions
     'lsp-ruby': 45000,
     'lsp-bash': 45000,
     'lsp-lua': 90000,
     'lsp-elixir': 90000,
-    'lsp-dart': 30000,    // documentation-only — quick close to the guide
+    'lsp-dart': 30000,      // documentation-only
     'lsp-kotlin': 90000,
-    'lsp-swift': 30000,   // documentation-only
+    'lsp-swift': 30000,     // documentation-only
   };
 
   const estimateDuration = (ext) => {
@@ -66,20 +84,16 @@ export default function ExtensionManager({ dispatch }) {
     return () => clearInterval(interval);
   };
 
-  const handleInstall = async (ext) => {
-    // Si pas de install_cmd mais il y a install_note, afficher le guide
-    if (!ext.install_cmd && ext.install_note) {
-      setShowInstallGuide(ext);
-      return;
-    }
-
-    setInstalling(ext.id);
+  // Internal: actually run the install. Drains the queue afterwards.
+  // Don't call directly — go through `handleInstall` so the queue/UI
+  // state stays consistent.
+  const runInstall = async (ext) => {
+    setInstallingNow(ext.id);
     setInstallError(null);
     dispatch({ type: 'ADD_TOAST', toast: { type: 'info', message: `Installing ${ext.name}...`, duration: 5000 } });
 
-    // Démarrer la simulation de progression
     const cleanup = simulateProgress(ext.id, estimateDuration(ext));
-    
+
     try {
       const res = await window.lorica.extensions.install(ext.id);
       if (res?.success !== false) {
@@ -95,9 +109,43 @@ export default function ExtensionManager({ dispatch }) {
       dispatch({ type: 'ADD_TOAST', toast: { type: 'error', message: errMsg } });
     } finally {
       cleanup();
-      setInstalling(null);
+      setInstallingNow(null);
       setTimeout(() => refresh(), 1000);
+
+      // Drain the queue: if anything's pending, fire the next one.
+      // We use the ref (not state) so a fast double-enqueue is preserved.
+      if (queueRef.current.length > 0) {
+        const next = queueRef.current.shift();
+        setQueue([...queueRef.current]);
+        // Avoid blowing the call stack on a long queue.
+        setTimeout(() => runInstall(next), 100);
+      }
     }
+  };
+
+  const handleInstall = (ext) => {
+    // Si pas de install_cmd mais il y a install_note, afficher le guide
+    if (!ext.install_cmd && ext.install_note) {
+      setShowInstallGuide(ext);
+      return;
+    }
+    // De-dupe: ignore re-clicks on something already running or queued.
+    if (installingNow === ext.id || queueRef.current.some((e) => e.id === ext.id)) {
+      return;
+    }
+    // If something else is installing, enqueue.
+    if (installingNow) {
+      queueRef.current.push(ext);
+      setQueue([...queueRef.current]);
+      dispatch({ type: 'ADD_TOAST', toast: { type: 'info', message: `${ext.name} queued (#${queueRef.current.length})`, duration: 3000 } });
+      return;
+    }
+    runInstall(ext);
+  };
+
+  const cancelQueued = (extId) => {
+    queueRef.current = queueRef.current.filter((e) => e.id !== extId);
+    setQueue([...queueRef.current]);
   };
 
   const handleUninstall = async (ext) => {
@@ -175,7 +223,9 @@ export default function ExtensionManager({ dispatch }) {
             filtered.map(ext => {
               const Icon = CATEGORY_ICONS[ext.category] || Package;
               const color = CATEGORY_COLORS[ext.category] || 'text-lorica-textDim';
-              const isInstalling = installing === ext.id;
+              const isInstalling = installingNow === ext.id;
+              const queuedAt = queue.findIndex((e) => e.id === ext.id);
+              const isQueued = queuedAt >= 0;
 
               // Friendlier message for common errors:
               //   1. apt/dpkg lock race — non-actionable for a non-sysadmin.
@@ -224,6 +274,18 @@ export default function ExtensionManager({ dispatch }) {
                             title="Uninstall"
                           >
                             <Trash2 size={12} />
+                          </button>
+                        </div>
+                      ) : isQueued ? (
+                        // Queued — show the slot number with a cancel X.
+                        <div className="flex items-center gap-1 bg-lorica-bg border border-lorica-border rounded-lg px-2 py-1">
+                          <span className="text-[10px] text-lorica-textDim">Queued #{queuedAt + 1}</span>
+                          <button
+                            onClick={() => cancelQueued(ext.id)}
+                            className="text-lorica-textDim hover:text-red-400"
+                            title="Remove from queue"
+                          >
+                            <X size={10} />
                           </button>
                         </div>
                       ) : (

@@ -69,6 +69,8 @@ fn find_binary(binary_name: &str) -> Option<String> {
     // Check common installation paths
     let common_paths: Vec<PathBuf> = if cfg!(target_os = "windows") {
         let local_app = dirs::data_local_dir().unwrap_or_default();
+        let user_profile = std::env::var("USERPROFILE").unwrap_or_default();
+        let appdata = std::env::var("APPDATA").unwrap_or_default();
         vec![
             PathBuf::from(r"C:\Program Files\LLVM\bin"),
             PathBuf::from(r"C:\msys64\usr\bin"),
@@ -79,6 +81,13 @@ fn find_binary(binary_name: &str) -> Option<String> {
             PathBuf::from(r"C:\Program Files\nodejs"),
             PathBuf::from(r"C:\Users").join(std::env::var("USERNAME").unwrap_or_default()).join(r".cargo\bin"),
             PathBuf::from(r"C:\ProgramData\chocolatey\bin"),
+            // Toolchain-installed LSP binaries.
+            PathBuf::from(&user_profile).join(".dotnet").join("tools"),  // csharp-ls
+            PathBuf::from(&user_profile).join("go").join("bin"),         // gopls
+            PathBuf::from(&appdata).join("npm"),                         // npm globals (Windows default)
+            PathBuf::from(&user_profile).join("AppData").join("Roaming").join("Python").join("Python311").join("Scripts"),
+            PathBuf::from(&user_profile).join("AppData").join("Roaming").join("Python").join("Python312").join("Scripts"),
+            PathBuf::from(&user_profile).join("AppData").join("Roaming").join("Python").join("Python313").join("Scripts"),
             // Lorica-managed tools (netcoredbg, elixir-ls, kotlin-ls).
             local_app.join("Lorica").join("tools").join("netcoredbg"),
             local_app.join("Lorica").join("tools").join("elixir-ls"),
@@ -95,6 +104,13 @@ fn find_binary(binary_name: &str) -> Option<String> {
             PathBuf::from("/usr/local/opt/llvm/bin"),
             home.join(".cargo/bin"),
             home.join(".local/bin"),
+            // Toolchain-installed LSP binaries.
+            home.join(".dotnet/tools"),         // csharp-ls
+            home.join("go/bin"),                // gopls
+            home.join(".npm-global/bin"),       // npm globals if user set prefix
+            home.join("Library/Python/3.11/bin"),
+            home.join("Library/Python/3.12/bin"),
+            home.join("Library/Python/3.13/bin"),
             // LSPs that drop into a subfolder of ~/.local/bin.
             home.join(".local/bin/elixir-ls"),
             home.join(".local/bin/kotlin-language-server/server/bin"),
@@ -112,6 +128,10 @@ fn find_binary(binary_name: &str) -> Option<String> {
             PathBuf::from("/usr/lib/llvm-*/bin"),
             home.join(".cargo/bin"),
             home.join(".local/bin"),
+            // Toolchain-installed LSP binaries.
+            home.join(".dotnet/tools"),         // csharp-ls
+            home.join("go/bin"),                // gopls
+            home.join(".npm-global/bin"),       // npm globals if user set prefix
             // LSPs that drop into a subfolder of ~/.local/bin.
             home.join(".local/bin/elixir-ls"),
             home.join(".local/bin/kotlin-language-server/server/bin"),
@@ -306,6 +326,190 @@ fn get_registry() -> Vec<Extension> {
         // shelled out by `cmd_install_extension` — embed toolchain
         // pre-checks directly so the user gets an actionable
         // `XXX_MISSING:` marker rather than a cryptic "command not found".
+        Extension {
+            id: "lsp-python".into(),
+            name: "Python Language Server (pylsp)".into(),
+            description: "Type-aware completion, hover, and diagnostics for Python (.py)".into(),
+            version: "1.10".into(),
+            category: "language".into(),
+            languages: vec!["python".into()],
+            installed: false,
+            install_cmd: Some(if cfg!(target_os = "windows") {
+                // brackets aren't special on cmd.exe — DON'T quote `[all]`,
+                // re-quoting via Command::args produces literal `""...""` which
+                // pip rejects as "Invalid requirement".
+                "where python >nul 2>&1 || where py >nul 2>&1 || (echo PYTHON_MISSING:Install Python from https://python.org & exit /b 1) && (python -m pip install --user python-lsp-server[all] || py -m pip install --user python-lsp-server[all])".into()
+            } else if cfg!(target_os = "linux") {
+                // Debian/Ubuntu need --break-system-packages since PEP 668.
+                "command -v python3 >/dev/null 2>&1 || { echo 'PYTHON_MISSING:Install Python first: sudo apt-get install -y python3 python3-pip'; exit 1; }; python3 -m pip install --user --break-system-packages 'python-lsp-server[all]' 2>/dev/null || python3 -m pip install --user 'python-lsp-server[all]'".into()
+            } else {
+                "command -v python3 >/dev/null 2>&1 || { echo 'PYTHON_MISSING:Install Python first: brew install python'; exit 1; }; python3 -m pip install --user 'python-lsp-server[all]'".into()
+            }),
+            install_note: None,
+            binary: Some("pylsp".into()),
+        },
+        Extension {
+            id: "lsp-typescript".into(),
+            name: "TypeScript / JavaScript Language Server".into(),
+            description: "IntelliSense, refactor, and diagnostics for TypeScript and JavaScript (.ts/.tsx/.js/.jsx)".into(),
+            version: "4.3".into(),
+            category: "language".into(),
+            languages: vec!["typescript".into(), "javascript".into()],
+            installed: false,
+            install_cmd: Some(if cfg!(target_os = "windows") {
+                "where npm >nul 2>&1 || (echo NODE_MISSING:Install Node.js from https://nodejs.org/ & exit /b 1) && npm install -g typescript typescript-language-server".into()
+            } else {
+                "command -v npm >/dev/null 2>&1 || { echo 'NODE_MISSING:Install Node.js from https://nodejs.org/'; exit 1; }; npm install -g typescript typescript-language-server".into()
+            }),
+            install_note: None,
+            binary: Some("typescript-language-server".into()),
+        },
+        Extension {
+            id: "lsp-rust".into(),
+            name: "Rust Analyzer".into(),
+            description: "Type inference, completion, and inlay hints for Rust (.rs)".into(),
+            version: "0.4".into(),
+            category: "language".into(),
+            languages: vec!["rust".into()],
+            installed: false,
+            install_cmd: Some(if cfg!(target_os = "windows") {
+                "where rustup >nul 2>&1 || (echo RUSTUP_MISSING:Install rustup from https://rustup.rs/ & exit /b 1) && rustup component add rust-analyzer".into()
+            } else {
+                "command -v rustup >/dev/null 2>&1 || { echo 'RUSTUP_MISSING:Install rustup from https://rustup.rs/'; exit 1; }; rustup component add rust-analyzer".into()
+            }),
+            install_note: None,
+            binary: Some("rust-analyzer".into()),
+        },
+        Extension {
+            id: "lsp-go".into(),
+            name: "Go Language Server (gopls)".into(),
+            description: "Completion, refactor, and diagnostics for Go (.go)".into(),
+            version: "0.18".into(),
+            category: "language".into(),
+            languages: vec!["go".into()],
+            installed: false,
+            install_cmd: Some(if cfg!(target_os = "windows") {
+                "where go >nul 2>&1 || (echo GO_MISSING:Install Go from https://go.dev/ & exit /b 1) && go install golang.org/x/tools/gopls@latest".into()
+            } else {
+                "command -v go >/dev/null 2>&1 || { echo 'GO_MISSING:Install Go from https://go.dev/'; exit 1; }; go install golang.org/x/tools/gopls@latest".into()
+            }),
+            install_note: None,
+            binary: Some("gopls".into()),
+        },
+        Extension {
+            id: "lsp-clangd".into(),
+            name: "C/C++ Language Server (clangd)".into(),
+            description: "Cross-file navigation, code actions, and diagnostics for C/C++ (.c/.cpp/.h/.hpp)".into(),
+            version: "18".into(),
+            category: "language".into(),
+            languages: vec!["c".into(), "cpp".into()],
+            installed: false,
+            install_cmd: Some(if cfg!(target_os = "windows") {
+                // LLVM bundles clangd. winget package is `LLVM.LLVM`.
+                "winget install -e --id LLVM.LLVM --accept-source-agreements --accept-package-agreements --disable-interactivity".into()
+            } else if cfg!(target_os = "linux") {
+                "command -v apt-get >/dev/null 2>&1 && sudo apt-get install -y clangd || { echo 'Install clangd manually: see https://clangd.llvm.org/installation'; exit 1; }".into()
+            } else {
+                "command -v brew >/dev/null 2>&1 || { echo 'Install Homebrew first: https://brew.sh/'; exit 1; }; brew install llvm".into()
+            }),
+            install_note: None,
+            binary: Some("clangd".into()),
+        },
+        Extension {
+            id: "lsp-csharp".into(),
+            name: "C# Language Server (csharp-ls)".into(),
+            description: "Completion and diagnostics for C# (.cs). Auto-bootstraps the .NET SDK if missing.".into(),
+            version: "0.18".into(),
+            category: "language".into(),
+            languages: vec!["csharp".into()],
+            installed: false,
+            install_cmd: Some(if cfg!(target_os = "windows") {
+                // Auto-bootstrap .NET SDK via Microsoft's official script
+                // (no admin required — installs to %USERPROFILE%\.dotnet),
+                // then install csharp-ls as a global tool.
+                concat!(
+                    "where dotnet >nul 2>&1 || (",
+                    "  powershell -NoProfile -ExecutionPolicy Bypass -Command \"",
+                    "    & ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing 'https://dot.net/v1/dotnet-install.ps1').Content)) -InstallDir \"$env:USERPROFILE\\.dotnet\" -Channel LTS",
+                    "  \"",
+                    ") && set \"PATH=%USERPROFILE%\\.dotnet;%USERPROFILE%\\.dotnet\\tools;%PATH%\" && dotnet tool install --global csharp-ls"
+                ).into()
+            } else {
+                concat!(
+                    "command -v dotnet >/dev/null 2>&1 || { ",
+                    "  curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --install-dir \"$HOME/.dotnet\" --channel LTS; ",
+                    "}; export PATH=\"$HOME/.dotnet:$HOME/.dotnet/tools:$PATH\"; dotnet tool install --global csharp-ls"
+                ).into()
+            }),
+            install_note: None,
+            binary: Some("csharp-ls".into()),
+        },
+        Extension {
+            id: "lsp-web".into(),
+            name: "HTML / CSS / JSON Language Servers".into(),
+            description: "VS Code's web language servers — HTML, CSS, JSON in one package".into(),
+            version: "4.10".into(),
+            category: "language".into(),
+            languages: vec!["html".into(), "css".into(), "json".into()],
+            installed: false,
+            install_cmd: Some(if cfg!(target_os = "windows") {
+                "where npm >nul 2>&1 || (echo NODE_MISSING:Install Node.js from https://nodejs.org/ & exit /b 1) && npm install -g vscode-langservers-extracted".into()
+            } else {
+                "command -v npm >/dev/null 2>&1 || { echo 'NODE_MISSING:Install Node.js from https://nodejs.org/'; exit 1; }; npm install -g vscode-langservers-extracted".into()
+            }),
+            install_note: None,
+            binary: Some("vscode-html-language-server".into()),
+        },
+        Extension {
+            id: "lsp-php".into(),
+            name: "PHP Language Server (intelephense)".into(),
+            description: "PHP completion, refactor, and diagnostics".into(),
+            version: "1.12".into(),
+            category: "language".into(),
+            languages: vec!["php".into()],
+            installed: false,
+            install_cmd: Some(if cfg!(target_os = "windows") {
+                "where npm >nul 2>&1 || (echo NODE_MISSING:Install Node.js from https://nodejs.org/ & exit /b 1) && npm install -g intelephense".into()
+            } else {
+                "command -v npm >/dev/null 2>&1 || { echo 'NODE_MISSING:Install Node.js from https://nodejs.org/'; exit 1; }; npm install -g intelephense".into()
+            }),
+            install_note: None,
+            binary: Some("intelephense".into()),
+        },
+        Extension {
+            id: "lsp-sql".into(),
+            name: "SQL Language Server".into(),
+            description: "SQL completion and linting (PostgreSQL, MySQL, SQLite)".into(),
+            version: "1.4".into(),
+            category: "language".into(),
+            languages: vec!["sql".into()],
+            installed: false,
+            install_cmd: Some(if cfg!(target_os = "windows") {
+                "where npm >nul 2>&1 || (echo NODE_MISSING:Install Node.js from https://nodejs.org/ & exit /b 1) && npm install -g sql-language-server".into()
+            } else {
+                "command -v npm >/dev/null 2>&1 || { echo 'NODE_MISSING:Install Node.js from https://nodejs.org/'; exit 1; }; npm install -g sql-language-server".into()
+            }),
+            install_note: None,
+            binary: Some("sql-language-server".into()),
+        },
+        Extension {
+            id: "lsp-java".into(),
+            name: "Java Language Server (jdtls)".into(),
+            description: "Eclipse JDT — Java completion, refactor, and diagnostics".into(),
+            version: "1.30".into(),
+            category: "language".into(),
+            languages: vec!["java".into()],
+            installed: false,
+            install_cmd: None, // jdtls install is non-trivial cross-platform; show guide
+            install_note: Some(concat!(
+                "Install jdtls manually:\n",
+                "• macOS: brew install jdtls\n",
+                "• Linux: sudo apt-get install jdtls (or download from eclipse.org/jdtls/)\n",
+                "• Windows: download from https://download.eclipse.org/jdtls/snapshots/ and unpack to your PATH.\n",
+                "Requires Java 17+."
+            ).into()),
+            binary: Some("jdtls".into()),
+        },
         Extension {
             id: "lsp-ruby".into(),
             name: "Ruby Language Server (solargraph)".into(),
