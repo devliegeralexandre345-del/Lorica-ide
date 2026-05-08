@@ -40,33 +40,49 @@ export function useAgentSessionPersistence(state, dispatch) {
 
   // Restore once on mount. We only restore if the live session is empty
   // — if the user is already mid-conversation (e.g. during a hot reload)
-  // we don't clobber it.
+  // we don't clobber it. Deferred to browser-idle time so the first
+  // paint doesn't have to wait for JSON.parse of a multi-megabyte
+  // conversation transcript.
   useEffect(() => {
     if (hasRestoredRef.current) return;
-    hasRestoredRef.current = true;
-    try {
-      const raw = localStorage.getItem(SESSION_KEY);
-      if (!raw) return;
-      const snap = JSON.parse(raw);
-      const live = state.agentMessages || [];
-      if (live.length > 0) return;
-      if (!Array.isArray(snap.agentMessages) || snap.agentMessages.length === 0) return;
-      // Strip any in-flight loading markers from the saved snapshot.
-      const clean = snap.agentMessages.map((m) => ({
-        ...m,
-        toolCalls: (m.toolCalls || []).map((tc) => ({
-          ...tc,
-          // Any tool call that was in 'pending' or 'running' at save
-          // time is now stale — mark it as rejected so the user can see
-          // the thread made progress without keeping them waiting.
-          status: (tc.status === 'pending' || tc.status === 'running') ? 'rejected' : tc.status,
-        })),
-      }));
-      dispatch({ type: 'AGENT_SET_MESSAGES', messages: clean });
-      if (snap.agentConfig) dispatch({ type: 'AGENT_SET_CONFIG', config: snap.agentConfig });
-      if (snap.agentUsage) dispatch({ type: 'AGENT_UPDATE_USAGE', usage: {} }); // trigger reducer
-      dispatch({ type: 'ADD_TOAST', toast: { type: 'info', message: 'Agent conversation restored', duration: 2500 } });
-    } catch { /* corrupt snapshot, ignore */ }
+    const restore = () => {
+      hasRestoredRef.current = true;
+      try {
+        const raw = localStorage.getItem(SESSION_KEY);
+        if (!raw) return;
+        const snap = JSON.parse(raw);
+        const live = state.agentMessages || [];
+        if (live.length > 0) return;
+        if (!Array.isArray(snap.agentMessages) || snap.agentMessages.length === 0) return;
+        // Strip any in-flight loading markers from the saved snapshot.
+        const clean = snap.agentMessages.map((m) => ({
+          ...m,
+          toolCalls: (m.toolCalls || []).map((tc) => ({
+            ...tc,
+            // Any tool call that was in 'pending' or 'running' at save
+            // time is now stale — mark it as rejected so the user can see
+            // the thread made progress without keeping them waiting.
+            status: (tc.status === 'pending' || tc.status === 'running') ? 'rejected' : tc.status,
+          })),
+        }));
+        dispatch({ type: 'AGENT_SET_MESSAGES', messages: clean });
+        if (snap.agentConfig) dispatch({ type: 'AGENT_SET_CONFIG', config: snap.agentConfig });
+        if (snap.agentUsage) dispatch({ type: 'AGENT_UPDATE_USAGE', usage: {} }); // trigger reducer
+        dispatch({ type: 'ADD_TOAST', toast: { type: 'info', message: 'Agent conversation restored', duration: 2500 } });
+      } catch { /* corrupt snapshot, ignore */ }
+    };
+
+    let idleId = null;
+    let timeoutId = null;
+    if (window.requestIdleCallback) {
+      idleId = window.requestIdleCallback(restore, { timeout: 1500 });
+    } else {
+      timeoutId = setTimeout(restore, 200);
+    }
+    return () => {
+      if (idleId != null && window.cancelIdleCallback) window.cancelIdleCallback(idleId);
+      if (timeoutId != null) clearTimeout(timeoutId);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

@@ -35,6 +35,19 @@ function lookupHeat(heatmap, absPath) {
   return heatmap.byAbs?.get(norm) || null;
 }
 
+// Git status decoration table — [letter, colour token, label].
+// Colour comes from `--color-*` tokens so the decoration recolours
+// with the active theme.
+const GIT_DECO = {
+  M: ['M', 'var(--color-warning)', 'Modified'],
+  A: ['A', 'var(--color-success)', 'Added (staged)'],
+  '?': ['U', 'var(--color-accent)',  'Untracked'],
+  D: ['D', 'var(--color-danger)',  'Deleted'],
+  R: ['R', 'var(--color-success)', 'Renamed'],
+  C: ['C', 'var(--color-success)', 'Copied'],
+  U: ['!', 'var(--color-danger)',  'Conflicted'],
+};
+
 // Blend an accent-tinted background for a given 0-1 score. We use a fixed
 // warm palette (yellow → orange → red) that reads the same across themes
 // because it's semantic, not stylistic. Ceilings at ~28% opacity so it
@@ -82,7 +95,7 @@ function InlineInput({ defaultValue, onConfirm, onCancel, placeholder }) {
   );
 }
 
-function TreeNode({ node, depth, onFileClick, onRefresh, projectPath, fs, dispatch, heatmap, forceExpanded = false }) {
+function TreeNode({ node, depth, onFileClick, onRefresh, projectPath, fs, dispatch, heatmap, gitFileStatus, forceExpanded = false }) {
   // When the parent is showing filter results we auto-expand every dir
   // so matches in deep paths aren't hidden behind a chevron. If the user
   // collapses manually the local state still wins — that's the standard
@@ -147,6 +160,13 @@ function TreeNode({ node, depth, onFileClick, onRefresh, projectPath, fs, dispat
   // aggregate churn is harder to read in a colour mapping.
   const heat = !node.isDirectory ? lookupHeat(heatmap, node.path) : null;
   const tint = heat ? heatTint(heat.score) : null;
+
+  // Git decoration: leaf files get a small letter, folders get a dot
+  // if any descendant is dirty. Both lookups short-circuit when the
+  // status map is empty (no repo, or pre-load).
+  const gitEntry = !node.isDirectory ? gitFileStatus?.getStatus?.(node.path) : null;
+  const gitDeco = gitEntry ? GIT_DECO[gitEntry.status] : null;
+  const folderHasChanges = node.isDirectory && gitFileStatus?.hasModifiedDescendant?.(node.path);
   const heatTitle = heat
     ? `${heat.commits} commit${heat.commits === 1 ? '' : 's'} · +${heat.linesAdded} / -${heat.linesRemoved} lines`
       + (heat.authors?.length ? `\nAuthors: ${heat.authors.slice(0, 5).map((a) => `${a.name} (${a.count})`).join(', ')}${heat.authors.length > 5 ? ` +${heat.authors.length - 5}` : ''}` : '')
@@ -172,15 +192,38 @@ function TreeNode({ node, depth, onFileClick, onRefresh, projectPath, fs, dispat
           {renaming ? null : (
             <>
               <span className="flex-shrink-0 text-[11px]">{getFileIcon(node.extension, node.isDirectory)}</span>
-              <span className={`truncate ${node.isDirectory ? 'text-lorica-text font-medium' : 'text-lorica-textDim group-hover:text-lorica-text'}`}>
+              <span
+                className={`truncate ${node.isDirectory ? 'text-lorica-text font-medium' : 'text-lorica-textDim group-hover:text-lorica-text'}`}
+                style={gitDeco ? { color: gitDeco[1] } : undefined}
+              >
                 {node.name}
               </span>
               {heat?.busFactor === 1 && heat.commits >= 3 && (
                 <span className="text-red-400 text-[9px]" title="Bus factor 1 — solo-owned">⚠</span>
               )}
+              {/* Folder rollup: tiny dot when any descendant has changes. */}
+              {folderHasChanges && (
+                <span
+                  className="flex-shrink-0 inline-block w-1.5 h-1.5 rounded-full"
+                  style={{ background: 'var(--color-warning)', opacity: 0.7 }}
+                  title="Contains modified files"
+                />
+              )}
             </>
           )}
         </button>
+
+        {/* Git status decoration — single letter, hides on hover so
+            the action buttons have room (matches VS Code / Zed). */}
+        {!renaming && gitDeco && (
+          <span
+            className="flex-shrink-0 text-[10px] font-mono font-semibold tabular-nums opacity-90 group-hover:opacity-0 transition-opacity"
+            style={{ color: gitDeco[1] }}
+            title={`${gitDeco[2]}${gitEntry?.staged ? ' (staged)' : ''}`}
+          >
+            {gitDeco[0]}
+          </span>
+        )}
 
         {/* Rename inline */}
         {renaming && (
@@ -241,6 +284,7 @@ function TreeNode({ node, depth, onFileClick, onRefresh, projectPath, fs, dispat
               fs={fs}
               dispatch={dispatch}
               heatmap={heatmap}
+              gitFileStatus={gitFileStatus}
               forceExpanded={forceExpanded}
             />
           ))}
@@ -250,7 +294,7 @@ function TreeNode({ node, depth, onFileClick, onRefresh, projectPath, fs, dispat
   );
 }
 
-export default function FileTree({ tree, projectPath, onFileClick, onRefresh, dispatch, fs, heatmap, heatmapEnabled, heatmapRange, onHeatmapToggle, onHeatmapRangeChange, heatmapLoading }) {
+export default function FileTree({ tree, projectPath, onFileClick, onRefresh, dispatch, fs, heatmap, heatmapEnabled, heatmapRange, onHeatmapToggle, onHeatmapRangeChange, heatmapLoading, gitFileStatus }) {
   const [creatingRoot, setCreatingRoot] = useState(null);
   const [filter, setFilter] = useState('');
   const [showFilter, setShowFilter] = useState(false);
@@ -395,6 +439,7 @@ export default function FileTree({ tree, projectPath, onFileClick, onRefresh, di
               fs={fs}
               dispatch={dispatch}
               heatmap={heatmap}
+              gitFileStatus={gitFileStatus}
               forceExpanded={!!filter}
             />
           ))

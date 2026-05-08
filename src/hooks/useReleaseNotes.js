@@ -18,11 +18,23 @@ export function useReleaseNotes(dispatch) {
     let lastSeen = '';
     try { lastSeen = localStorage.getItem(KEY) || ''; } catch {}
     if (lastSeen === APP_VERSION) return;
-    // Delay the dispatch so we don't race with session restore.
-    const t = setTimeout(() => {
+    // Defer the dispatch to browser-idle time so first-paint isn't
+    // racing the modal open. The 1500 ms setTimeout is still used as a
+    // fallback for browsers (Safari) lacking requestIdleCallback.
+    const run = () => {
       dispatch({ type: 'SET_PANEL', panel: 'showReleaseNotes', value: true });
       try { localStorage.setItem(KEY, APP_VERSION); } catch {}
-    }, 1500);
-    return () => clearTimeout(t);
+    };
+    let idleId = null;
+    let timeoutId = null;
+    if (window.requestIdleCallback) {
+      idleId = window.requestIdleCallback(run, { timeout: 2000 });
+    } else {
+      timeoutId = setTimeout(run, 1500);
+    }
+    return () => {
+      if (idleId != null && window.cancelIdleCallback) window.cancelIdleCallback(idleId);
+      if (timeoutId != null) clearTimeout(timeoutId);
+    };
   }, [dispatch]);
 }

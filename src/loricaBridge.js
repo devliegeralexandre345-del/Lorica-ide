@@ -201,10 +201,14 @@ const buffer = {
 // Global Search
 // ============================================
 const search = {
-  searchInFiles: (projectPath, query, caseSensitive, maxResults) =>
-    safeInvoke('cmd_search_in_files', { projectPath, query, caseSensitive, maxResults }),
-  replaceInFiles: (projectPath, query, replacement, caseSensitive) =>
-    safeInvoke('cmd_search_replace_in_files', { projectPath, query, replacement, caseSensitive }),
+  // `multiline` is optional (default false) — when true, the query may
+  // span newlines and matches are reported with the line/col of the
+  // match start. Backwards-compatible: existing callers (Agent tool,
+  // single-line UI) keep passing 4 args and get the original behavior.
+  searchInFiles: (projectPath, query, caseSensitive, maxResults, multiline) =>
+    safeInvoke('cmd_search_in_files', { projectPath, query, caseSensitive, maxResults, multiline: !!multiline }),
+  replaceInFiles: (projectPath, query, replacement, caseSensitive, multiline) =>
+    safeInvoke('cmd_search_replace_in_files', { projectPath, query, replacement, caseSensitive, multiline: !!multiline }),
   listProjectFiles: (projectPath) =>
     safeInvoke('cmd_list_project_files', { projectPath }),
 
@@ -237,11 +241,25 @@ const git = {
   push: (projectPath) => safeInvoke('cmd_git_push', { projectPath }),
   pull: (projectPath) => safeInvoke('cmd_git_pull', { projectPath }),
   log: (projectPath, count) => safeInvoke('cmd_git_log', { projectPath, count }),
+  // Graph view payload — same `git log` data plus parent hashes and ref
+  // decorations so the frontend can render branch topology. Heavier than
+  // `log` (parents + refs), so the Graph tab fetches this lazily.
+  graph: (projectPath, limit) => safeInvoke('cmd_git_graph', { projectPath, limit }),
   diff: (projectPath, filePath) => safeInvoke('cmd_git_diff', { projectPath, filePath }),
   branches: (projectPath) => safeInvoke('cmd_git_branches', { projectPath }),
   checkout: (projectPath, branch) => safeInvoke('cmd_git_checkout', { projectPath, branch }),
   discard: (projectPath, filePath) => safeInvoke('cmd_git_discard', { projectPath, filePath }),
-  diffStaged: (projectPath) => safeInvoke('cmd_git_diff_staged', { projectPath }),
+  // `filePath` is optional — when provided, returns the staged diff for that
+  // single file (used by the in-editor staged-changes gutter). When omitted,
+  // returns the full repo staged diff (used by the AI commit-message generator).
+  diffStaged: (projectPath, filePath) => safeInvoke('cmd_git_diff_staged', { projectPath, filePath: filePath || null }),
+  // Full diff of the current branch vs its base (main/master, auto-detected).
+  // Used by the agent's `@diff` / `@branch-diff` mention. `baseBranch` is
+  // optional — pass null to let the backend pick.
+  branchDiff: (projectPath, baseBranch) => safeInvoke('cmd_git_branch_diff', {
+    projectPath,
+    baseBranch: baseBranch || null,
+  }),
   // Consolidated call — returns { status, log, branches } in a single IPC
   // round-trip with the 3 git subprocesses running in parallel.
   summary: (projectPath, opts = {}) => safeInvoke('cmd_git_summary', {

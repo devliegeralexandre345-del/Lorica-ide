@@ -10,24 +10,15 @@
 // stays out of the way in the corner and only ticks on requestAnimationFrame
 // batches, so the monitoring itself is cheap.
 
-import React, { useEffect, useRef, useState } from 'react';
-import { Activity, Cpu, Zap, Bot } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Activity, Cpu, Zap, Bot, Clock } from 'lucide-react';
+import { aiSamples, aiListeners, recordAiLatency } from '../utils/aiLatency';
 
-// ── AI latency tracker ──
-// A tiny global ring buffer that any HTTP call to Anthropic / DeepSeek
-// can push into. The HUD reads it to show p50 / p95 of the last N calls.
-// Module-scoped so it's singleton across components.
-const MAX_AI_SAMPLES = 50;
-const aiSamples = []; // [{ model, ms, at }]
-const aiListeners = new Set();
+// Re-export so older imports (`from '../components/PerformanceHUD'`) still
+// work. The util file is the single source of truth — eager hooks must
+// import from there to keep the HUD off the first-paint critical path.
+export { recordAiLatency };
 
-/** Record a single AI call's latency. Safe to call from anywhere. */
-export function recordAiLatency(ms, model = '?') {
-  if (!Number.isFinite(ms) || ms < 0) return;
-  aiSamples.push({ ms, model, at: Date.now() });
-  if (aiSamples.length > MAX_AI_SAMPLES) aiSamples.shift();
-  for (const fn of aiListeners) fn();
-}
 function useAiLatencyStats() {
   const [, tick] = useState(0);
   useEffect(() => {
@@ -87,9 +78,46 @@ function fpsColor(fps) {
   return 'text-red-400 border-red-400/40 bg-red-400/10';
 }
 
+// Boot times — read once when the HUD is opened. Pulled from
+// `performance.getEntriesByName(...)` against the marks stamped in
+// `index.jsx` (`lorica:boot:start`) and `App.jsx` (`firstpaint`,
+// `projectready`). All numbers are deltas in ms since boot:start. Returns
+// null if the start mark is missing (shouldn't happen, but be defensive).
+function readBootTimes() {
+  try {
+    const get = (name) => performance.getEntriesByName(name, 'mark')[0];
+    const start = get('lorica:boot:start');
+    if (!start) return null;
+    const fp = get('lorica:boot:firstpaint');
+    const pr = get('lorica:boot:projectready');
+    return {
+      firstpaint: fp ? Math.max(0, Math.round(fp.startTime - start.startTime)) : null,
+      projectready: pr ? Math.max(0, Math.round(pr.startTime - start.startTime)) : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function useBootTimes(enabled) {
+  const [boot, setBoot] = useState(null);
+  useEffect(() => {
+    if (!enabled) return;
+    // Re-read on every HUD open and once a second after — the
+    // projectready mark may not be stamped yet when the HUD opens during
+    // session restore.
+    const refresh = () => setBoot(readBootTimes());
+    refresh();
+    const id = setInterval(refresh, 1000);
+    return () => clearInterval(id);
+  }, [enabled]);
+  return boot;
+}
+
 export default function PerformanceHUD({ visible, onClose }) {
   const { fps, heapMB, heapPct } = usePerformanceStats(visible);
   const aiStats = useAiLatencyStats();
+  const boot = useBootTimes(visible);
   if (!visible) return null;
 
   return (
@@ -135,6 +163,24 @@ export default function PerformanceHUD({ visible, onClose }) {
           <Bot size={9} />
           <span className="tabular-nums">{aiStats.p50}</span>
           <span className="opacity-60">·{aiStats.p95}ms</span>
+        </div>
+      )}
+
+      {/* Boot times — populated from performance.mark()s stamped at module
+          eval (index.jsx), first React commit (App mount effect), and the
+          first non-empty file tree. Read-only, refreshed every 1 s so the
+          "projectready" stamp shows up as soon as session restore lands. */}
+      {boot && boot.firstpaint != null && (
+        <div
+          className="flex items-center gap-1 px-1.5 py-0.5 rounded-full border border-lorica-border text-[10px] font-mono text-lorica-textDim"
+          title={`Boot — first paint ${boot.firstpaint} ms${boot.projectready != null ? ` · project ready ${boot.projectready} ms` : ''}`}
+        >
+          <Clock size={9} />
+          <span className="tabular-nums">{boot.firstpaint}</span>
+          {boot.projectready != null && (
+            <span className="opacity-60 tabular-nums">·{boot.projectready}</span>
+          )}
+          <span className="opacity-60">ms</span>
         </div>
       )}
 

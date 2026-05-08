@@ -209,9 +209,22 @@ export function useUpdate(dispatch) {
     }
   }, [dispatch, invoke]);
 
-  // Check on mount (background, silent on errors)
+  // Check on mount (background, silent on errors). Deferred to browser
+  // idle so the first paint isn't racing the GitHub releases fetch.
+  // 200 ms setTimeout fallback for Safari (no requestIdleCallback).
   useEffect(() => {
-    checkForUpdate({ interactive: false });
+    let idleId = null;
+    let timeoutId = null;
+    const run = () => checkForUpdate({ interactive: false });
+    if (window.requestIdleCallback) {
+      idleId = window.requestIdleCallback(run, { timeout: 3000 });
+    } else {
+      timeoutId = setTimeout(run, 200);
+    }
+    return () => {
+      if (idleId != null && window.cancelIdleCallback) window.cancelIdleCallback(idleId);
+      if (timeoutId != null) clearTimeout(timeoutId);
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Periodic check every 30 minutes (background)

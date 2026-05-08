@@ -12,10 +12,13 @@ import { useShortcuts } from './hooks/useShortcuts';
 import { useSemanticAutoReindex } from './hooks/useSemanticAutoReindex';
 import { useSession } from './hooks/useSession';
 import { useClipboardHistory } from './hooks/useClipboardHistory';
+import { useRecentCompletions } from './hooks/useRecentCompletions';
 import { useHeatmap } from './hooks/useHeatmap';
+import { useGitFileStatus } from './hooks/useGitFileStatus';
 import { useCustomAgents } from './hooks/useCustomAgents';
 import { useAgentTriggers } from './hooks/useAgentTriggers';
 import { useProjectBrain } from './hooks/useProjectBrain';
+import { useProjectPrompts } from './hooks/useProjectPrompts';
 import { useReleaseNotes } from './hooks/useReleaseNotes';
 import { useAgentSessionPersistence } from './hooks/useAgentSessionPersistence';
 import { useGlobalErrorHandler } from './hooks/useGlobalErrorHandler';
@@ -32,20 +35,24 @@ import MenuBar from './components/MenuBar';
 import FileTree from './components/FileTree';
 import TabBar from './components/TabBar';
 import Editor from './components/Editor';
-import Terminal from './components/Terminal';
-import AgentCopilot from './components/AgentCopilot';
 import { useAgent } from './hooks/useAgent';
 import StatusBar from './components/StatusBar';
-import LockScreen from './components/LockScreen';
 import ToastContainer from './components/Toast';
 import Breadcrumbs from './components/Breadcrumbs';
 import WelcomeTab from './components/WelcomeTab';
 import LoricaDock from './components/LoricaDock';
 import ImagePreview, { isImageFile } from './components/ImagePreview';
 import FilePreview, { hasPreview } from './components/FilePreview';
-import PerformanceHUD from './components/PerformanceHUD';
 import AmbientHUD from './components/AmbientHUD';
-import AIConsentModal from './components/AIConsentModal';
+
+// Lazy: Terminal pulls in the entire xterm bundle (~283 KiB) — splitting
+// it off the entrypoint is the single biggest first-paint win available
+// without touching the editor. AgentCopilot defaults closed (~26 KiB
+// + react-markdown deps) so it can wait for the user to open the AI
+// panel. LockScreen only mounts when the secret-vault lock is engaged.
+const Terminal     = lazy(() => import(/* webpackChunkName: "terminal"      */ './components/Terminal'));
+const AgentCopilot = lazy(() => import(/* webpackChunkName: "agent-copilot" */ './components/AgentCopilot'));
+const LockScreen   = lazy(() => import(/* webpackChunkName: "lock-screen"   */ './components/LockScreen'));
 
 // -------------------------------------------------------------------
 // Lazy-loaded — only fetched when the user actually opens them. Each
@@ -77,8 +84,13 @@ const ReleaseNotes      = lazy(() => import(/* webpackChunkName: "release"    */
 const InlineEditHistory = lazy(() => import(/* webpackChunkName: "edit-hist"  */ './components/InlineEditHistory'));
 const LayoutSwitcher    = lazy(() => import(/* webpackChunkName: "layouts"    */ './components/LayoutSwitcher'));
 import ErrorBoundary from './components/ErrorBoundary';
-import TimeScrubBar from './components/TimeScrubBar';
-import FocusTimer from './components/FocusTimer';
+// TimeScrubBar, PerformanceHUD, and AIConsentModal are opt-in UI — lazy
+// so their code (TimeScrubBar in particular pulls LCS-diff + tauri-http)
+// isn't in the initial bundle. FocusTimer was dead-imported here before
+// (the live mount lives inside StatusBar); it's been dropped.
+const TimeScrubBar      = lazy(() => import(/* webpackChunkName: "time-scrub"  */ './components/TimeScrubBar'));
+const PerformanceHUD    = lazy(() => import(/* webpackChunkName: "perf-hud"    */ './components/PerformanceHUD'));
+const AIConsentModal    = lazy(() => import(/* webpackChunkName: "ai-consent"  */ './components/AIConsentModal'));
 const Settings          = lazy(() => import(/* webpackChunkName: "settings"    */ './components/Settings'));
 const SecretVault       = lazy(() => import(/* webpackChunkName: "vault"       */ './components/SecretVault'));
 const AuditLog          = lazy(() => import(/* webpackChunkName: "audit-log"   */ './components/AuditLog'));
@@ -131,17 +143,31 @@ export default function App() {
   // then debounce-save on any relevant change.
   useSession(state, dispatch, fs);
   useClipboardHistory(dispatch);
+  // Pre-warm the per-language autocomplete recency cache so the first
+  // completion query already sees recent picks. Hook itself is tiny —
+  // store lives in src/utils/completions/recencyStore.js.
+  useRecentCompletions();
   const heatmap = useHeatmap({
     projectPath: state.projectPath,
     enabled: state.heatmapEnabled,
     rangeDays: state.heatmapRange,
   });
+  // Per-file git status decorations for the FileTree. Cheap to mount —
+  // the hook idles when there's no project and self-debounces refresh
+  // bursts. Uses the same `cmd_git_status` command as GitPanel.
+  const gitFileStatus = useGitFileStatus(state.projectPath);
   const customAgents = useCustomAgents(state.projectPath, dispatch);
   useAgentTriggers(state, dispatch);
   useReleaseNotes(dispatch);
   useAgentSessionPersistence(state, dispatch);
   useGlobalErrorHandler(dispatch);
   const projectBrain = useProjectBrain(state.projectPath, dispatch);
+  // Project-scoped prompt library + auto-attached instructions. Read on
+  // mount, on project swap, and on `.lorica/` filesystem events. The
+  // agent input panel surfaces `prompts` in its slash menu and useAgent
+  // pulls `instructions` fresh at send time so changes are picked up
+  // immediately even if the watcher missed them.
+  const projectPrompts = useProjectPrompts(state.projectPath);
   useTimeScrub(state, dispatch);
   useSemanticAuto(state, dispatch);
 
@@ -167,6 +193,28 @@ export default function App() {
 
   useEffect(() => { stateRef.current = state; }, [state]);
   useEffect(() => { fsRef.current = fs; }, [fs]);
+
+  // Boot-time perf marks — paired with `lorica:boot:start` (in index.jsx).
+  // The HUD reads these and shows `firstpaint - start` and
+  // `projectready - start`. Both stamps are best-effort: a refresh into a
+  // saved session reuses the same marks so they're naturally stable.
+  useEffect(() => {
+    try { performance.mark('lorica:boot:firstpaint'); } catch {}
+    // Run only once on initial mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // First non-empty project tree → mark as "project ready". Session
+  // restore re-uses the same mark (we only stamp the first time the
+  // tree becomes non-empty).
+  const projectReadyStampedRef = useRef(false);
+  useEffect(() => {
+    if (projectReadyStampedRef.current) return;
+    if (Array.isArray(state.fileTree) && state.fileTree.length > 0) {
+      projectReadyStampedRef.current = true;
+      try { performance.mark('lorica:boot:projectready'); } catch {}
+    }
+  }, [state.fileTree]);
 
   // Apply theme CSS variables whenever the theme changes
   useEffect(() => {
@@ -324,8 +372,80 @@ export default function App() {
   const splitFile = (state.splitMode && state.splitFileIndex >= 0) ? (state.openFiles[state.splitFileIndex] || null) : null;
   const isZen = state.zenMode;
 
+  // =============================================
+  // Merge-conflict resolution — invoked by the inline buttons rendered
+  // by the conflictMarkersExtension in the editor. The "ours/theirs/both"
+  // actions are already applied by the extension itself (it dispatches a
+  // CM transaction directly); here we only need to:
+  //   1. Drop a small toast so the user gets a confirmation, AND
+  //   2. For the 'ai' action, open the agent panel and seed the input
+  //      with a structured prompt that contains both sides + surrounding
+  //      context. The user can then tweak the prompt before sending.
+  // =============================================
+  const handleConflictResolve = useCallback((block, action) => {
+    // Resolve the file the block lives in. The extension fires its callback
+    // synchronously on click, so the active editor at that instant owns the
+    // conflict. (For splits, the click target is whichever editor the user
+    // interacted with — and only one is "active" in our reducer at a time.)
+    const file = activeFile || splitFile;
+    if (!file) return;
+
+    if (action !== 'ai') {
+      // Inline path — extension already applied the change. Toast only.
+      const labels = { ours: 'ours', theirs: 'theirs', both: 'both sides' };
+      toast(dispatch, 'success', `Conflict resolved (kept ${labels[action] || action})`, 1800);
+      return;
+    }
+
+    // AI path — build a structured prompt and push it into the agent input.
+    const doc = file.content || '';
+    const ours = doc.slice(block.oursStart, block.oursEnd);
+    const theirs = doc.slice(block.theirsStart, block.theirsEnd);
+
+    // 5 lines of context before / after the block so the AI can reason about
+    // what surrounds the conflict. The block already starts/ends on line
+    // boundaries so splitting on \n at the edges is clean.
+    const beforeText = doc.slice(0, block.start);
+    const afterText  = doc.slice(block.end);
+    const beforeLines = beforeText.split('\n');
+    const afterLines  = afterText.split('\n');
+    const ctxBefore = beforeLines.slice(Math.max(0, beforeLines.length - 6), beforeLines.length - 1).join('\n');
+    const ctxAfter  = afterLines.slice(1, 6).join('\n');
+
+    const lang = file.extension || '';
+    const prompt =
+`I'm resolving a merge conflict in ${file.path}.
+
+OURS (${block.oursLabel}):
+\`\`\`${lang}
+${ours}\`\`\`
+
+THEIRS (${block.theirsLabel}):
+\`\`\`${lang}
+${theirs}\`\`\`
+
+Surrounding context (5 lines before / after):
+\`\`\`${lang}
+${ctxBefore}
+<<< CONFLICT HERE >>>
+${ctxAfter}
+\`\`\`
+
+Suggest the best resolution and explain why. Output ONLY the replacement code in a fenced block.`;
+
+    // Open the agent panel and seed the input. AgentCopilot consumes
+    // agentInputPrefill on mount/update and clears it via AGENT_CLEAR_PREFILL.
+    dispatch({ type: 'SET_PANEL', panel: 'showAIPanel', value: true });
+    dispatch({ type: 'AGENT_PREFILL_INPUT', text: prompt });
+    toast(dispatch, 'info', 'Conflict context sent to AI agent', 2000);
+  }, [activeFile, splitFile, dispatch]);
+
   if (state.isLocked) {
-    return <LockScreen onUnlock={security.unlock} onInit={security.initVault} vaultInitialized={state.vaultInitialized} />;
+    return (
+      <Suspense fallback={LazyFallback}>
+        <LockScreen onUnlock={security.unlock} onInit={security.initVault} vaultInitialized={state.vaultInitialized} />
+      </Suspense>
+    );
   }
 
   return (
@@ -385,6 +505,7 @@ export default function App() {
                     heatmapLoading={heatmap.loading}
                     onHeatmapToggle={() => dispatch({ type: 'TOGGLE_HEATMAP' })}
                     onHeatmapRangeChange={(d) => dispatch({ type: 'SET_HEATMAP_RANGE', days: d })}
+                    gitFileStatus={gitFileStatus}
                   />
                 )}
               </Suspense>
@@ -442,6 +563,8 @@ export default function App() {
                         bookmarks={state.bookmarks?.[activeFile?.path] || null}
                         semanticMarks={state.semanticTypes?.[activeFile?.path]?.mismatches || null}
                         lspRequestCompletion={lsp.requestCompletion}
+                        lspDiagnostics={lsp.diagnostics}
+                        onConflictResolve={handleConflictResolve}
                       />
                     </ErrorBoundary>
                   )}
@@ -481,6 +604,8 @@ export default function App() {
                             bookmarks={state.bookmarks?.[splitFile?.path] || null}
                             semanticMarks={state.semanticTypes?.[splitFile?.path]?.mismatches || null}
                             lspRequestCompletion={lsp.requestCompletion}
+                            lspDiagnostics={splitFile?.path === activeFile?.path ? lsp.diagnostics : []}
+                            onConflictResolve={handleConflictResolve}
                           />
                         </ErrorBoundary>
                       )}
@@ -494,7 +619,11 @@ export default function App() {
           </div>
 
           {/* Time Scrub bar — thin controller above Problems/Terminal. */}
-          {!isZen && state.showTimeScrub && <TimeScrubBar state={state} dispatch={dispatch} />}
+          {!isZen && state.showTimeScrub && (
+            <Suspense fallback={LazyFallback}>
+              <TimeScrubBar state={state} dispatch={dispatch} />
+            </Suspense>
+          )}
 
           {/* Problems Panel */}
           {!isZen && state.showProblems && (
@@ -510,7 +639,9 @@ export default function App() {
               <div className="h-1 cursor-row-resize resize-handle bg-lorica-border hover:bg-lorica-accent flex-shrink-0" onMouseDown={handleTerminalResize} />
               <div style={{ height: terminalHeight }} className="flex-shrink-0 border-t border-lorica-border">
                 <ErrorBoundary name="Terminal">
-                  <Terminal dispatch={dispatch} />
+                  <Suspense fallback={LazyFallback}>
+                    <Terminal dispatch={dispatch} />
+                  </Suspense>
                 </ErrorBoundary>
               </div>
             </>
@@ -541,7 +672,9 @@ export default function App() {
             <div className="w-1 cursor-col-resize resize-handle bg-lorica-border hover:bg-lorica-accent flex-shrink-0" onMouseDown={handleAIResize} />
             <div style={{ width: aiPanelWidth }} className="flex-shrink-0 border-l border-lorica-border bg-lorica-surface overflow-hidden flex flex-col">
               <ErrorBoundary name="Agent Copilot" compact>
-                <AgentCopilot state={state} dispatch={dispatch} agent={agent} activeFile={activeFile} />
+                <Suspense fallback={LazyFallback}>
+                  <AgentCopilot state={state} dispatch={dispatch} agent={agent} activeFile={activeFile} projectPrompts={projectPrompts} />
+                </Suspense>
               </ErrorBoundary>
               {state.showSpotify && (
                 <div className="border-t border-lorica-border flex-shrink-0">
@@ -577,18 +710,26 @@ export default function App() {
 
       <ToastContainer toasts={state.toasts || []} dispatch={dispatch} />
 
-      {/* Live performance HUD — only ticks rAF while visible. */}
-      <PerformanceHUD
-        visible={state.showPerformanceHUD}
-        onClose={() => dispatch({ type: 'TOGGLE_PERFORMANCE_HUD' })}
-      />
+      {/* Live performance HUD — lazy, only mounted when toggled on. */}
+      {state.showPerformanceHUD && (
+        <Suspense fallback={LazyFallback}>
+          <PerformanceHUD
+            visible={state.showPerformanceHUD}
+            onClose={() => dispatch({ type: 'TOGGLE_PERFORMANCE_HUD' })}
+          />
+        </Suspense>
+      )}
 
       {/* Ambient HUD — surfaces background work the user might not otherwise notice. */}
       <AmbientHUD state={state} dispatch={dispatch} />
 
-      {/* RGPD consent gate for AI features. Shown the first time any AI
-          feature is triggered — blocks the call until the user decides. */}
-      <AIConsentModal state={state} dispatch={dispatch} />
+      {/* RGPD consent gate for AI features. Lazy + mount-on-demand so the
+          modal's code only loads the first time a user triggers AI. */}
+      {state.aiConsentModalOpen && (
+        <Suspense fallback={LazyFallback}>
+          <AIConsentModal state={state} dispatch={dispatch} />
+        </Suspense>
+      )}
 
       {/* Modal stack — all lazy-loaded, share one Suspense boundary, and
           wrapped in an ErrorBoundary so a crash inside any modal never

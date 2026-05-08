@@ -4,7 +4,7 @@ import { EditorState } from '@codemirror/state';
 import { defaultKeymap, indentWithTab, history, historyKeymap } from '@codemirror/commands';
 import { bracketMatching, indentOnInput, foldGutter, foldKeymap } from '@codemirror/language';
 import { autocompletion, completionKeymap, acceptCompletion, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
-import { searchKeymap, highlightSelectionMatches, selectNextOccurrence } from '@codemirror/search';
+import { searchKeymap, highlightSelectionMatches, selectNextOccurrence, search } from '@codemirror/search';
 import { Sparkles, Wrench, Bug, ChevronRight, Hash, FileText, TestTube, MessageSquare, Zap } from 'lucide-react';
 import { LANGUAGE_MAP } from '../utils/languages';
 import { createEditorTheme } from '../utils/themes';
@@ -16,10 +16,15 @@ import { aiGhostExtension, aiGhostConfig, acceptGhost, dismissGhost, triggerGhos
 import { fetchInlineCompletion } from '../utils/aiInlineComplete';
 import InlineAIEditPrompt from './InlineAIEditPrompt';
 import { blameField, setBlameEffect, toggleBlameEffect, blameGutter } from '../extensions/gitBlame';
+import { gitDiffGutter } from '../extensions/gitDiffGutter';
+import { useGitDiffGutter } from '../hooks/useGitDiffGutter';
 import { predictNextEdits } from '../utils/predictNextEdit';
 import { recordInlineEdit } from '../utils/aiInlineEdit';
+import { markAiEdit } from '../utils/aiCoauthor';
 import { bookmarkGutter, setBookmarksEffect } from '../extensions/bookmarks';
 import { semanticMarksExtension, setSemanticMarksEffect } from '../extensions/semanticMarks';
+import { conflictMarkersExtension, conflictResolveFacet } from '../extensions/conflictMarkers';
+import { createMultiLineSearchPanel } from '../extensions/multiLineSearchPanel';
 
 // =============================================
 // Minimap with smooth drag scrolling
@@ -223,6 +228,13 @@ const Editor = React.memo(function Editor({
   // LSP CompletionItems or null. Passed in from App via useLSP hook so
   // completion queries route to the right language server session.
   lspRequestCompletion = null,
+  // Optional callback fired when the user clicks one of the inline
+  // merge-conflict buttons rendered above each `<<<<<<<` block.
+  // Signature: (block, action) where action ∈ 'ai' | 'ours' | 'theirs' | 'both'.
+  // 'ai' is the only action the host has to handle (open the agent panel
+  // with a seeded prompt) — the others are resolved inline by the
+  // extension itself but we still notify the host for telemetry/toasts.
+  onConflictResolve = null,
 }) {
   const containerRef = useRef(null);
   const viewRef = useRef(null);
@@ -256,6 +268,12 @@ const Editor = React.memo(function Editor({
   // always reads the current fn through this ref.
   const lspFetcherRef = useRef(lspRequestCompletion);
   useEffect(() => { lspFetcherRef.current = lspRequestCompletion; }, [lspRequestCompletion]);
+
+  // Same pattern for the merge-conflict resolve callback. The CodeMirror
+  // facet is set once at view creation; we read the current handler off
+  // this ref so prop changes don't force rebuilding the editor.
+  const conflictResolveRef = useRef(onConflictResolve);
+  useEffect(() => { conflictResolveRef.current = onConflictResolve; }, [onConflictResolve]);
 
   // Ghost status ('disabled' | 'idle' | 'thinking' | 'ready' | 'error'), for
   // the tiny indicator chip rendered in the editor corner.
@@ -401,6 +419,9 @@ const Editor = React.memo(function Editor({
         accepted: true,
       });
     } catch {}
+    // Stamp the AI co-author timestamp — drives the opt-in
+    // Co-authored-by trailer on the next commit (see GitPanel).
+    try { markAiEdit(); } catch {}
     setInlineEdit(null);
     view.focus();
 
@@ -458,6 +479,9 @@ const Editor = React.memo(function Editor({
         ...indentGuidesExtension(),
         closeBrackets(),
         highlightSelectionMatches(),
+        // Custom search panel with multi-line support (textarea toggle).
+        // Same wiring as the stock panel — Cmd+F still opens it via searchKeymap.
+        search({ createPanel: createMultiLineSearchPanel }),
         EditorState.tabSize.of(indent.size),
         // Rulers à 80 et 120 chars
         EditorView.theme({
@@ -506,8 +530,21 @@ const Editor = React.memo(function Editor({
         ...blameGutter(),
         // Bookmarks gutter — sits next to blame, star icon on bookmarked lines.
         ...bookmarkGutter(),
+        // Git diff gutter — staged-vs-unstaged colour bars (parity with VS
+        // Code v1.100). Data is fed in by useGitDiffGutter below.
+        ...gitDiffGutter(),
         // Semantic-type mismatch underlines.
         ...semanticMarksExtension(),
+        // Merge-conflict markers — line tints + inline "Resolve with AI" /
+        // "Keep ours/theirs/both" buttons. The extension parses the doc on
+        // change (debounced) and calls back via this facet whenever the user
+        // clicks one of the buttons; we proxy through a ref so the host can
+        // swap its handler without rebuilding the editor.
+        ...conflictMarkersExtension(),
+        conflictResolveFacet.of((block, action) => {
+          const cb = conflictResolveRef.current;
+          if (cb) cb(block, action);
+        }),
         // AI inline ghost-text completion. The fetcher reads config from a
         // ref so provider/API key changes don't force rebuilding the editor.
         aiGhostConfig.of({
@@ -817,6 +854,18 @@ const Editor = React.memo(function Editor({
     if (!ready || !viewRef.current) return;
     viewRef.current.dispatch({ effects: toggleBlameEffect.of(!!blameEnabled) });
   }, [ready, blameEnabled]);
+
+  // Staged + unstaged diff gutter. The hook handles fetching `git diff`
+  // and `git diff --cached` for this file, parsing hunks into post-image
+  // line ranges, and dispatching them into the gutter state field. It
+  // self-debounces and listens to fs:change + lorica:git-changed so the
+  // bars stay in sync with external edits and in-app stage/unstage.
+  useGitDiffGutter({
+    view: ready ? viewRef.current : null,
+    projectPath,
+    filePath: file?.path,
+    dirty: !!file?.dirty,
+  });
 
   // Push current bookmarks (for this file) into the editor state field so
   // the gutter can re-render the star markers. Props come from the outer

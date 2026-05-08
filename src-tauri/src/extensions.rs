@@ -68,6 +68,7 @@ fn find_binary(binary_name: &str) -> Option<String> {
 
     // Check common installation paths
     let common_paths: Vec<PathBuf> = if cfg!(target_os = "windows") {
+        let local_app = dirs::data_local_dir().unwrap_or_default();
         vec![
             PathBuf::from(r"C:\Program Files\LLVM\bin"),
             PathBuf::from(r"C:\msys64\usr\bin"),
@@ -78,30 +79,46 @@ fn find_binary(binary_name: &str) -> Option<String> {
             PathBuf::from(r"C:\Program Files\nodejs"),
             PathBuf::from(r"C:\Users").join(std::env::var("USERNAME").unwrap_or_default()).join(r".cargo\bin"),
             PathBuf::from(r"C:\ProgramData\chocolatey\bin"),
-            // Lorica-managed tools (netcoredbg, etc.)
-            dirs::data_local_dir()
-                .unwrap_or_default()
-                .join("Lorica").join("tools").join("netcoredbg"),
+            // Lorica-managed tools (netcoredbg, elixir-ls, kotlin-ls).
+            local_app.join("Lorica").join("tools").join("netcoredbg"),
+            local_app.join("Lorica").join("tools").join("elixir-ls"),
+            local_app.join("Lorica").join("tools").join("kotlin-language-server"),
+            local_app.join("Lorica").join("tools").join("kotlin-language-server").join("server").join("bin"),
         ]
     } else if cfg!(target_os = "macos") {
+        let home = dirs::home_dir().unwrap_or_default();
         vec![
             PathBuf::from("/usr/local/bin"),
             PathBuf::from("/opt/homebrew/bin"),
             PathBuf::from("/usr/bin"),
             PathBuf::from("/opt/local/bin"),
             PathBuf::from("/usr/local/opt/llvm/bin"),
-            dirs::home_dir().map(|h| h.join(".cargo/bin")).unwrap_or_default(),
-            dirs::home_dir().map(|h| h.join(".local/bin")).unwrap_or_default(),
+            home.join(".cargo/bin"),
+            home.join(".local/bin"),
+            // LSPs that drop into a subfolder of ~/.local/bin.
+            home.join(".local/bin/elixir-ls"),
+            home.join(".local/bin/kotlin-language-server/server/bin"),
+            // `gem install --user-install` puts solargraph here.
+            home.join(".gem/bin"),
+            home.join(".gem/ruby/bin"),
         ]
     } else { // linux
+        let home = dirs::home_dir().unwrap_or_default();
         vec![
             PathBuf::from("/usr/bin"),
             PathBuf::from("/usr/local/bin"),
             PathBuf::from("/snap/bin"),
             PathBuf::from("/opt/bin"),
             PathBuf::from("/usr/lib/llvm-*/bin"),
-            dirs::home_dir().map(|h| h.join(".cargo/bin")).unwrap_or_default(),
-            dirs::home_dir().map(|h| h.join(".local/bin")).unwrap_or_default(),
+            home.join(".cargo/bin"),
+            home.join(".local/bin"),
+            // LSPs that drop into a subfolder of ~/.local/bin.
+            home.join(".local/bin/elixir-ls"),
+            home.join(".local/bin/kotlin-language-server/server/bin"),
+            home.join(".local/bin/lua-language-server/bin"),
+            // `gem install --user-install` puts solargraph here.
+            home.join(".gem/bin"),
+            home.join(".gem/ruby/bin"),
         ]
     };
 
@@ -282,6 +299,203 @@ fn get_registry() -> Vec<Extension> {
             install_cmd: Some("rustup component add rustfmt".into()),
             install_note: None,
             binary: Some("rustfmt".into()),
+        },
+        // === LANGUAGE SERVERS (LSP) ===
+        // Each entry uses category="language". `binary` is the executable
+        // name `find_binary()` walks PATH looking for. `install_cmd` is
+        // shelled out by `cmd_install_extension` — embed toolchain
+        // pre-checks directly so the user gets an actionable
+        // `XXX_MISSING:` marker rather than a cryptic "command not found".
+        Extension {
+            id: "lsp-ruby".into(),
+            name: "Ruby Language Server (solargraph)".into(),
+            description: "IntelliSense, hover, and diagnostics for Ruby (.rb)".into(),
+            version: "0.50".into(),
+            category: "language".into(),
+            languages: vec!["ruby".into()],
+            installed: false,
+            install_cmd: Some(if cfg!(target_os = "windows") {
+                // Pre-check `gem` so we surface a friendly install hint
+                // instead of "'gem' is not recognized".
+                "where gem >nul 2>&1 || (echo RUBY_MISSING:Install Ruby from https://rubyinstaller.org/ then re-run & exit /b 1) && gem install --user-install solargraph".into()
+            } else if cfg!(target_os = "linux") {
+                "command -v gem >/dev/null 2>&1 || { echo 'RUBY_MISSING:Install Ruby first: sudo apt-get install -y ruby-full'; exit 1; }; gem install --user-install solargraph".into()
+            } else {
+                "command -v gem >/dev/null 2>&1 || { echo 'RUBY_MISSING:Install Ruby first: brew install ruby'; exit 1; }; gem install --user-install solargraph".into()
+            }),
+            install_note: None,
+            binary: Some("solargraph".into()),
+        },
+        Extension {
+            id: "lsp-bash".into(),
+            name: "Bash Language Server".into(),
+            description: "Shellcheck-powered diagnostics and completion for Bash (.sh)".into(),
+            version: "5.1".into(),
+            category: "language".into(),
+            languages: vec!["bash".into()],
+            installed: false,
+            install_cmd: Some(if cfg!(target_os = "windows") {
+                "where npm >nul 2>&1 || (echo NODE_MISSING:Install Node.js from https://nodejs.org/ & exit /b 1) && npm install -g bash-language-server".into()
+            } else {
+                "command -v npm >/dev/null 2>&1 || { echo 'NODE_MISSING:Install Node.js from https://nodejs.org/'; exit 1; }; npm install -g bash-language-server".into()
+            }),
+            install_note: None,
+            binary: Some("bash-language-server".into()),
+        },
+        Extension {
+            id: "lsp-lua".into(),
+            name: "Lua Language Server (sumneko)".into(),
+            description: "Type-aware diagnostics and completion for Lua (.lua)".into(),
+            version: "3.7".into(),
+            category: "language".into(),
+            languages: vec!["lua".into()],
+            installed: false,
+            install_cmd: Some(if cfg!(target_os = "windows") {
+                // winget ships sumneko's lua-language-server.
+                "winget install -e --id LuaLS.lua-language-server --accept-source-agreements --accept-package-agreements --disable-interactivity".into()
+            } else if cfg!(target_os = "linux") {
+                // apt has it on recent distros; otherwise download the
+                // GitHub release tarball into ~/.local/bin/lua-language-server/.
+                concat!(
+                    "if command -v apt-get >/dev/null 2>&1 && apt-cache show lua-language-server >/dev/null 2>&1; then ",
+                    "  sudo apt-get install -y lua-language-server; ",
+                    "else ",
+                    "  mkdir -p \"$HOME/.local/bin/lua-language-server\" && ",
+                    "  VER=$(curl -s 'https://api.github.com/repos/LuaLS/lua-language-server/releases/latest' | grep -oE '\"tag_name\":\"[^\"]+\"' | cut -d'\"' -f4) && ",
+                    "  curl -L \"https://github.com/LuaLS/lua-language-server/releases/download/$VER/lua-language-server-$VER-linux-x64.tar.gz\" ",
+                    "  | tar xz -C \"$HOME/.local/bin/lua-language-server\" && ",
+                    "  ln -sf \"$HOME/.local/bin/lua-language-server/bin/lua-language-server\" \"$HOME/.local/bin/lua-language-server-bin\"; ",
+                    "fi"
+                ).into()
+            } else {
+                "brew install lua-language-server".into()
+            }),
+            install_note: None,
+            binary: Some("lua-language-server".into()),
+        },
+        Extension {
+            id: "lsp-elixir".into(),
+            name: "Elixir Language Server (elixir-ls)".into(),
+            description: "Compile-on-save diagnostics, completion, and hover for Elixir (.ex/.exs)".into(),
+            version: "0.20".into(),
+            category: "language".into(),
+            languages: vec!["elixir".into()],
+            installed: false,
+            install_cmd: Some(if cfg!(target_os = "windows") {
+                concat!(
+                    "where elixir >nul 2>&1 || (echo ELIXIR_MISSING:Install Elixir from https://elixir-lang.org/install.html & exit /b 1) && ",
+                    "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"",
+                    "$r = Invoke-RestMethod 'https://api.github.com/repos/elixir-lsp/elixir-ls/releases/latest'; ",
+                    "$u = ($r.assets | Where-Object { $_.name -like 'elixir-ls-*.zip' } | Select-Object -First 1).browser_download_url; ",
+                    "$d = Join-Path $env:LOCALAPPDATA 'Lorica\\tools\\elixir-ls'; ",
+                    "New-Item -Force -ItemType Directory $d | Out-Null; ",
+                    "$t = Join-Path $env:TEMP 'elixir-ls.zip'; ",
+                    "Invoke-WebRequest $u -OutFile $t -UseBasicParsing; ",
+                    "Expand-Archive -Force $t -DestinationPath $d; ",
+                    "Write-Output ('Installed to ' + $d)\""
+                ).into()
+            } else {
+                // Linux + macOS: drop the release zip into ~/.local/bin/elixir-ls/
+                concat!(
+                    "command -v elixir >/dev/null 2>&1 || { echo 'ELIXIR_MISSING:Install Elixir first: https://elixir-lang.org/install.html'; exit 1; }; ",
+                    "mkdir -p \"$HOME/.local/bin/elixir-ls\" && ",
+                    "VER=$(curl -s 'https://api.github.com/repos/elixir-lsp/elixir-ls/releases/latest' | grep -oE '\"tag_name\":\"[^\"]+\"' | cut -d'\"' -f4) && ",
+                    "curl -L \"https://github.com/elixir-lsp/elixir-ls/releases/download/$VER/elixir-ls-$VER.zip\" -o /tmp/elixir-ls.zip && ",
+                    "unzip -o /tmp/elixir-ls.zip -d \"$HOME/.local/bin/elixir-ls\" && ",
+                    "chmod +x \"$HOME/.local/bin/elixir-ls/language_server.sh\" && ",
+                    "ln -sf \"$HOME/.local/bin/elixir-ls/language_server.sh\" \"$HOME/.local/bin/elixir-ls\""
+                ).into()
+            }),
+            install_note: None,
+            binary: Some(if cfg!(target_os = "windows") {
+                "language_server.bat".into()
+            } else {
+                "elixir-ls".into()
+            }),
+        },
+        Extension {
+            id: "lsp-dart".into(),
+            name: "Dart Language Server".into(),
+            description: "Built-in `dart language-server` (Dart SDK) for Dart (.dart)".into(),
+            version: "3.4".into(),
+            category: "language".into(),
+            languages: vec!["dart".into()],
+            installed: false,
+            // Dart's LSP is bundled with the SDK and shipped via
+            // `dart language-server` — there's no separate binary to
+            // install. So this entry is documentation-only: if the user
+            // doesn't have `dart` we point them at the install page.
+            install_cmd: None,
+            install_note: Some(
+                "Dart's language server ships with the Dart SDK. Install Dart from https://dart.dev/get-dart and ensure `dart` is on your PATH. The LSP launches via `dart language-server`.".into()
+            ),
+            binary: Some(if cfg!(target_os = "windows") { "dart.exe".into() } else { "dart".into() }),
+        },
+        Extension {
+            id: "lsp-kotlin".into(),
+            name: "Kotlin Language Server (fwcd)".into(),
+            description: "Completion, hover, and diagnostics for Kotlin (.kt/.kts)".into(),
+            version: "1.3".into(),
+            category: "language".into(),
+            languages: vec!["kotlin".into()],
+            installed: false,
+            install_cmd: Some(if cfg!(target_os = "windows") {
+                concat!(
+                    "where java >nul 2>&1 || (echo JAVA_MISSING:Install a Java 11+ JDK (e.g. https://adoptium.net/) & exit /b 1) && ",
+                    "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"",
+                    "$r = Invoke-RestMethod 'https://api.github.com/repos/fwcd/kotlin-language-server/releases/latest'; ",
+                    "$u = ($r.assets | Where-Object { $_.name -eq 'server.zip' }).browser_download_url; ",
+                    "$d = Join-Path $env:LOCALAPPDATA 'Lorica\\tools\\kotlin-language-server'; ",
+                    "New-Item -Force -ItemType Directory $d | Out-Null; ",
+                    "$t = Join-Path $env:TEMP 'kotlin-ls.zip'; ",
+                    "Invoke-WebRequest $u -OutFile $t -UseBasicParsing; ",
+                    "Expand-Archive -Force $t -DestinationPath $d; ",
+                    "Write-Output ('Installed to ' + $d)\""
+                ).into()
+            } else {
+                concat!(
+                    "command -v java >/dev/null 2>&1 || { echo 'JAVA_MISSING:Install a Java 11+ JDK (e.g. https://adoptium.net/)'; exit 1; }; ",
+                    "mkdir -p \"$HOME/.local/bin/kotlin-language-server\" && ",
+                    "VER=$(curl -s 'https://api.github.com/repos/fwcd/kotlin-language-server/releases/latest' | grep -oE '\"tag_name\":\"[^\"]+\"' | cut -d'\"' -f4) && ",
+                    "curl -L \"https://github.com/fwcd/kotlin-language-server/releases/download/$VER/server.zip\" -o /tmp/kotlin-ls.zip && ",
+                    "unzip -o /tmp/kotlin-ls.zip -d \"$HOME/.local/bin/kotlin-language-server\" && ",
+                    "chmod +x \"$HOME/.local/bin/kotlin-language-server/server/bin/kotlin-language-server\" && ",
+                    "ln -sf \"$HOME/.local/bin/kotlin-language-server/server/bin/kotlin-language-server\" \"$HOME/.local/bin/kotlin-language-server\""
+                ).into()
+            }),
+            install_note: None,
+            binary: Some(if cfg!(target_os = "windows") {
+                "kotlin-language-server.bat".into()
+            } else {
+                "kotlin-language-server".into()
+            }),
+        },
+        Extension {
+            id: "lsp-swift".into(),
+            name: "Swift Language Server (sourcekit-lsp)".into(),
+            description: "Apple's sourcekit-lsp for Swift (.swift). Ships with Swift toolchain.".into(),
+            version: "5.10".into(),
+            category: "language".into(),
+            languages: vec!["swift".into()],
+            installed: false,
+            // sourcekit-lsp ships with the Swift toolchain. We can't
+            // package-install it cleanly across OSes — direct the user
+            // to swift.org instead. On Windows it's effectively
+            // unsupported (no first-class sourcekit-lsp); we surface
+            // that in the install_note.
+            install_cmd: None,
+            install_note: Some(if cfg!(target_os = "windows") {
+                "sourcekit-lsp on Windows is experimental. Install the Swift toolchain from https://www.swift.org/install/windows/ and ensure `sourcekit-lsp.exe` is on your PATH.".into()
+            } else if cfg!(target_os = "macos") {
+                "sourcekit-lsp ships with Xcode. Run `xcode-select --install` if not already present, then verify with `xcrun -f sourcekit-lsp`.".into()
+            } else {
+                "Install the Swift toolchain from https://www.swift.org/install/linux/ — sourcekit-lsp is bundled with it.".into()
+            }),
+            binary: Some(if cfg!(target_os = "windows") {
+                "sourcekit-lsp.exe".into()
+            } else {
+                "sourcekit-lsp".into()
+            }),
         },
     ];
 

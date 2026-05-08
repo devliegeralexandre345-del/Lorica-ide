@@ -247,3 +247,84 @@ body {
   border-bottom: 1px solid color-mix(in srgb, var(--tip-color, var(--color-accent)) 35%, var(--color-border));
   transform: translateY(-50%) rotate(45deg);
 }
+
+/* ============================================
+   Editor search panel — multi-line aware
+   ============================================ */
+.lorica-search-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  background: var(--color-panel);
+  border-top: 1px solid var(--color-border);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--color-text);
+}
+.lorica-search-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+.lorica-search-field {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  font-family: inherit;
+  font-size: inherit;
+  outline: none;
+  resize: none;
+}
+.lorica-search-field:focus {
+  border-color: var(--color-accent);
+}
+.lorica-search-field-multi {
+  min-height: 48px;
+  max-height: 200px;
+  white-space: pre;
+  overflow: auto;
+  resize: vertical;
+}
+.lorica-search-btn {
+  padding: 3px 8px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 10px;
+  text-transform: lowercase;
+  transition: background-color 0.1s, border-color 0.1s;
+}
+.lorica-search-btn:hover {
+  background: color-mix(in srgb, var(--color-accent) 12%, var(--color-bg));
+  border-color: var(--color-accent);
+}
+.lorica-search-close {
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 7px;
+}
+.lorica-search-toggles {
+  align-items: center;
+  flex-wrap: wrap;
+  color: var(--color-textDim);
+}
+.lorica-search-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+  user-select: none;
+}
+.lorica-search-check input {
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--color-accent);
+}

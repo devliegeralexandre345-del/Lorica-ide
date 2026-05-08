@@ -34,6 +34,14 @@ const LANGUAGE_BY_EXT = {
   sql: 'sql',
   php: 'php',
   json: 'json', jsonc: 'json',
+  // v2.3 — extended LSP coverage (7 new servers).
+  rb: 'ruby',
+  sh: 'bash', bash: 'bash', zsh: 'bash',
+  lua: 'lua',
+  ex: 'elixir', exs: 'elixir',
+  dart: 'dart',
+  kt: 'kotlin', kts: 'kotlin',
+  swift: 'swift',
 };
 
 /** File path → sanitized file URI (LSP servers accept `file://` URIs). */

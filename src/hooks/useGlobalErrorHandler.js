@@ -41,11 +41,31 @@ export function useGlobalErrorHandler(dispatch) {
       console.error('[Lorica] Uncaught error:', e.error || e.message);
     };
 
-    window.addEventListener('unhandledrejection', onRejection);
-    window.addEventListener('error', onError);
+    // Defer listener registration to browser-idle time — errors during
+    // first paint are vanishingly rare (module graph already resolved)
+    // and we want the main thread free for the initial render. Safari
+    // lacks requestIdleCallback; fall back to a 200 ms setTimeout.
+    let idleId = null;
+    let timeoutId = null;
+    let attached = false;
+    const attach = () => {
+      window.addEventListener('unhandledrejection', onRejection);
+      window.addEventListener('error', onError);
+      attached = true;
+    };
+    if (window.requestIdleCallback) {
+      idleId = window.requestIdleCallback(attach, { timeout: 1000 });
+    } else {
+      timeoutId = setTimeout(attach, 200);
+    }
+
     return () => {
-      window.removeEventListener('unhandledrejection', onRejection);
-      window.removeEventListener('error', onError);
+      if (idleId != null && window.cancelIdleCallback) window.cancelIdleCallback(idleId);
+      if (timeoutId != null) clearTimeout(timeoutId);
+      if (attached) {
+        window.removeEventListener('unhandledrejection', onRejection);
+        window.removeEventListener('error', onError);
+      }
     };
   }, [dispatch]);
 }

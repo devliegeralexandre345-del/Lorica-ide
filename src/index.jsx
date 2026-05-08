@@ -2,6 +2,13 @@
 // The bridge must load first to create window.lorica
 window.global = window;
 
+// Boot-time perf marks — read by PerformanceHUD's "Boot times" subsection.
+// Stamped at three milestones so power users can see how long each phase
+// takes on their machine: module evaluation start (here), first React
+// commit (in App's mount effect), and project tree ready (after
+// useFileSystem reports its first non-empty tree).
+try { performance.mark('lorica:boot:start'); } catch {}
+
 import './loricaBridge';
 
 import React from 'react';

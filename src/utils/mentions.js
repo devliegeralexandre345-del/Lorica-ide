@@ -6,13 +6,20 @@
 //   @file:<abs-path>     — injects file content into the prompt
 //   @folder:<abs-path>   — injects folder tree listing
 //   @active              — injects the currently active editor file
+//   @diff / @branch-diff — injects `git diff base...HEAD` for current branch
 //
 // The picker inserts absolute paths directly so the tokens are self-contained
 // and survive history edits. Paths with whitespace aren't supported in v1 —
 // the picker escapes spaces to `\ ` so they round-trip through the regex
 // without breaking, and expandMentions() un-escapes them before reading.
 
-const TOKEN_RE = /@(file|folder):((?:\\ |[^\s])+)|@(active)\b/g;
+// Soft cap for the branch-diff payload. Above this we refuse to attach
+// silently and instead surface a hint nudging the user to scope their ask.
+// 30 KB is roughly 7-8k tokens — comfortable inside any modern context
+// window without crowding out the rest of the conversation.
+const BRANCH_DIFF_MAX_BYTES = 30 * 1024;
+
+const TOKEN_RE = /@(file|folder):((?:\\ |[^\s])+)|@(active|branch-diff|diff)\b/g;
 
 /**
  * Parse mention tokens from a string.
@@ -52,12 +59,17 @@ export function escapePath(path) {
  */
 export async function expandMentions(tokens, ctx) {
   if (!tokens || tokens.length === 0) return '';
-  const { activeFile } = ctx || {};
+  const { activeFile, projectPath } = ctx || {};
   const seen = new Set();
   const blocks = [];
 
   for (const t of tokens) {
-    const key = `${t.type}:${t.value || ''}`;
+    // `diff` and `branch-diff` are aliases — collapse them in the dedupe
+    // set so a user typing `@diff @branch-diff` doesn't double-attach.
+    const dedupeType = (t.type === 'diff' || t.type === 'branch-diff')
+      ? 'branch-diff'
+      : t.type;
+    const key = `${dedupeType}:${t.value || ''}`;
     if (seen.has(key)) continue;
     seen.add(key);
 
@@ -68,6 +80,42 @@ export async function expandMentions(tokens, ctx) {
         blocks.push(`@active → ${label}\n\`\`\`${ext}\n${truncate(activeFile.content)}\n\`\`\``);
       } else {
         blocks.push(`@active — (no active file in the editor)`);
+      }
+      continue;
+    }
+
+    if (t.type === 'branch-diff' || t.type === 'diff') {
+      // Pull the full `base...HEAD` diff for the current branch. The
+      // backend auto-detects main/master so the user doesn't have to.
+      if (!projectPath) {
+        blocks.push(`@${t.type} — (no project open)`);
+        continue;
+      }
+      try {
+        const r = await window.lorica.git.branchDiff(projectPath, null);
+        if (!r || !r.success) {
+          blocks.push(`@${t.type} — (git diff failed: ${r?.error || 'unknown'})`);
+          continue;
+        }
+        const diff = r.data || '';
+        if (!diff.trim()) {
+          blocks.push(`@${t.type} — (no changes vs. base branch — you may be on main)`);
+          continue;
+        }
+        // Cap the diff so we never blow the context window. Bytes, not
+        // chars: a 30 KB diff is roughly 7-8k tokens.
+        const bytes = new Blob([diff]).size;
+        if (bytes > BRANCH_DIFF_MAX_BYTES) {
+          blocks.push(
+            `@${t.type} — diff too large to attach automatically ` +
+            `(${Math.round(bytes / 1024)} KB > ${BRANCH_DIFF_MAX_BYTES / 1024} KB cap). ` +
+            `Please use Inline AI Edit on smaller scopes.`
+          );
+          continue;
+        }
+        blocks.push(`@${t.type} → branch diff vs. base\n\`\`\`diff\n${diff}\n\`\`\``);
+      } catch (e) {
+        blocks.push(`@${t.type} — (error: ${e.message})`);
       }
       continue;
     }

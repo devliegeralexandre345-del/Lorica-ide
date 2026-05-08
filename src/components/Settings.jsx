@@ -1,15 +1,24 @@
 import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, X, Key, Moon, Palette, Sun, Clock, Shield, Save, Map, Brain, Keyboard, Edit, AlertTriangle, Check, XCircle, Sparkles, Info, Rocket, Github, RotateCcw } from 'lucide-react';
+import { Settings as SettingsIcon, X, Key, Moon, Palette, Sun, Clock, Shield, Save, Map, Brain, Keyboard, Edit, AlertTriangle, Check, XCircle, Sparkles, Info, Rocket, Github, RotateCcw, Users } from 'lucide-react';
 import { THEMES } from '../utils/themes';
 import { DEFAULT_SHORTCUTS, getAllShortcuts, loadCustomShortcuts, saveCustomShortcuts, isValidShortcut, findConflicts, eventToShortcut } from '../utils/keymap';
 import { APP_VERSION } from '../version';
 import { FEATURES, FEATURE_CATEGORIES, featureStats } from '../utils/features';
+import {
+  isCoauthorTrailerEnabled,
+  setCoauthorTrailerEnabled,
+  providerCoauthor,
+} from '../utils/aiCoauthor';
 
 export default function Settings({ state, dispatch, actions }) {
   const [apiKey, setApiKey] = useState(state.aiApiKey);
   const [deepseekKey, setDeepseekKey] = useState(state.aiDeepseekKey);
   const [saved, setSaved] = useState(false);
   const [deepseekSaved, setDeepseekSaved] = useState(false);
+  // AI co-author trailer — opt-in append of `Co-authored-by:` to commits
+  // when an AI edit happened in the last 30 minutes. Persisted to
+  // localStorage by setCoauthorTrailerEnabled().
+  const [coauthorOn, setCoauthorOn] = useState(() => isCoauthorTrailerEnabled());
 
   // Dynamic shortcuts state
   const [customShortcuts, setCustomShortcuts] = useState({});
@@ -312,6 +321,58 @@ export default function Settings({ state, dispatch, actions }) {
               <kbd className="px-1 py-0.5 rounded bg-lorica-bg border border-lorica-border text-[9px]">Esc</kbd> pour rejeter •{' '}
               <kbd className="px-1 py-0.5 rounded bg-lorica-bg border border-lorica-border text-[9px]">Alt+\</kbd> pour forcer maintenant.
               Utilise un petit modèle rapide (Haiku 3.5 / DeepSeek-Chat).
+            </p>
+          </div>
+
+          {/* AI co-author trailer — auto-append `Co-authored-by:` to a
+              commit message when an AI edit happened recently. Off by
+              default; the trailer only fires when an inline AI edit or an
+              agent write_file happened in the last 30 minutes. */}
+          <div>
+            <label className="flex items-center gap-2 text-xs font-semibold text-lorica-text mb-2">
+              <Users size={14} className="text-lorica-accent" />
+              AI co-author commit trailer
+            </label>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => {
+                  const next = !coauthorOn;
+                  setCoauthorOn(next);
+                  setCoauthorTrailerEnabled(next);
+                  dispatch({
+                    type: 'ADD_TOAST',
+                    toast: {
+                      type: 'info',
+                      message: next
+                        ? `Co-authored-by trailer ON — recent AI edits credit ${providerCoauthor(state.aiProvider).name}.`
+                        : 'Co-authored-by trailer OFF.',
+                      duration: 2500,
+                    },
+                  });
+                }}
+                className={`relative w-10 h-5 rounded-full transition-colors cursor-pointer ${
+                  coauthorOn ? 'bg-lorica-accent' : 'bg-lorica-border'
+                }`}
+              >
+                <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+                  coauthorOn ? 'translate-x-5' : 'translate-x-0.5'
+                }`} />
+              </button>
+              <span className="text-xs text-lorica-textDim">
+                {coauthorOn
+                  ? `Auto-credits ${providerCoauthor(state.aiProvider).name} on AI-touched commits`
+                  : 'Off'}
+              </span>
+            </div>
+            <p className="text-[10px] text-lorica-textDim mt-1">
+              When ON, commits made via the Git panel within 30 minutes of an
+              inline AI edit (Ctrl+K) or agent edit auto-append{' '}
+              <code className="text-[9px] px-1 py-0.5 bg-lorica-bg border border-lorica-border rounded">
+                Co-authored-by: {providerCoauthor(state.aiProvider).name} &lt;{providerCoauthor(state.aiProvider).email}&gt;
+              </code>.
+              An existing trailer the user typed is never duplicated. Terminal{' '}
+              <code className="text-[9px] px-1 py-0.5 bg-lorica-bg border border-lorica-border rounded">git commit</code>{' '}
+              is not intercepted.
             </p>
           </div>
 

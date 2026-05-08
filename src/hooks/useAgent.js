@@ -4,8 +4,10 @@ import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { buildToolsForPermissions, NON_DESTRUCTIVE_TOOLS } from '../utils/agentTools';
 import { buildBrainPreamble } from '../utils/projectBrain';
 import { buildIdentityPreamble } from '../utils/agentIdentity';
-import { recordAiLatency } from '../components/PerformanceHUD';
+import { recordAiLatency } from '../utils/aiLatency';
 import { hasAIConsentOrPrompt } from '../utils/aiConsent';
+import { buildInstructionsPrefix } from '../utils/promptTemplates';
+import { markAiEdit } from '../utils/aiCoauthor';
 
 const ANTHROPIC_ENDPOINT = 'https://api.anthropic.com/v1/messages';
 const DEEPSEEK_ENDPOINT = 'https://api.deepseek.com/v1/chat/completions';
@@ -157,6 +159,9 @@ export function useAgent(state, dispatch) {
               type: 'OPEN_FILE',
               file: { path: toolCall.input.path, name, content: toolCall.input.content, extension: ext, dirty: false },
             });
+            // Stamp the AI co-author timestamp so a commit shortly after
+            // can opt-in to a `Co-authored-by:` trailer.
+            try { markAiEdit(); } catch {}
           } else {
             result = `Error: ${r.error}`;
           }
@@ -255,6 +260,24 @@ export function useAgent(state, dispatch) {
       const errMsg = `Error: ${e.message}`;
       dispatch({ type: 'AGENT_UPDATE_TOOL_CALL', id: toolCall.id, updates: { status: 'error', result: errMsg } });
       return errMsg;
+    }
+  }
+
+  // Read `.lorica/instructions.md` fresh at send time so the user
+  // doesn't have to wait for a watcher event to see updates take effect.
+  // Returns a wrapped prefix string (with header + separator) ready to
+  // concatenate in front of the raw user message, or null when the file
+  // is missing/empty.
+  async function readProjectInstructionsPrefix(projectPath) {
+    if (!projectPath) return null;
+    const sep = projectPath.includes('\\') ? '\\' : '/';
+    const path = `${projectPath}${sep}.lorica${sep}instructions.md`;
+    try {
+      const r = await window.lorica?.fs?.readFile(path);
+      if (!r?.success) return null;
+      return buildInstructionsPrefix(r.data?.content ?? '');
+    } catch {
+      return null;
     }
   }
 
@@ -521,7 +544,12 @@ export function useAgent(state, dispatch) {
     return response.json();
   }
 
-  const runAgentLoop = useCallback(async (userMessage, activeFile) => {
+  const runAgentLoop = useCallback(async (userMessage, activeFile, displayMessage) => {
+    // `userMessage` — what the model sees (may include a hidden mention
+    // preamble, e.g. the full branch diff for `@diff`).
+    // `displayMessage` — what we record in chat history (defaults to
+    // `userMessage`). Lets the caller hide huge attachments behind a
+    // short placeholder while the model still gets the full payload.
     const provider = state.aiProvider || 'anthropic';
     const apiKey = provider === 'anthropic' ? state.aiApiKey : state.aiDeepseekKey;
     const providerLabel = provider === 'anthropic' ? 'Anthropic' : 'DeepSeek';
@@ -544,7 +572,7 @@ export function useAgent(state, dispatch) {
       return;
     }
 
-    lastUserMessageRef.current = { userMessage, activeFile };
+    lastUserMessageRef.current = { userMessage, activeFile, displayMessage };
 
     const config = state.agentConfig;
     const model = config?.model || DEFAULT_MODELS[provider];
@@ -610,8 +638,22 @@ You have direct access to the user's codebase via tools. Be concise, precise, an
       }
     }
 
-    dispatch({ type: 'AGENT_ADD_MESSAGE', message: { role: 'user', content: userMessage } });
-    history.push({ role: 'user', content: userMessage });
+    // The chat history records the display version (typically identical
+    // to userMessage; differs only when a mention preamble is hidden).
+    dispatch({
+      type: 'AGENT_ADD_MESSAGE',
+      message: { role: 'user', content: displayMessage ?? userMessage },
+    });
+    // Pull `.lorica/instructions.md` fresh at every send. Prepended to
+    // the API-bound user message ONLY — the chat history shows the
+    // user's raw input, not the augmented payload, so the project
+    // instructions stay an invisible system-style overlay (matches the
+    // Cursor `.cursorrules` UX). Empty / missing file → no-op.
+    const instructionsPrefix = await readProjectInstructionsPrefix(projectPath);
+    history.push({
+      role: 'user',
+      content: instructionsPrefix ? instructionsPrefix + userMessage : userMessage,
+    });
 
     dispatch({ type: 'AGENT_SET_LOADING', value: true });
 
@@ -886,7 +928,7 @@ You have direct access to the user's codebase via tools. Be concise, precise, an
         break;
       }
     }
-    await runAgentLoop(last.userMessage, last.activeFile);
+    await runAgentLoop(last.userMessage, last.activeFile, last.displayMessage);
   }, [state.agentMessages, dispatch, runAgentLoop]);
 
   return { sendMessage, approveToolCall, rejectToolCall, stop, retryLastMessage };

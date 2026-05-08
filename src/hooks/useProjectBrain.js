@@ -17,7 +17,22 @@ export function useProjectBrain(projectPath, dispatch) {
     dispatch({ type: 'SET_BRAIN_ENTRIES', entries });
   }, [projectPath, dispatch]);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  // Defer the brain load to browser-idle time. The brain is consumed by
+  // the Brain panel + the agent preamble — neither is on the first-paint
+  // critical path. 200 ms setTimeout fallback for Safari.
+  useEffect(() => {
+    let idleId = null;
+    let timeoutId = null;
+    if (window.requestIdleCallback) {
+      idleId = window.requestIdleCallback(() => refresh(), { timeout: 2000 });
+    } else {
+      timeoutId = setTimeout(refresh, 200);
+    }
+    return () => {
+      if (idleId != null && window.cancelIdleCallback) window.cancelIdleCallback(idleId);
+      if (timeoutId != null) clearTimeout(timeoutId);
+    };
+  }, [refresh]);
 
   return { refresh };
 }

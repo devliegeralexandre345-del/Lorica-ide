@@ -2,6 +2,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   Search, X, Replace, ChevronDown, ChevronRight, FileCode, CaseSensitive,
   ArrowDownUp, Sparkles, Database, Trash2, Loader2, RefreshCw, Zap, Brain,
+  WrapText,
 } from 'lucide-react';
 import { rerankSemanticHits } from '../utils/aiSemanticRerank';
 
@@ -24,6 +25,10 @@ export default function GlobalSearch({ state, dispatch, onFileOpen }) {
   const [replacement, setReplacement] = useState('');
   const [showReplace, setShowReplace] = useState(false);
   const [caseSensitive, setCaseSensitive] = useState(false);
+  // Multi-line mode: query is sent verbatim (newlines and all) and the
+  // backend scans the full file content rather than line-by-line. Toggling
+  // it swaps the input element for a textarea.
+  const [multiline, setMultiline] = useState(false);
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
   const [expandedFiles, setExpandedFiles] = useState({});
@@ -74,10 +79,14 @@ export default function GlobalSearch({ state, dispatch, onFileOpen }) {
   // Exact search (unchanged behavior)
   // ----------------------------------------------------------------
   const doSearch = useCallback(async (q) => {
-    if (!q.trim() || !state.projectPath) return;
+    // Strip trailing newlines so an accidental Enter inside the textarea
+    // doesn't turn into "no matches found" — but leave internal newlines
+    // alone, that's the whole point of multi-line mode.
+    const cleaned = multiline ? q.replace(/[\r\n]+$/, '') : q;
+    if (!cleaned.trim() || !state.projectPath) return;
     setLoading(true);
     try {
-      const res = await window.lorica.search.searchInFiles(state.projectPath, q, caseSensitive, 500);
+      const res = await window.lorica.search.searchInFiles(state.projectPath, cleaned, caseSensitive, 500, multiline);
       if (res && res.success !== false) {
         const data = res.data || res;
         setResults(data);
@@ -90,7 +99,7 @@ export default function GlobalSearch({ state, dispatch, onFileOpen }) {
       console.error('Search failed:', e);
     }
     setLoading(false);
-  }, [state.projectPath, caseSensitive]);
+  }, [state.projectPath, caseSensitive, multiline]);
 
   // ----------------------------------------------------------------
   // Semantic search
@@ -249,8 +258,13 @@ export default function GlobalSearch({ state, dispatch, onFileOpen }) {
     setQuery(val);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (mode === MODE_EXACT) {
-      if (val.trim().length >= 2) {
-        debounceRef.current = setTimeout(() => doSearch(val), 300);
+      // For multi-line we use a longer debounce since each query scans the
+      // full content of every file (no early bail at end-of-line). 500 ms
+      // makes the textarea feel responsive without firing on every keystroke.
+      const delay = multiline ? 500 : 300;
+      const trimmed = multiline ? val.replace(/[\r\n]+$/, '').trim() : val.trim();
+      if (trimmed.length >= 2) {
+        debounceRef.current = setTimeout(() => doSearch(val), delay);
       } else {
         setResults(null);
       }
@@ -264,7 +278,12 @@ export default function GlobalSearch({ state, dispatch, onFileOpen }) {
 
   const handleReplaceAll = async () => {
     if (!query || !state.projectPath) return;
-    const res = await window.lorica.search.replaceInFiles(state.projectPath, query, replacement, caseSensitive);
+    // Same trailing-newline trim as the search path so the user's accidental
+    // Enter at the end of the textarea doesn't break the match.
+    const cleanedQuery = multiline ? query.replace(/[\r\n]+$/, '') : query;
+    // The replacement string is sent verbatim — newlines in the textarea
+    // become real \n in the file, exactly what the user typed.
+    const res = await window.lorica.search.replaceInFiles(state.projectPath, cleanedQuery, replacement, caseSensitive, multiline);
     if (res && res.data !== undefined) {
       const count = res.data;
       dispatch({ type: 'ADD_TOAST', toast: { type: 'success', message: `${count} remplacement${count > 1 ? 's' : ''} effectué${count > 1 ? 's' : ''}`, duration: 3000 } });
@@ -337,21 +356,42 @@ export default function GlobalSearch({ state, dispatch, onFileOpen }) {
 
       {/* Search input */}
       <div className="px-2 py-2 space-y-1.5 border-b border-lorica-border">
-        <div className="flex items-center gap-1">
-          <div className="flex-1 flex items-center bg-lorica-bg border border-lorica-border rounded px-2 py-1 focus-within:border-lorica-accent">
+        <div className={`flex gap-1 ${multiline && mode === MODE_EXACT ? 'items-start' : 'items-center'}`}>
+          <div className={`flex-1 flex bg-lorica-bg border border-lorica-border rounded px-2 py-1 focus-within:border-lorica-accent ${multiline && mode === MODE_EXACT ? 'items-start' : 'items-center'}`}>
             {mode === MODE_EXACT
-              ? <Search size={12} className="text-lorica-textDim mr-1.5 flex-shrink-0" />
+              ? <Search size={12} className={`text-lorica-textDim mr-1.5 flex-shrink-0 ${multiline ? 'mt-0.5' : ''}`} />
               : <Sparkles size={12} className="text-purple-400 mr-1.5 flex-shrink-0" />}
-            <input
-              ref={inputRef}
-              value={query}
-              onChange={(e) => handleInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleEnter()}
-              placeholder={mode === MODE_EXACT
-                ? 'Search in files...'
-                : 'Describe what you\'re looking for… (Enter)'}
-              className="flex-1 bg-transparent text-xs text-lorica-text outline-none placeholder:text-lorica-textDim/50"
-            />
+            {mode === MODE_EXACT && multiline ? (
+              <textarea
+                ref={inputRef}
+                value={query}
+                onChange={(e) => handleInput(e.target.value)}
+                // In textarea mode plain Enter inserts a newline (the user
+                // is composing a multi-line pattern). Cmd/Ctrl+Enter fires
+                // the search explicitly for users who want it on demand.
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                    e.preventDefault();
+                    handleEnter();
+                  }
+                }}
+                placeholder="Multi-line pattern… (Ctrl+Enter to run)"
+                rows={3}
+                spellCheck={false}
+                className="flex-1 bg-transparent text-xs text-lorica-text outline-none placeholder:text-lorica-textDim/50 resize-y font-mono leading-snug min-h-[3rem]"
+              />
+            ) : (
+              <input
+                ref={inputRef}
+                value={query}
+                onChange={(e) => handleInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleEnter()}
+                placeholder={mode === MODE_EXACT
+                  ? 'Search in files...'
+                  : 'Describe what you\'re looking for… (Enter)'}
+                className="flex-1 bg-transparent text-xs text-lorica-text outline-none placeholder:text-lorica-textDim/50"
+              />
+            )}
           </div>
           {mode === MODE_EXACT && (
             <>
@@ -361,6 +401,13 @@ export default function GlobalSearch({ state, dispatch, onFileOpen }) {
                 title="Case sensitive"
               >
                 <CaseSensitive size={14} />
+              </button>
+              <button
+                onClick={() => setMultiline(!multiline)}
+                className={`p-1 rounded transition-colors ${multiline ? 'bg-lorica-accent/20 text-lorica-accent' : 'text-lorica-textDim hover:text-lorica-text'}`}
+                title="Multi-line — pattern and replacement may span newlines"
+              >
+                <WrapText size={14} />
               </button>
               <button
                 onClick={() => setShowReplace(!showReplace)}
@@ -374,15 +421,26 @@ export default function GlobalSearch({ state, dispatch, onFileOpen }) {
         </div>
 
         {mode === MODE_EXACT && showReplace && (
-          <div className="flex items-center gap-1">
-            <div className="flex-1 flex items-center bg-lorica-bg border border-lorica-border rounded px-2 py-1 focus-within:border-lorica-accent">
-              <Replace size={12} className="text-lorica-textDim mr-1.5 flex-shrink-0" />
-              <input
-                value={replacement}
-                onChange={(e) => setReplacement(e.target.value)}
-                placeholder="Replace with..."
-                className="flex-1 bg-transparent text-xs text-lorica-text outline-none placeholder:text-lorica-textDim/50"
-              />
+          <div className={`flex gap-1 ${multiline ? 'items-start' : 'items-center'}`}>
+            <div className={`flex-1 flex bg-lorica-bg border border-lorica-border rounded px-2 py-1 focus-within:border-lorica-accent ${multiline ? 'items-start' : 'items-center'}`}>
+              <Replace size={12} className={`text-lorica-textDim mr-1.5 flex-shrink-0 ${multiline ? 'mt-0.5' : ''}`} />
+              {multiline ? (
+                <textarea
+                  value={replacement}
+                  onChange={(e) => setReplacement(e.target.value)}
+                  placeholder="Replace with… (newlines preserved)"
+                  rows={2}
+                  spellCheck={false}
+                  className="flex-1 bg-transparent text-xs text-lorica-text outline-none placeholder:text-lorica-textDim/50 resize-y font-mono leading-snug min-h-[2.5rem]"
+                />
+              ) : (
+                <input
+                  value={replacement}
+                  onChange={(e) => setReplacement(e.target.value)}
+                  placeholder="Replace with..."
+                  className="flex-1 bg-transparent text-xs text-lorica-text outline-none placeholder:text-lorica-textDim/50"
+                />
+              )}
             </div>
             <button
               onClick={handleReplaceAll}

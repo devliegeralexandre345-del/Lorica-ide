@@ -11,14 +11,33 @@
 //   • Stale data stays visible during refresh (no empty-state flicker).
 //   • Log + branches are only fetched when their sections are expanded.
 
-import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, memo, lazy, Suspense } from 'react';
 import {
   GitBranch, GitCommit, GitPullRequest, Plus, Minus, Check, X, RefreshCw,
   Upload, Download, RotateCcw, ChevronDown, ChevronRight,
-  Sparkles, Loader2,
+  Sparkles, Loader2, Network,
 } from 'lucide-react';
 import { generateCommitMessage } from '../utils/aiCommitMessage';
+import {
+  shouldAppendTrailer,
+  appendTrailer,
+  providerCoauthor,
+} from '../utils/aiCoauthor';
 import PrDescriptionModal from './PrDescriptionModal';
+
+// Graph view is opt-in (one click) and noticeably heavier than the log
+// (parents + refs payload + SVG layout). Lazy-load so the Git panel's
+// own bundle stays small for users who never open the Graph tab.
+const GitGraph = lazy(() => import(/* webpackChunkName: "git-graph" */ './GitGraph'));
+
+// localStorage key — persists "Log" vs "Graph" tab choice across sessions.
+const VIEW_STORAGE_KEY = 'lorica.gitPanel.view';
+function readStoredView() {
+  try {
+    const v = localStorage.getItem(VIEW_STORAGE_KEY);
+    return v === 'graph' ? 'graph' : 'log';
+  } catch { return 'log'; }
+}
 
 const REFRESH_DEBOUNCE_MS = 120;
 
@@ -85,6 +104,10 @@ export default function GitPanel({ state, dispatch }) {
   const [branches, setBranches] = useState([]);
   const [commitMsg, setCommitMsg] = useState('');
   const [showLog, setShowLog] = useState(false);
+  // 'log' = the existing flat list. 'graph' = the new SVG graph view.
+  // Persisted across sessions so a user who picks Graph keeps it open.
+  const [historyView, setHistoryView] = useState(readStoredView);
+  const [selectedHash, setSelectedHash] = useState(null);
   const [showBranches, setShowBranches] = useState(false);
   const [refreshing, setRefreshing] = useState(false); // background indicator only
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
@@ -104,6 +127,9 @@ export default function GitPanel({ state, dispatch }) {
   const showBranchesRef = useRef(showBranches);
 
   useEffect(() => { showLogRef.current = showLog; }, [showLog]);
+  useEffect(() => {
+    try { localStorage.setItem(VIEW_STORAGE_KEY, historyView); } catch {}
+  }, [historyView]);
   useEffect(() => { showBranchesRef.current = showBranches; }, [showBranches]);
 
   useEffect(() => () => {
@@ -138,6 +164,10 @@ export default function GitPanel({ state, dispatch }) {
         setGitStatus(payload.status);
         if (showLogRef.current) setGitLog(payload.log || []);
         if (showBranchesRef.current) setBranches(payload.branches || []);
+        // Notify the FileTree decoration hook (and any other listener)
+        // that git state may have changed. The hook self-debounces, so
+        // multiple back-to-back stage/unstage clicks coalesce.
+        window.dispatchEvent(new Event('lorica:git-changed'));
       }
     } catch (e) {
       console.error('[GitPanel] refresh failed:', e);
@@ -227,12 +257,23 @@ export default function GitPanel({ state, dispatch }) {
     scheduleRefresh();
   }, [state.projectPath, applyOptimistic, scheduleRefresh, dispatch]);
 
+  // Wrap the user's typed commit message with the AI co-author trailer
+  // when (a) the toggle is on AND (b) an AI edit happened recently. The
+  // helper is a no-op when the message already carries a matching
+  // trailer the user typed manually.
+  const decorateMessage = useCallback((msg) => {
+    if (!msg) return msg;
+    if (!shouldAppendTrailer()) return msg;
+    return appendTrailer(msg, providerCoauthor(state.aiProvider));
+  }, [state.aiProvider]);
+
   const handleCommit = useCallback(async () => {
     if (!commitMsg.trim()) {
       dispatch({ type: 'ADD_TOAST', toast: { type: 'warning', message: 'Enter a commit message' } });
       return;
     }
-    const res = await window.lorica.git.commit(state.projectPath, commitMsg);
+    const finalMsg = decorateMessage(commitMsg);
+    const res = await window.lorica.git.commit(state.projectPath, finalMsg);
     if (res?.success !== false) {
       setCommitMsg('');
       dispatch({ type: 'ADD_TOAST', toast: { type: 'success', message: 'Committed!', duration: 2000 } });
@@ -241,14 +282,16 @@ export default function GitPanel({ state, dispatch }) {
     }
     // Special-case: the backend signals missing git identity with a
     // `GIT_AUTHOR_MISSING:` prefix so we can open a form instead of
-    // dumping a multi-line git error in a tiny toast.
+    // dumping a multi-line git error in a tiny toast. We persist the
+    // ORIGINAL user message (sans trailer) so the retry decorates fresh
+    // — that keeps "user toggles co-author OFF after first failure" working.
     const err = res?.error || 'Commit failed';
     if (typeof err === 'string' && err.startsWith('GIT_AUTHOR_MISSING')) {
       setAuthorPrompt({ name: '', email: '', pendingMsg: commitMsg });
       return;
     }
     dispatch({ type: 'ADD_TOAST', toast: { type: 'error', message: err } });
-  }, [commitMsg, state.projectPath, scheduleRefresh, dispatch]);
+  }, [commitMsg, state.projectPath, scheduleRefresh, dispatch, decorateMessage]);
 
   // Called when the user fills in name + email in the inline author form.
   // Persists the identity (globally by default so every future repo
@@ -262,8 +305,9 @@ export default function GitPanel({ state, dispatch }) {
       return;
     }
     setAuthorPrompt(null);
-    // Retry the commit that got blocked.
-    const commit = await window.lorica.git.commit(state.projectPath, pendingMsg);
+    // Retry the commit that got blocked. Re-decorate so the trailer is
+    // applied if the toggle is on (and not duplicated if user typed one).
+    const commit = await window.lorica.git.commit(state.projectPath, decorateMessage(pendingMsg));
     if (commit?.success !== false) {
       setCommitMsg('');
       dispatch({ type: 'ADD_TOAST', toast: { type: 'success', message: 'Identity saved and committed!' } });
@@ -271,7 +315,7 @@ export default function GitPanel({ state, dispatch }) {
     } else {
       dispatch({ type: 'ADD_TOAST', toast: { type: 'error', message: commit?.error || 'Commit failed after setting identity' } });
     }
-  }, [authorPrompt, state.projectPath, scheduleRefresh, dispatch]);
+  }, [authorPrompt, state.projectPath, scheduleRefresh, dispatch, decorateMessage]);
 
   // --------------------------------------------------------------
   // AI-generated commit message.
@@ -477,6 +521,7 @@ export default function GitPanel({ state, dispatch }) {
 
         {/* Commit input */}
         <div className="px-2 py-2 border-b border-lorica-border">
+          <CoauthorHint provider={state.aiProvider} />
           <div className="flex items-center gap-1">
             <input
               value={commitMsg}
@@ -605,19 +650,58 @@ export default function GitPanel({ state, dispatch }) {
           ))}
         </div>
 
-        {/* Log */}
+        {/* History — flat log OR graph topology, switchable. The two
+            views read from different backend commands (cmd_git_summary's
+            log vs cmd_git_graph) and have different perf trade-offs, so
+            we let the user pick and remember the choice. */}
         <div>
-          <button
-            onClick={() => setShowLog((v) => !v)}
-            className="w-full flex items-center gap-1.5 px-2 py-1.5 text-[10px] text-lorica-textDim hover:text-lorica-text uppercase tracking-wider font-semibold"
-          >
-            {showLog ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
-            <GitCommit size={10} /> History
-          </button>
-          {showLog && gitLog.map((entry, i) => (
+          <div className="flex items-center justify-between px-2 py-1.5">
+            <button
+              onClick={() => setShowLog((v) => !v)}
+              className="flex items-center gap-1.5 text-[10px] text-lorica-textDim hover:text-lorica-text uppercase tracking-wider font-semibold"
+            >
+              {showLog ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+              {historyView === 'graph'
+                ? <Network size={10} />
+                : <GitCommit size={10} />}
+              History
+            </button>
+            {showLog && (
+              <div className="flex items-center gap-0.5 text-[9px] bg-lorica-bg border border-lorica-border rounded p-0.5">
+                <button
+                  onClick={() => setHistoryView('log')}
+                  className={`px-1.5 py-0.5 rounded transition-colors ${
+                    historyView === 'log'
+                      ? 'bg-lorica-accent/20 text-lorica-accent'
+                      : 'text-lorica-textDim hover:text-lorica-text'
+                  }`}
+                  title="Flat list view"
+                >
+                  Log
+                </button>
+                <button
+                  onClick={() => setHistoryView('graph')}
+                  className={`px-1.5 py-0.5 rounded transition-colors ${
+                    historyView === 'graph'
+                      ? 'bg-lorica-accent/20 text-lorica-accent'
+                      : 'text-lorica-textDim hover:text-lorica-text'
+                  }`}
+                  title="Branch topology graph"
+                >
+                  Graph
+                </button>
+              </div>
+            )}
+          </div>
+          {showLog && historyView === 'log' && gitLog.map((entry, i) => (
             <div
               key={`${entry.hash}:${i}`}
-              className="flex items-start gap-2 px-3 py-1 text-[11px] hover:bg-lorica-panel/30 border-l-2 border-lorica-border hover:border-lorica-accent/30"
+              onClick={() => setSelectedHash(entry.hash)}
+              className={`flex items-start gap-2 px-3 py-1 text-[11px] cursor-pointer border-l-2 ${
+                selectedHash === entry.hash
+                  ? 'bg-lorica-accent/10 border-lorica-accent/60'
+                  : 'hover:bg-lorica-panel/30 border-lorica-border hover:border-lorica-accent/30'
+              }`}
             >
               <span className="text-lorica-accent/50 font-mono flex-shrink-0">{entry.short_hash}</span>
               <div className="flex-1 min-w-0">
@@ -626,6 +710,20 @@ export default function GitPanel({ state, dispatch }) {
               </div>
             </div>
           ))}
+          {showLog && historyView === 'graph' && (
+            <Suspense
+              fallback={
+                <div className="flex-1 flex items-center justify-center text-[10px] text-lorica-textDim py-4">
+                  <RefreshCw size={12} className="animate-spin mr-1.5" /> Loading graph…
+                </div>
+              }
+            >
+              <GitGraph
+                projectPath={state.projectPath}
+                onSelectCommit={setSelectedHash}
+              />
+            </Suspense>
+          )}
         </div>
       </div>
 
@@ -636,6 +734,36 @@ export default function GitPanel({ state, dispatch }) {
           onClose={() => setShowPrModal(false)}
         />
       )}
+    </div>
+  );
+}
+
+// Tiny "Co-author: <Name>" hint above the commit input. Only renders
+// when the toggle is on AND a recent AI edit qualifies — so the user
+// sees what's about to be appended right where they're typing. Polled
+// on a short interval because the recency window expires silently and
+// we don't want to leave a stale chip if the user lets the editor sit.
+function CoauthorHint({ provider }) {
+  const [active, setActive] = useState(() => shouldAppendTrailer());
+  useEffect(() => {
+    const tick = () => setActive(shouldAppendTrailer());
+    tick();
+    const id = setInterval(tick, 5000);
+    // Refresh immediately on focus / when the user pokes around — covers
+    // the case where they toggle the setting and come back to commit.
+    const onFocus = () => tick();
+    window.addEventListener('focus', onFocus);
+    return () => { clearInterval(id); window.removeEventListener('focus', onFocus); };
+  }, []);
+  if (!active) return null;
+  const co = providerCoauthor(provider);
+  return (
+    <div
+      className="mb-1.5 flex items-center gap-1 text-[10px] text-lorica-textDim"
+      title={`This commit will include: Co-authored-by: ${co.name} <${co.email}> — disable in Settings → AI co-author`}
+    >
+      <Sparkles size={10} className="text-purple-400" />
+      <span>Will credit <span className="text-purple-300">{co.name}</span> as co-author</span>
     </div>
   );
 }

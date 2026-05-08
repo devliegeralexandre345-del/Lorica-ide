@@ -1,7 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { Shield, ShieldAlert, Bot, Music, Maximize, Save, Map, GitBranch, Search, Download, Wifi, WifiOff } from 'lucide-react';
 import { getLanguageName } from '../utils/languages';
-import FocusTimer from './FocusTimer';
+import { APP_VERSION } from '../version';
+
+// FocusTimer is opt-in (state.showFocusTimer, default false) — lazy so the
+// pomodoro logic, lucide glyphs, and localStorage log helpers stay out of
+// the initial bundle. The chip that renders it lives inside the status
+// bar, which IS eager; so the lazy boundary lives here, not in App.jsx.
+const FocusTimer = lazy(() => import(/* webpackChunkName: "focus-timer" */ './FocusTimer'));
 
 // Hook: subscribes to browser online/offline events so the status-bar
 // chip can pulse red when network is down. Agent calls will fail in that
@@ -80,13 +86,17 @@ export default function StatusBar({ state, activeFile, dispatch, updateInfo, cur
             </button>
           </div>
         ) : (
-          <span className="text-[10px] text-white/30">Lorica v{currentVersion || '1.1.0'}</span>
+          <span className="text-[10px] text-white/30">Lorica v{currentVersion || APP_VERSION}</span>
         )}
       </div>
 
       <div className="flex items-center gap-3">
         {/* Focus/Pomodoro timer — opt-in via state.showFocusTimer */}
-        {state.showFocusTimer && <FocusTimer state={state} dispatch={dispatch} />}
+        {state.showFocusTimer && (
+          <Suspense fallback={null}>
+            <FocusTimer state={state} dispatch={dispatch} />
+          </Suspense>
+        )}
 
         {/* Network status — only shown when offline (silent when online
             to avoid visual noise). Agent calls will fail in this state. */}
@@ -110,12 +120,13 @@ export default function StatusBar({ state, activeFile, dispatch, updateInfo, cur
         <button
           onClick={() => { dispatch({ type: 'SET_PANEL', panel: 'showSearch', value: true }); dispatch({ type: 'SET_PANEL', panel: 'showGit', value: false }); }}
           className={`flex items-center gap-1 transition-colors hover:text-lorica-accent ${state.showSearch ? 'text-lorica-accent' : 'text-lorica-textDim'}`}
+          title="Search in files (Ctrl+Shift+F)"
         >
           <Search size={10} />
         </button>
 
         {state.autoSave && (
-          <span className="flex items-center gap-1 text-lorica-success">
+          <span className="flex items-center gap-1 text-lorica-success" title="Auto-save is enabled">
             <Save size={10} /> Auto
           </span>
         )}
@@ -125,6 +136,7 @@ export default function StatusBar({ state, activeFile, dispatch, updateInfo, cur
           className={`flex items-center gap-1 transition-colors hover:text-lorica-accent ${
             state.showMinimap !== false ? 'text-lorica-accent' : 'text-lorica-textDim'
           }`}
+          title={state.showMinimap !== false ? 'Hide minimap' : 'Show minimap'}
         >
           <Map size={10} />
         </button>
@@ -134,6 +146,7 @@ export default function StatusBar({ state, activeFile, dispatch, updateInfo, cur
           className={`flex items-center gap-1 transition-colors hover:text-lorica-accent ${
             state.showAIPanel ? 'text-lorica-accent' : 'text-lorica-textDim'
           }`}
+          title={state.aiApiKey ? 'AI Copilot (key configured)' : 'AI Copilot (no key — open Settings)'}
         >
           <Bot size={11} /> AI {state.aiApiKey ? '✓' : '✗'}
         </button>
@@ -144,6 +157,7 @@ export default function StatusBar({ state, activeFile, dispatch, updateInfo, cur
             if (!state.showAIPanel) dispatch({ type: 'SET_PANEL', panel: 'showAIPanel', value: true });
           }}
           className={`flex items-center gap-1 transition-colors ${state.showSpotify ? 'text-lorica-spotify' : 'text-lorica-textDim'} hover:text-lorica-spotify`}
+          title="Toggle Spotify player"
         >
           <Music size={11} /> ♫
         </button>

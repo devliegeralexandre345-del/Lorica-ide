@@ -28,6 +28,28 @@ export default function ExtensionManager({ dispatch }) {
 
   useEffect(() => { refresh(); }, []);
 
+  // Per-extension duration estimates (ms) feeding the progress bar.
+  // LSPs that pull a GitHub release tarball (lua, elixir-ls, kotlin)
+  // are slower than `gem`/`npm` installs which talk to a CDN. Defaulting
+  // by category was misleading for LSPs — most finish in ~45s but
+  // GitHub-tarball ones easily hit 90s on slow links.
+  const INSTALL_DURATION_MS = {
+    'lsp-ruby': 45000,
+    'lsp-bash': 45000,
+    'lsp-lua': 90000,
+    'lsp-elixir': 90000,
+    'lsp-dart': 30000,    // documentation-only — quick close to the guide
+    'lsp-kotlin': 90000,
+    'lsp-swift': 30000,   // documentation-only
+  };
+
+  const estimateDuration = (ext) => {
+    if (INSTALL_DURATION_MS[ext.id]) return INSTALL_DURATION_MS[ext.id];
+    if (ext.category === 'debugger') return 15000;
+    if (ext.category === 'language') return 45000;
+    return 8000;
+  };
+
   const simulateProgress = (extId, duration = 15000) => {
     let start = Date.now();
     const interval = setInterval(() => {
@@ -54,9 +76,9 @@ export default function ExtensionManager({ dispatch }) {
     setInstalling(ext.id);
     setInstallError(null);
     dispatch({ type: 'ADD_TOAST', toast: { type: 'info', message: `Installing ${ext.name}...`, duration: 5000 } });
-    
+
     // Démarrer la simulation de progression
-    const cleanup = simulateProgress(ext.id, ext.category === 'debugger' ? 15000 : 8000);
+    const cleanup = simulateProgress(ext.id, estimateDuration(ext));
     
     try {
       const res = await window.lorica.extensions.install(ext.id);
@@ -155,13 +177,21 @@ export default function ExtensionManager({ dispatch }) {
               const color = CATEGORY_COLORS[ext.category] || 'text-lorica-textDim';
               const isInstalling = installing === ext.id;
 
-              // Friendlier message for the apt-get lock race. The raw
-              // dpkg error is overwhelming and not actionable for a
-              // non-sysadmin user.
+              // Friendlier message for common errors:
+              //   1. apt/dpkg lock race — non-actionable for a non-sysadmin.
+              //   2. XXX_MISSING:<hint> markers emitted by our install
+              //      scripts (e.g. `RUBY_MISSING:Install Ruby from ...`).
+              //      The script prints the marker and `exit 1`, so it
+              //      lands in stderr verbatim. We strip the prefix and
+              //      surface just the human-readable hint.
               const friendlyError = (raw) => {
                 if (!raw) return raw;
                 if (raw.includes('dpkg/lock') || raw.includes('Could not get lock')) {
                   return "Another package manager is running (apt / dpkg). Wait for it to finish or close it, then try again.";
+                }
+                const missing = raw.match(/(NODE|RUBY|JAVA|ELIXIR|DART|SWIFT|GO|RUST|PYTHON)_MISSING:([^\n\r]+)/);
+                if (missing) {
+                  return `Missing toolchain — ${missing[2].trim()}`;
                 }
                 return raw;
               };

@@ -5,7 +5,7 @@
 //     (`./python.js`, `./rust.js`, …) and is NEVER imported statically.
 //   - `getCompletionSource(language)` returns an async completion source
 //     that dynamic-imports the right file on first use, caches the
-//     resulting module, and forwards to CodeMirror's `completeFromList`.
+//     resulting module, and runs an in-house ranker on the entries.
 //   - Webpack code-splits each `import()` into its own chunk. A fresh
 //     Lorica boot loads only the dispatcher (~2 KiB); opening a `.py`
 //     file then fetches `python.chunk.js` once (tens of KiB), after
@@ -17,8 +17,21 @@
 // have pushed the main bundle past 4 MB and made startup unusable.
 // Lazy-loading keeps the main bundle lean and only pays the parse cost
 // for languages the user actually opens.
+//
+// The in-house ranker (vs. CodeMirror's built-in `completeFromList`)
+// adds three things on top of label-prefix matching:
+//   1. Fuzzy match against `detail` as well as `label`. So `vec` finds
+//      both `Vec` (label match) and `BinaryHeap` whose detail says
+//      "Vec<T>-backed priority queue" (detail-only match). Label
+//      matches are boosted higher.
+//   2. Recency boost. Entries the user accepted recently for THIS
+//      language float to the top — see `./recencyStore.js`.
+//   3. Snippet template support. Entries with `${...}` markers in their
+//      `apply` field accept tab-stops on insertion via CodeMirror's
+//      `snippet(template)` helper.
 
-import { completeFromList } from '@codemirror/autocomplete';
+import { snippet } from '@codemirror/autocomplete';
+import { getRecencyMap, recencyBoost, recordCompletion } from './recencyStore';
 
 // ── Language → module loader map ────────────────────────────────────
 // Each value is a thunk so webpack sees a literal `import()` per
@@ -131,6 +144,11 @@ const LOADERS = {
 // so concurrent callers all share the same in-flight load.
 const cache = new Map();
 
+// Per-language cache of the "prepared" entries (apply wrapped for
+// snippets, recorder hook in place). We do this once-per-language at
+// load time so each keystroke just re-ranks an already-prepared array.
+const preparedCache = new Map();
+
 function loadEntries(language) {
   if (cache.has(language)) return cache.get(language);
   const loader = LOADERS[language];
@@ -149,6 +167,156 @@ function loadEntries(language) {
     });
   cache.set(language, p);
   return p;
+}
+
+// ── Snippet detection / preparation ─────────────────────────────────
+// A snippet entry uses `${name}` or `${1:default}` markers in its
+// `apply` field. We detect that and replace `apply` with the function
+// CodeMirror's `snippet()` helper produces, which handles tab-stops
+// and field navigation.
+//
+// Forward-compatibility: many existing dictionary entries store
+// `${name}` placeholders without explicit numbering (e.g.
+// `def ${function_name}(${args}):`). CM's `snippet()` accepts that —
+// fields get auto-numbered in textual order. Entries WITHOUT any
+// placeholder are left alone (their `apply` is just a literal string).
+const SNIPPET_MARKER_RE = /\$\{[^}]*\}|#\{[^}]*\}/;
+
+function hasSnippetMarkers(text) {
+  return typeof text === 'string' && SNIPPET_MARKER_RE.test(text);
+}
+
+/**
+ * Wrap an entry's `apply` field. For string `apply` with snippet
+ * markers, we route through CodeMirror's `snippet()` so the user gets
+ * tab-stops. For plain string `apply`, we wrap it in a function that
+ * inserts the literal text and records the pick. For undefined `apply`
+ * (default = insert label), same wrap using the label.
+ *
+ * The recorder is the only way we can hook completion-accepted events
+ * without modifying Editor.jsx — every CM accept path eventually calls
+ * the option's `apply`, so we intercept there.
+ */
+function prepareEntry(entry, language) {
+  const label = entry.label;
+  const isSnippet = entry.type === 'snippet' || hasSnippetMarkers(entry.apply);
+
+  if (isSnippet && typeof entry.apply === 'string') {
+    const tmpl = entry.apply;
+    const snippetFn = snippet(tmpl);
+    return {
+      ...entry,
+      apply: (view, completion, from, to) => {
+        try { recordCompletion(language, label); } catch {}
+        snippetFn(view, completion, from, to);
+      },
+    };
+  }
+
+  // Plain literal apply (string) or default (undefined → insert label).
+  const literal = typeof entry.apply === 'string' ? entry.apply : label;
+  return {
+    ...entry,
+    apply: (view, completion, from, to) => {
+      try { recordCompletion(language, label); } catch {}
+      view.dispatch({
+        changes: { from, to, insert: literal },
+        selection: { anchor: from + literal.length },
+        scrollIntoView: true,
+        userEvent: 'input.complete',
+      });
+    },
+  };
+}
+
+function getPrepared(language, raw) {
+  const cached = preparedCache.get(language);
+  if (cached && cached.raw === raw) return cached.prepared;
+  // Each entry that's a string in the raw list (rare in our dicts but
+  // CodeMirror accepts it) becomes `{ label }` first.
+  const prepared = raw.map((e) => {
+    const obj = typeof e === 'string' ? { label: e } : e;
+    return prepareEntry(obj, language);
+  });
+  preparedCache.set(language, { raw, prepared });
+  return prepared;
+}
+
+// ── Ranking ─────────────────────────────────────────────────────────
+// Two-pass scorer:
+//   1. Prefix match on label  → biggest match score (case-insensitive).
+//   2. Substring match on label → smaller score.
+//   3. Substring match on detail → smallest score, label still wins.
+//
+// We feed CodeMirror `boost` per option so multiple equally-prefixed
+// matches still sort by recency. CodeMirror uses boost in -99..99,
+// matched-position-weighted; recency boost is bounded at +20 so it
+// can flip same-prefix entries but won't drown out a real prefix
+// match over a substring detail-only hit.
+
+const PREFIX_LABEL_BOOST    = 30;
+const SUBSTR_LABEL_BOOST    = 10;
+const SUBSTR_DETAIL_BOOST   = -5; // detail-only hits sort below label hits
+
+/** Compute a label-highlight match range for `getMatch`. */
+function labelMatchRanges(label, query) {
+  if (!query) return [];
+  const idx = label.toLowerCase().indexOf(query);
+  if (idx < 0) return [];
+  return [idx, idx + query.length];
+}
+
+/**
+ * Build a CompletionResult for the given prepared entries and the
+ * user's current word. Caller has already verified there's something
+ * to match against.
+ */
+function rankAndFilter(prepared, language, word, fromPos) {
+  const q = word.toLowerCase();
+  const recency = getRecencyMap(language);
+  const now = Date.now();
+  const out = [];
+
+  for (const entry of prepared) {
+    const label = entry.label;
+    if (typeof label !== 'string' || !label) continue;
+    const lbl = label.toLowerCase();
+    const det = typeof entry.detail === 'string' ? entry.detail.toLowerCase() : '';
+
+    let kindBoost = null;
+    if (lbl.startsWith(q))         kindBoost = PREFIX_LABEL_BOOST;
+    else if (lbl.includes(q))      kindBoost = SUBSTR_LABEL_BOOST;
+    else if (det && det.includes(q)) kindBoost = SUBSTR_DETAIL_BOOST;
+
+    if (kindBoost === null) continue;
+
+    const baseBoost = typeof entry.boost === 'number' ? entry.boost : 0;
+    const rBoost = recencyBoost(recency, label, now);
+    // Cap final boost at +99 (CodeMirror's documented range).
+    const finalBoost = Math.max(-99, Math.min(99, baseBoost + kindBoost + rBoost));
+
+    out.push({ ...entry, boost: finalBoost });
+  }
+
+  return {
+    from: fromPos,
+    options: out,
+    // We did our own filtering; tell CodeMirror not to re-filter.
+    filter: false,
+    // `validFor` is intentionally permissive (any word/dot chars) so
+    // typing more characters lets CM reuse this result without
+    // re-querying us. Not capitalization-restrictive — `iter` should
+    // continue to match `Iterator` as the user types more letters.
+    // We pair it with `update` below so the in-place re-match still
+    // takes recency + detail-fuzzy into account.
+    validFor: /^[\w.]*$/,
+    update: (current, from, to, ctx) => {
+      const newWord = ctx.state.sliceDoc(from, to);
+      if (!newWord) return null;
+      return rankAndFilter(prepared, language, newWord.toLowerCase(), from);
+    },
+    getMatch: (completion) => labelMatchRanges(completion.label, q),
+  };
 }
 
 // ── C/C++ context-aware include header completion ───────────────────
@@ -235,10 +403,20 @@ export function getCompletionSource(language) {
       }
     }
 
-    const entries = await loadEntries(language);
-    if (!entries.length) return null;
-    const source = completeFromList(entries);
-    return source(ctx);
+    const raw = await loadEntries(language);
+    if (!raw.length) {
+      // Language with no entries yet (custom / niche file the agent
+      // is still wiring up). Returning null lets other sources
+      // (LSP, completeAnyWord) contribute without interference.
+      return null;
+    }
+
+    const word = ctx.matchBefore(/[\w.]+/);
+    if (!word || (word.from === word.to && !ctx.explicit)) return null;
+    const typed = word.text;
+
+    const prepared = getPrepared(language, raw);
+    return rankAndFilter(prepared, language, typed.toLowerCase(), word.from);
   };
 }
 
@@ -254,4 +432,5 @@ export function preload(language) {
 /** Clear a cached chunk — mainly for tests. */
 export function __clearCache() {
   cache.clear();
+  preparedCache.clear();
 }

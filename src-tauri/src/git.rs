@@ -34,6 +34,26 @@ pub struct GitLogEntry {
     pub date: String,
 }
 
+// One row in the graph view. Carries everything the frontend lane-layout
+// needs (parent hashes for edge geometry, refs for branch labels) plus the
+// usual log metadata. Separate type from `GitLogEntry` so the existing
+// log consumers keep their stable, lighter payload.
+//
+// `date` is a unix timestamp (i64). The frontend formats it for display —
+// keeping it numeric here means we can sort / compare cheaply if we ever
+// add windowing on the backend side.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphCommit {
+    pub hash: String,
+    pub short_hash: String,
+    pub author: String,
+    pub date: i64,
+    pub message: String,
+    pub parents: Vec<String>,
+    pub refs: Vec<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct GitBranch {
     pub name: String,
@@ -321,6 +341,101 @@ pub fn cmd_git_log(project_path: String, count: Option<usize>) -> CmdResult<Vec<
     }
 }
 
+// Graph-aware variant of `cmd_git_log`. Returns enough commit metadata for
+// the frontend lane-layout algorithm to draw a topology view: every parent
+// hash so we can route edges, plus `%d` ref decorations so branches and
+// tags render as labels at the right rows.
+//
+// Format separator is the same `||` token used by `cmd_git_log` — git
+// quotes any literal `||` inside a commit message, so collisions are not
+// possible in practice.
+//
+// We deliberately keep this a separate command from `cmd_git_log` to
+// avoid changing that return shape (and to let the Graph view fetch a
+// larger window, e.g. 100 commits, without bloating every panel refresh).
+#[tauri::command]
+pub fn cmd_git_graph(project_path: String, limit: Option<usize>) -> CmdResult<Vec<GraphCommit>> {
+    let count = limit.unwrap_or(100).clamp(1, 2000);
+    let count_str = format!("--max-count={}", count);
+    // %H — full hash, %h — short, %an — author, %at — author unix time,
+    // %P — space-separated parent hashes, %d — ref decorations, %s — subject.
+    // We pin the date as the `%at` raw timestamp so the frontend can format
+    // it however the locale demands without re-parsing English month names.
+    let format = "--pretty=format:%H||%h||%an||%at||%P||%d||%s";
+    // `--all` so every branch and ref shows up — without it `git log` only
+    // walks from HEAD and orphan branches stay invisible. We also add
+    // `--decorate=full` so refs include their `refs/heads/...` prefix,
+    // which we strip on parse.
+    let output = match run_git(
+        &project_path,
+        &["log", &count_str, "--all", "--decorate=full", format],
+    ) {
+        Ok(o) => o,
+        Err(e) => return CmdResult::err(e),
+    };
+
+    let mut entries: Vec<GraphCommit> = Vec::new();
+    for line in output.lines() {
+        let parts: Vec<&str> = line.splitn(7, "||").collect();
+        if parts.len() != 7 {
+            continue;
+        }
+        let date: i64 = parts[3].parse().unwrap_or(0);
+        let parents: Vec<String> = parts[4]
+            .split_whitespace()
+            .map(|s| s.to_string())
+            .collect();
+        // %d output is " (HEAD -> refs/heads/main, refs/tags/v1)" or empty.
+        // Strip the surrounding " (...)" then split on commas.
+        let refs_raw = parts[5].trim();
+        let refs: Vec<String> = if refs_raw.is_empty() {
+            Vec::new()
+        } else {
+            let stripped = refs_raw
+                .trim_start_matches('(')
+                .trim_end_matches(')')
+                .trim();
+            stripped
+                .split(',')
+                .map(|s| s.trim())
+                // Drop the "HEAD -> " arrow prefix; we keep the underlying
+                // ref name and surface "HEAD" separately as its own ref so
+                // the UI can highlight the current commit.
+                .flat_map(|s| -> Vec<String> {
+                    if let Some(rest) = s.strip_prefix("HEAD -> ") {
+                        vec!["HEAD".to_string(), strip_ref_prefix(rest)]
+                    } else {
+                        vec![strip_ref_prefix(s)]
+                    }
+                })
+                .filter(|s| !s.is_empty())
+                .collect()
+        };
+        entries.push(GraphCommit {
+            hash: parts[0].to_string(),
+            short_hash: parts[1].to_string(),
+            author: parts[2].to_string(),
+            date,
+            parents,
+            refs,
+            message: parts[6].to_string(),
+        });
+    }
+    CmdResult::ok(entries)
+}
+
+// Drop refs/heads/, refs/remotes/, refs/tags/ prefixes for display; we
+// keep enough context (the leading "tag: " marker stays as-is) for the
+// frontend to colour-code branch vs tag refs if it wants.
+fn strip_ref_prefix(s: &str) -> String {
+    let s = s.trim();
+    if let Some(rest) = s.strip_prefix("refs/heads/") { return rest.to_string(); }
+    if let Some(rest) = s.strip_prefix("refs/remotes/") { return rest.to_string(); }
+    if let Some(rest) = s.strip_prefix("refs/tags/") { return format!("tag: {}", rest); }
+    if let Some(rest) = s.strip_prefix("tag: refs/tags/") { return format!("tag: {}", rest); }
+    s.to_string()
+}
+
 #[tauri::command]
 pub fn cmd_git_diff(project_path: String, file_path: Option<String>) -> CmdResult<String> {
     let mut args = vec!["diff", "--no-color"];
@@ -372,13 +487,65 @@ pub fn cmd_git_discard(project_path: String, file_path: String) -> CmdResult<boo
         .unwrap_or_else(|e| CmdResult::err(e))
 }
 
+// Returns the full unified diff of the current branch against its base
+// (main/master, auto-detected like `cmd_git_pr_context`). Used by the
+// agent's `@diff` / `@branch-diff` mention so the model gets the full
+// "what this branch introduces" context in one shot.
+//
+// Uses `base...HEAD` (three-dot) so we diff against the merge-base — i.e.
+// only what THIS branch added, ignoring anything that landed on base
+// after divergence. The frontend caps the size separately (~30 KB) so
+// we don't blow the context window; we return the raw output here.
+#[tauri::command]
+pub fn cmd_git_branch_diff(
+    project_path: String,
+    base_branch: Option<String>,
+) -> CmdResult<String> {
+    let current = match current_branch_name(&project_path) {
+        Ok(b) => b,
+        Err(e) => return CmdResult::err(format!("Cannot read current branch: {}", e)),
+    };
+
+    let base = base_branch
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| detect_base_branch(&project_path));
+
+    if current == base {
+        // On main itself — there's no "branch diff". Return an empty string
+        // so the frontend can degrade gracefully (the @mention will expand
+        // to a "you're on main" note rather than spamming the model with
+        // git's error wall).
+        return CmdResult::ok(String::new());
+    }
+
+    let range = format!("{}...HEAD", base);
+    match run_git(&project_path, &["diff", "--no-color", &range]) {
+        Ok(output) => CmdResult::ok(output),
+        Err(e) => CmdResult::err(format!("git diff {} failed: {}", range, e)),
+    }
+}
+
 // Returns the full unified diff of the *staged* changes. Used by the AI
 // commit-message generator — the model reads this to produce a concise
 // subject line. Separate from `cmd_git_diff` because that one reports the
 // unstaged working tree.
+//
+// `file_path` is optional. When provided, the diff is scoped to that single
+// file — the staged-changes gutter calls it that way to avoid pulling the
+// full repo diff per editor refresh.
 #[tauri::command]
-pub fn cmd_git_diff_staged(project_path: String) -> CmdResult<String> {
-    match run_git(&project_path, &["diff", "--cached", "--no-color"]) {
+pub fn cmd_git_diff_staged(
+    project_path: String,
+    file_path: Option<String>,
+) -> CmdResult<String> {
+    let mut args = vec!["diff", "--cached", "--no-color"];
+    let fp;
+    if let Some(ref f) = file_path {
+        fp = f.clone();
+        args.push("--");
+        args.push(&fp);
+    }
+    match run_git(&project_path, &args) {
         Ok(output) => CmdResult::ok(output),
         Err(e) => CmdResult::err(e),
     }

@@ -54,16 +54,48 @@ fn is_binary(ext: &str) -> bool {
     BINARY_EXTS.contains(&ext.to_lowercase().as_str())
 }
 
-/// Search for a query string across all files in a directory
+/// Compute (line_number_1_based, col_1_based, line_text) for a byte offset in `content`.
+/// Used by multi-line search to surface a sensible line/column in the UI.
+fn byte_offset_to_line_col(content: &str, byte_offset: usize) -> (usize, usize, String) {
+    let mut line_no = 1usize;
+    let mut line_start = 0usize;
+    for (i, b) in content.as_bytes().iter().enumerate() {
+        if i >= byte_offset {
+            break;
+        }
+        if *b == b'\n' {
+            line_no += 1;
+            line_start = i + 1;
+        }
+    }
+    // Find end of the line that contains `byte_offset`.
+    let line_end = content.as_bytes()[line_start..]
+        .iter()
+        .position(|&b| b == b'\n')
+        .map(|p| line_start + p)
+        .unwrap_or(content.len());
+    let line_text = content.get(line_start..line_end).unwrap_or("").to_string();
+    let col = byte_offset.saturating_sub(line_start) + 1;
+    (line_no, col, line_text)
+}
+
+/// Search for a query string across all files in a directory.
+///
+/// `multiline = true` makes the query match across newlines (ripgrep `-U`
+/// equivalent): the entire file is scanned as one buffer rather than line
+/// by line. Defaults to `false` to preserve the original line-oriented
+/// behavior for existing callers (Agent tool, Cmd+Shift+F single-line).
 #[tauri::command]
 pub fn cmd_search_in_files(
     project_path: String,
     query: String,
     case_sensitive: Option<bool>,
     max_results: Option<usize>,
+    multiline: Option<bool>,
 ) -> CmdResult<SearchResult> {
     let case_sensitive = case_sensitive.unwrap_or(false);
     let max_results = max_results.unwrap_or(500);
+    let multiline = multiline.unwrap_or(false);
     let search_query = if case_sensitive { query.clone() } else { query.to_lowercase() };
 
     let mut matches = Vec::new();
@@ -116,22 +148,52 @@ pub fn cmd_search_in_files(
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|| file_path.clone());
 
-        for (line_idx, line) in content.lines().enumerate() {
-            let search_line = if case_sensitive { line.to_string() } else { line.to_lowercase() };
-
-            if let Some(col) = search_line.find(&search_query) {
+        if multiline {
+            // Scan the whole file content. We collapse adjacent matches by
+            // walking forward from the previous match end, which both avoids
+            // O(n²) reuse of `find` from index 0 and yields stable line/col
+            // numbers for each hit.
+            let haystack = if case_sensitive { content.clone() } else { content.to_lowercase() };
+            let mut start = 0usize;
+            while let Some(pos) = haystack[start..].find(&search_query) {
+                let abs = start + pos;
+                let (line_no, col, line_text) = byte_offset_to_line_col(&content, abs);
                 matches.push(SearchMatch {
                     path: file_path.clone(),
                     name: file_name.clone(),
-                    line: line_idx + 1,
-                    col: col + 1,
-                    text: line.trim().chars().take(200).collect(),
+                    line: line_no,
+                    col,
+                    text: line_text.trim().chars().take(200).collect(),
                     preview: relative.clone(),
                 });
-
                 if matches.len() >= max_results {
                     truncated = true;
                     break;
+                }
+                // Advance past this match (at least one byte to avoid loops on empty queries).
+                start = abs + search_query.len().max(1);
+                if start >= haystack.len() {
+                    break;
+                }
+            }
+        } else {
+            for (line_idx, line) in content.lines().enumerate() {
+                let search_line = if case_sensitive { line.to_string() } else { line.to_lowercase() };
+
+                if let Some(col) = search_line.find(&search_query) {
+                    matches.push(SearchMatch {
+                        path: file_path.clone(),
+                        name: file_name.clone(),
+                        line: line_idx + 1,
+                        col: col + 1,
+                        text: line.trim().chars().take(200).collect(),
+                        preview: relative.clone(),
+                    });
+
+                    if matches.len() >= max_results {
+                        truncated = true;
+                        break;
+                    }
                 }
             }
         }
@@ -150,15 +212,24 @@ pub fn cmd_search_in_files(
     })
 }
 
-/// Search-and-replace across files
+/// Search-and-replace across files.
+///
+/// `multiline` is accepted purely so the IPC signature matches the search
+/// command. The replacement logic itself already crosses newlines (we
+/// `replace` over the whole file content), so this flag does not change
+/// behavior — it's there so the frontend can pass the user's current
+/// multi-line toggle without a signature mismatch and so future regex-aware
+/// modes have a place to branch.
 #[tauri::command]
 pub fn cmd_search_replace_in_files(
     project_path: String,
     query: String,
     replacement: String,
     case_sensitive: Option<bool>,
+    multiline: Option<bool>,
 ) -> CmdResult<usize> {
     let case_sensitive = case_sensitive.unwrap_or(false);
+    let _multiline = multiline.unwrap_or(false);
     let mut total_replacements = 0;
 
     for entry in WalkDir::new(&project_path)

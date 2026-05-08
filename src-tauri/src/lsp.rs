@@ -186,6 +186,48 @@ pub fn get_lsp_server(language: &str) -> Option<(String, Vec<String>)> {
             "vscode-json-language-server".to_string(),
             vec!["--stdio".to_string()],
         )),
+        // ----------------------------------------------------------------
+        // The following 7 entries mirror the `Extension` registry in
+        // `extensions.rs` (category="language"). The install UI installs
+        // the binary; this match arm tells the LSP client how to spawn it.
+        // ----------------------------------------------------------------
+        "ruby" => Some((
+            "solargraph".to_string(),
+            vec!["stdio".to_string()],
+        )),
+        "bash" => Some((
+            "bash-language-server".to_string(),
+            vec!["start".to_string()],
+        )),
+        "lua" => Some((
+            // sumneko's lua-language-server defaults to stdio when invoked
+            // with no args.
+            "lua-language-server".to_string(),
+            vec![],
+        )),
+        "elixir" => Some((
+            // The elixir-ls release ships `language_server.sh` /
+            // `language_server.bat`, but the Lorica install step writes a
+            // shim called `elixir-ls` (or `language_server.bat` on Windows
+            // — see `extensions.rs::lsp-elixir`'s `binary` field).
+            // No args — elixir-ls speaks LSP over stdio by default.
+            "elixir-ls".to_string(),
+            vec![],
+        )),
+        "dart" => Some((
+            // Dart's LSP ships with the SDK and is launched via
+            // `dart language-server --protocol=lsp`.
+            "dart".to_string(),
+            vec!["language-server".to_string(), "--protocol=lsp".to_string()],
+        )),
+        "kotlin" => Some((
+            "kotlin-language-server".to_string(),
+            vec![],
+        )),
+        "swift" => Some((
+            "sourcekit-lsp".to_string(),
+            vec![],
+        )),
         _ => None,
     }
 }
@@ -214,6 +256,24 @@ pub fn lsp_install_hint(language: &str) -> String {
             "Install sql-language-server: `npm i -g sql-language-server`.".to_string(),
         "php" =>
             "Install intelephense: `npm i -g intelephense`.".to_string(),
+        // Hints for the 7 LSPs registered above. Match the install_cmd
+        // shipped in `extensions.rs` so the user sees the same instruction
+        // whether they hit "Install" in the Extensions panel or get this
+        // fallback when the binary is missing on PATH.
+        "ruby" =>
+            "Install solargraph: `gem install --user-install solargraph` (Ruby required).".to_string(),
+        "bash" =>
+            "Install bash-language-server: `npm i -g bash-language-server`.".to_string(),
+        "lua" =>
+            "Install lua-language-server (sumneko): https://luals.github.io/#install or via Lorica's Extensions panel.".to_string(),
+        "elixir" =>
+            "Install elixir-ls: download the latest release from https://github.com/elixir-lsp/elixir-ls/releases (or use Lorica's Extensions panel).".to_string(),
+        "dart" =>
+            "Install the Dart SDK from https://dart.dev/get-dart — `dart language-server` ships with it.".to_string(),
+        "kotlin" =>
+            "Install kotlin-language-server (fwcd): https://github.com/fwcd/kotlin-language-server (or use Lorica's Extensions panel). Requires JDK 11+.".to_string(),
+        "swift" =>
+            "Install the Swift toolchain from https://www.swift.org/install/ — sourcekit-lsp ships with it.".to_string(),
         _ => "No LSP server is registered for this language.".to_string(),
     }
 }

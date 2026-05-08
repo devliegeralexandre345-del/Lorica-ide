@@ -49,7 +49,23 @@ export function useCustomAgents(projectPath, dispatch) {
     }
   }, [projectPath, dispatch]);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  // Defer the agents-dir scan to browser-idle time. Custom agents are
+  // only consumed by the agent panel and the AgentBuilder — neither is
+  // on the first-paint critical path. 200 ms setTimeout fallback for
+  // Safari (no requestIdleCallback).
+  useEffect(() => {
+    let idleId = null;
+    let timeoutId = null;
+    if (window.requestIdleCallback) {
+      idleId = window.requestIdleCallback(() => refresh(), { timeout: 2000 });
+    } else {
+      timeoutId = setTimeout(refresh, 200);
+    }
+    return () => {
+      if (idleId != null && window.cancelIdleCallback) window.cancelIdleCallback(idleId);
+      if (timeoutId != null) clearTimeout(timeoutId);
+    };
+  }, [refresh]);
 
   return { refresh };
 }

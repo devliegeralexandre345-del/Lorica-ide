@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import {
   Bot, Send, Square, Plus, Trash2, Loader2, RefreshCw, Activity,
-  AtSign, FileText, Folder, Star,
+  AtSign, FileText, Folder, Star, GitBranch,
 } from 'lucide-react';
 import AgentConfigModal from './AgentConfigModal';
 import AgentToolBlock from './AgentToolBlock';
@@ -16,6 +16,8 @@ import {
   escapePath,
 } from '../utils/mentions';
 import { estimateCost, formatCost } from '../utils/agentCost';
+import { expandPrompt } from '../utils/promptTemplates';
+import { markAiEdit } from '../utils/aiCoauthor';
 
 // Memoized message row. Non-last messages are stable once the agent has
 // moved on — React.memo with a cheap equality check prevents thousands of
@@ -98,18 +100,41 @@ const AgentMessageRow = React.memo(function AgentMessageRow({
   );
 });
 
-// Slash commands for quick context injection
+// Built-in slash commands. Two flavours:
+//   • `kind: 'expand'` → drops a canned prompt into the input box.
+//     Selecting them just replaces the slash token with `expand()`.
+//   • `kind: 'action'` → runs a side effect (clear chat, reset session)
+//     and consumes the slash token with no further input. Used for
+//     `/clear` and `/reset`.
+// Project-defined prompts (loaded from `.lorica/prompts/*.md`) are
+// MERGED with these at render time and rendered the same way; see the
+// `slashEntries` memo below.
 const SLASH_COMMANDS = [
-  { cmd: '/explain', desc: 'Expliquer le fichier actif', expand: () => 'Explique ce que fait le fichier actif en détail.' },
-  { cmd: '/fix', desc: 'Corriger les bugs du fichier actif', expand: () => 'Regarde le fichier actif et corrige les bugs éventuels. Lis le fichier avant de modifier.' },
-  { cmd: '/refactor', desc: 'Refactorer le fichier actif', expand: () => 'Refactore le fichier actif pour le rendre plus clair, modulaire et idiomatique. Lis-le d\'abord.' },
-  { cmd: '/test', desc: 'Écrire des tests pour le fichier actif', expand: () => 'Écris des tests pour le fichier actif. Crée un nouveau fichier de tests adapté au framework du projet.' },
-  { cmd: '/docs', desc: 'Ajouter la documentation', expand: () => 'Ajoute des commentaires JSDoc/docstrings au fichier actif sans modifier la logique.' },
-  { cmd: '/review', desc: 'Revue de code', expand: () => 'Fais une revue de code détaillée du fichier actif: bugs, sécurité, perf, maintenabilité.' },
-  { cmd: '/tree', desc: 'Afficher l\'arbre du projet', expand: () => 'Utilise list_dir pour explorer la structure du projet et résume son architecture.' },
+  { cmd: '/clear',    kind: 'action', desc: 'Clear the chat history' },
+  { cmd: '/reset',    kind: 'action', desc: 'End the session and start fresh' },
+  { cmd: '/explain',  kind: 'expand', desc: 'Expliquer le fichier actif', expand: () => 'Explique ce que fait le fichier actif en détail.' },
+  { cmd: '/fix',      kind: 'expand', desc: 'Corriger les bugs du fichier actif', expand: () => 'Regarde le fichier actif et corrige les bugs éventuels. Lis le fichier avant de modifier.' },
+  { cmd: '/refactor', kind: 'expand', desc: 'Refactorer le fichier actif', expand: () => 'Refactore le fichier actif pour le rendre plus clair, modulaire et idiomatique. Lis-le d\'abord.' },
+  { cmd: '/test',     kind: 'expand', desc: 'Écrire des tests pour le fichier actif', expand: () => 'Écris des tests pour le fichier actif. Crée un nouveau fichier de tests adapté au framework du projet.' },
+  { cmd: '/docs',     kind: 'expand', desc: 'Ajouter la documentation', expand: () => 'Ajoute des commentaires JSDoc/docstrings au fichier actif sans modifier la logique.' },
+  { cmd: '/review',   kind: 'expand', desc: 'Revue de code', expand: () => 'Fais une revue de code détaillée du fichier actif: bugs, sécurité, perf, maintenabilité.' },
+  { cmd: '/tree',     kind: 'expand', desc: 'Afficher l\'arbre du projet', expand: () => 'Utilise list_dir pour explorer la structure du projet et résume son architecture.' },
 ];
 
-export default function AgentCopilot({ state, dispatch, agent, activeFile }) {
+// Best-effort grab of the user's current selection. We piggy-back on
+// the DOM selection — CodeMirror keeps it in sync via drawSelection,
+// so this returns the highlighted code even when focus has moved into
+// the agent input. Returns '' when nothing is selected (the
+// `{{selection}}` template var then expands to empty, which is fine).
+function readDocumentSelection() {
+  try {
+    return String(window.getSelection?.()?.toString() || '');
+  } catch {
+    return '';
+  }
+}
+
+export default function AgentCopilot({ state, dispatch, agent, activeFile, projectPrompts }) {
   const [input, setInput] = useState('');
   const [showConfig, setShowConfig] = useState(false);
   const [slashOpen, setSlashOpen] = useState(false);
@@ -133,19 +158,41 @@ export default function AgentCopilot({ state, dispatch, agent, activeFile }) {
     [state.fileTree, state.projectPath],
   );
 
-  // Compose the candidate list the mention picker shows. The "active file"
-  // shortcut is always first (so `@<Enter>` attaches the current buffer), then
-  // fuzzy-matched files and folders from the project.
+  // Compose the candidate list the mention picker shows. Special tokens
+  // (active file, branch diff) are surfaced first — alphabetically — so a
+  // fresh `@<Tab>` lands on something useful, then fuzzy-matched files and
+  // folders from the project.
   const mentionItems = useMemo(() => {
     if (!mentionOpen) return [];
-    const items = [];
+    // Build the special-token list so we can filter by query and
+    // alphabetize. `q` is empty when the user just typed `@` — in which
+    // case all specials appear.
+    const q = (mentionQuery || '').toLowerCase();
+    const specials = [];
     if (activeFile) {
-      items.push({
+      specials.push({
         kind: 'active',
         name: 'Active file',
         detail: activeFile.path || activeFile.name || '(no path)',
+        // Match against both the user-visible label and the token name
+        // (`active`) so `@act` and `@active` both surface this.
+        keys: ['active file', 'active'],
       });
     }
+    if (state.projectPath) {
+      specials.push({
+        kind: 'branch-diff',
+        name: 'Branch diff',
+        detail: 'git diff vs. main/master (auto-detected)',
+        keys: ['branch diff', 'branch-diff', 'diff'],
+      });
+    }
+    const filteredSpecials = q
+      ? specials.filter((s) => s.keys.some((k) => k.startsWith(q) || k.includes(q)))
+      : specials;
+    filteredSpecials.sort((a, b) => a.name.localeCompare(b.name));
+
+    const items = [...filteredSpecials];
     const matched = fuzzyMatch(flatFiles, mentionQuery, 25);
     for (const m of matched) {
       items.push({
@@ -156,7 +203,7 @@ export default function AgentCopilot({ state, dispatch, agent, activeFile }) {
       });
     }
     return items;
-  }, [mentionOpen, mentionQuery, flatFiles, activeFile]);
+  }, [mentionOpen, mentionQuery, flatFiles, activeFile, state.projectPath]);
 
   // When another component (Editor quick-actions, command palette, etc.)
   // pushes text into state.agentInputPrefill, pull it into the input box and
@@ -199,25 +246,103 @@ export default function AgentCopilot({ state, dispatch, agent, activeFile }) {
     }
   }, [state.agentMessages]);
 
-  // Slash-command filter
-  const slashFilter = input.startsWith('/') ? input.slice(1).toLowerCase() : null;
-  const slashMatches = slashFilter !== null
-    ? SLASH_COMMANDS.filter((c) => c.cmd.slice(1).toLowerCase().startsWith(slashFilter))
-    : [];
+  // Build the merged slash-entry list: built-ins first, then project
+  // prompts loaded from `.lorica/prompts/*.md`. Both render the same way
+  // in the dropdown — built-ins just have an `expand`/`action` callback,
+  // project prompts carry a `body` that goes through template expansion
+  // at apply time.
+  const slashEntries = useMemo(() => {
+    const builtins = SLASH_COMMANDS.map((c) => ({ ...c, source: 'builtin' }));
+    const fileEntries = (projectPrompts?.prompts || []).map((p) => ({
+      cmd: `/${p.slug}`,
+      kind: 'prompt',
+      desc: p.description || p.name || `Project prompt — ${p.slug}`,
+      // Pass through everything we need at apply time. We deliberately
+      // namespace project prompts after built-ins so that e.g. a project
+      // file named `clear.md` doesn't shadow the built-in `/clear`
+      // action — the de-dupe step right below handles that.
+      body: p.body,
+      promptName: p.name,
+      source: 'prompt',
+    }));
+    const seen = new Set(builtins.map((b) => b.cmd));
+    return [...builtins, ...fileEntries.filter((e) => !seen.has(e.cmd))];
+  }, [projectPrompts]);
+
+  // The `/` is only "open" when the cursor sits at position 1 of a
+  // token — i.e. the slash is at the start of the input, OR the char
+  // immediately before it is whitespace. Anything else (mid-word
+  // slashes like in URLs or comments) is left alone so the user can
+  // type freely. The captured query is what we filter the menu against.
+  const slashContext = useMemo(() => {
+    const el = inputRef.current;
+    const caret = el?.selectionStart ?? input.length;
+    const before = input.slice(0, caret);
+    const m = /(?:^|\s)\/([a-zA-Z0-9_-]*)$/.exec(before);
+    if (!m) return null;
+    return { query: m[1].toLowerCase(), tokenStart: caret - m[1].length - 1 };
+  }, [input]);
+
+  const slashMatches = useMemo(() => {
+    if (!slashContext) return [];
+    const q = slashContext.query;
+    return slashEntries.filter((c) => c.cmd.slice(1).toLowerCase().startsWith(q));
+  }, [slashContext, slashEntries]);
 
   useEffect(() => {
-    if (slashFilter !== null && slashMatches.length > 0) {
+    if (slashContext && slashMatches.length > 0) {
       setSlashOpen(true);
       setSlashIdx(0);
     } else {
       setSlashOpen(false);
     }
-  }, [input]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [input, slashContext, slashMatches.length]);
 
-  const applySlash = (cmd) => {
-    setInput(cmd.expand());
+  const applySlash = (entry) => {
     setSlashOpen(false);
-    setTimeout(() => inputRef.current?.focus(), 0);
+
+    // Built-in actions: side-effecting commands that consume the slash
+    // token without inserting text.
+    if (entry.kind === 'action') {
+      if (entry.cmd === '/clear') {
+        dispatch({ type: 'AGENT_CLEAR' });
+      } else if (entry.cmd === '/reset') {
+        dispatch({ type: 'AGENT_CLEAR' });
+        setShowConfig(true);
+      }
+      setInput('');
+      setTimeout(() => inputRef.current?.focus(), 0);
+      return;
+    }
+
+    // Built-in expansion: replace the whole input with the canned text.
+    if (entry.kind === 'expand') {
+      setInput(entry.expand());
+      setTimeout(() => inputRef.current?.focus(), 0);
+      return;
+    }
+
+    // Project prompt: expand `{{...}}` template variables and replace
+    // ONLY the slash token (so anything the user already typed before
+    // it survives — e.g. `please /summary` keeps "please ").
+    const ctx = {
+      selection: readDocumentSelection(),
+      file: activeFile?.path || activeFile?.name || '',
+      openFiles: (state.openFiles || []).map((f) => f.path).filter(Boolean),
+    };
+    const expanded = expandPrompt(entry.body || '', ctx);
+    const head = slashContext ? input.slice(0, slashContext.tokenStart) : '';
+    setInput(`${head}${expanded}`);
+    setTimeout(() => {
+      const el = inputRef.current;
+      if (el) {
+        el.focus();
+        try {
+          const pos = (head + expanded).length;
+          el.setSelectionRange(pos, pos);
+        } catch (_) {}
+      }
+    }, 0);
   };
 
   // --- @mention detection ---
@@ -260,6 +385,7 @@ export default function AgentCopilot({ state, dispatch, agent, activeFile }) {
     const tail = input.slice(caret);
     let token = '';
     if (item.kind === 'active') token = '@active';
+    else if (item.kind === 'branch-diff') token = '@branch-diff';
     else if (item.kind === 'file') token = `@file:${escapePath(item.path)}`;
     else if (item.kind === 'folder') token = `@folder:${escapePath(item.path)}`;
     const next = `${head}${token} ${tail}`;
@@ -297,6 +423,9 @@ export default function AgentCopilot({ state, dispatch, agent, activeFile }) {
           type: 'OPEN_FILE',
           file: { path, name, content: newContent, extension: ext, dirty: false },
         });
+        // Stamp the AI co-author timestamp so a commit shortly after
+        // can opt-in to a `Co-authored-by:` trailer.
+        try { markAiEdit(); } catch {}
         setApplyModal(null);
       } else {
         // eslint-disable-next-line no-alert
@@ -339,7 +468,15 @@ export default function AgentCopilot({ state, dispatch, agent, activeFile }) {
     // Parse @mentions and expand them into a preamble. The raw message is
     // kept so the model sees the tokens inline (useful for "compare @file:a
     // and @file:b" style prompts) and the preamble provides the content.
-    let payload = raw;
+    //
+    // Special case: `@diff` / `@branch-diff` would be huge if shown inline
+    // in the chat history. We swap each occurrence in the *visible* version
+    // with a short placeholder, while the model-bound payload still carries
+    // the full diff in its preamble. `agent.sendMessage(modelPayload,
+    // activeFile, displayPayload)` records the display version in chat
+    // history but ships the model the full payload.
+    let modelPayload = raw;
+    let displayPayload = raw;
     try {
       const tokens = parseMentions(raw);
       if (tokens.length > 0) {
@@ -347,14 +484,21 @@ export default function AgentCopilot({ state, dispatch, agent, activeFile }) {
           activeFile,
           projectPath: state.projectPath,
         });
-        if (preamble) payload = preamble + raw;
+        for (const t of tokens) {
+          if (t.type === 'diff' || t.type === 'branch-diff') {
+            displayPayload = displayPayload.split(t.raw).join(
+              '[branch diff omitted from chat — full text attached as context]',
+            );
+          }
+        }
+        if (preamble) modelPayload = preamble + raw;
       }
     } catch (e) {
       // Expansion failure shouldn't block the send — log and carry on.
       // eslint-disable-next-line no-console
       console.warn('[agent] mention expansion failed:', e);
     }
-    agent.sendMessage(payload, activeFile);
+    agent.sendMessage(modelPayload, activeFile, displayPayload);
     setInput('');
     setSlashOpen(false);
     setMentionOpen(false);
@@ -609,24 +753,32 @@ export default function AgentCopilot({ state, dispatch, agent, activeFile }) {
         <div className="p-2 border-t border-lorica-border shrink-0 relative">
           {/* Slash-command suggestions */}
           {slashOpen && slashMatches.length > 0 && (
-            <div className="absolute left-2 right-2 bottom-full mb-1 bg-lorica-panel border border-lorica-border rounded-lg shadow-lg overflow-hidden z-10">
+            <div className="absolute left-2 right-2 bottom-full mb-1 bg-lorica-panel border border-lorica-border rounded-lg shadow-lg overflow-hidden z-10 max-h-64 overflow-y-auto">
               {slashMatches.map((c, i) => (
                 <button
                   key={c.cmd}
                   onMouseEnter={() => setSlashIdx(i)}
-                  onClick={() => applySlash(c)}
+                  onMouseDown={(e) => { e.preventDefault(); applySlash(c); }}
                   className={`w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
                     i === slashIdx ? 'bg-lorica-accent/20 text-lorica-accent' : 'text-lorica-text hover:bg-lorica-border/30'
                   }`}
                 >
                   <span className="font-mono font-semibold">{c.cmd}</span>
-                  <span className="text-[10px] text-lorica-textDim truncate">{c.desc}</span>
+                  <span className="text-[10px] text-lorica-textDim truncate flex-1">{c.desc}</span>
+                  {c.source === 'prompt' && (
+                    <span
+                      className="text-[8px] uppercase tracking-wider text-lorica-accent/70 shrink-0"
+                      title="Loaded from .lorica/prompts/"
+                    >
+                      project
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
           )}
 
-          {/* @mention picker — file / folder / active */}
+          {/* @mention picker — active / branch-diff / file / folder */}
           {mentionOpen && mentionItems.length > 0 && (
             <div className="absolute left-2 right-2 bottom-full mb-1 bg-lorica-panel border border-lorica-border rounded-lg shadow-lg overflow-hidden z-10 max-h-64 overflow-y-auto">
               <div className="px-2.5 py-1 text-[9px] uppercase tracking-widest text-lorica-textDim/70 border-b border-lorica-border bg-lorica-bg/40 sticky top-0">
@@ -635,7 +787,13 @@ export default function AgentCopilot({ state, dispatch, agent, activeFile }) {
               {mentionItems.map((item, i) => {
                 const Icon =
                   item.kind === 'active' ? Star :
+                  item.kind === 'branch-diff' ? GitBranch :
                   item.kind === 'folder' ? Folder : FileText;
+                const iconClass =
+                  item.kind === 'active' ? 'text-yellow-400' :
+                  item.kind === 'branch-diff' ? 'text-emerald-400' :
+                  item.kind === 'folder' ? 'text-lorica-accent/80' :
+                  'text-lorica-textDim';
                 return (
                   <button
                     key={`${item.kind}:${item.detail}:${i}`}
@@ -645,7 +803,7 @@ export default function AgentCopilot({ state, dispatch, agent, activeFile }) {
                       i === mentionIdx ? 'bg-lorica-accent/20 text-lorica-accent' : 'text-lorica-text hover:bg-lorica-border/30'
                     }`}
                   >
-                    <Icon size={11} className={item.kind === 'active' ? 'text-yellow-400' : item.kind === 'folder' ? 'text-lorica-accent/80' : 'text-lorica-textDim'} />
+                    <Icon size={11} className={iconClass} />
                     <span className="font-semibold truncate">{item.name}</span>
                     <span className="text-[10px] text-lorica-textDim truncate ml-auto">{item.detail}</span>
                   </button>
