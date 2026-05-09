@@ -4,7 +4,7 @@ import {
   Terminal, PanelLeftClose, GitCompare, ClipboardList, Palette, Moon, Sun,
   Maximize, Minimize, SplitSquareHorizontal, Map, SaveAll,
   GitBranch, FileSearch, Replace, Bug, Package, Code2, AlertTriangle,
-  Sparkles, GitCommit, Activity, Eye, Network, Zap,
+  Sparkles, GitCommit, Activity, Eye, Network, Zap, Wand2, StickyNote, Users,
 } from 'lucide-react';
 
 export default function CommandPalette({ state, dispatch, onOpenFolder, onLock, actions }) {
@@ -28,6 +28,10 @@ export default function CommandPalette({ state, dispatch, onOpenFolder, onLock, 
     { label: 'Toggle File Explorer', icon: PanelLeftClose, action: () => { dispatch({ type: 'TOGGLE_PANEL', panel: 'showFileTree' }); close(); } },
     { label: 'Toggle Terminal', icon: Terminal, action: () => { dispatch({ type: 'TOGGLE_PANEL', panel: 'showTerminal' }); close(); } },
     { label: 'Toggle AI Copilot', icon: Bot, action: () => { dispatch({ type: 'TOGGLE_PANEL', panel: 'showAIPanel' }); close(); } },
+    { label: 'Smart Paste (translate clipboard with AI)', icon: Wand2, action: () => { dispatch({ type: 'SET_PANEL', panel: 'showSmartPaste', value: true }); close(); } },
+    { label: 'Annotations (browse spatial notes)', icon: StickyNote, action: () => { dispatch({ type: 'SET_PANEL', panel: 'showAnnotationsPanel', value: true }); close(); } },
+    { label: 'Live Share (start / join collab session)', icon: Users, action: () => { dispatch({ type: 'SET_PANEL', panel: 'showCollab', value: true }); close(); } },
+    { label: 'Git Worktrees', icon: GitBranch, action: () => { dispatch({ type: 'SET_PANEL', panel: 'showWorktrees', value: true }); close(); } },
     { label: 'Toggle Spotify', icon: Music, action: () => { dispatch({ type: 'TOGGLE_PANEL', panel: 'showSpotify' }); if (!state.showAIPanel) dispatch({ type: 'SET_PANEL', panel: 'showAIPanel', value: true }); close(); } },
     
     // ===== NEW FEATURES — use actions prop from App =====

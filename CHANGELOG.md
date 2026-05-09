@@ -3,6 +3,186 @@
 All notable changes to Lorica IDE. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — Waves 6-11
+
+Wave 11 ("Futuristic IDE", 2026-05-09) lands the medium-tier features
+that take Lorica from "AI-augmented editor" to a privacy-first IDE
+with offline AI, cross-language paste, sticky-note collab, and
+peer-to-peer Live Share. ~+18 KiB main bundle for all of it (Yjs is
+lazy — never enters the entrypoint).
+
+### Added — Wave 11.1 (Ollama / local LLM)
+
+- **3rd AI provider option**: `Ollama (local)` joins Anthropic and
+  DeepSeek in Settings. Zero network egress — all requests stay on
+  the user's machine via the OpenAI-compatible Ollama endpoint
+  (default `http://localhost:11434`).
+- **Auto model probing**: Settings queries `/api/tags` to list
+  installed models with sizes; the user picks via a dropdown instead
+  of typing model names by hand.
+- **Centralised provider config** (`src/utils/aiProviders.js`):
+  `PROVIDERS`, `getEndpoint`, `getHeaders`, `buildChatBody`,
+  `extractText`, `isKeyless`, `supportsTools`, `listOllamaModels`,
+  `resolveModel`, `resolveOllamaBase`. Replaces the URL constants
+  scattered across ~10 files.
+- **Agent-loop wiring** for Ollama (tool calls + streaming via the
+  existing OpenAI-compatible code path, dual fallback on stream
+  failure). CSP + Tauri capability allow-lists updated for
+  `http://localhost:*` and `http://127.0.0.1:*`.
+
+### Added — Wave 11.3 (AI Smart Paste)
+
+- **Cross-language clipboard translation**: copy a Python helper from
+  Stack Overflow, paste it into a Rust file, get idiomatic Rust.
+  Heuristic detector (10 languages: Python, JS, TS, Rust, Go, Java,
+  C#, C++, SQL, Bash) decides the source; the active file's extension
+  decides the target.
+- **Side-by-side preview modal** (`SmartPasteModal`) — clipboard on
+  the left, AI translation on the right, "Insert at cursor" button
+  drops the result via a `lorica:insertAtCursor` window event +
+  `smartInsert` CodeMirror extension. No Editor.jsx internals
+  touched.
+- Available from the command palette (`Smart Paste (translate
+  clipboard with AI)`) and the dock.
+
+### Added — Wave 11.4 (Spatial annotations)
+
+- **Sticky-note system** anchored to `(file, line)` pairs, persisted
+  to `.lorica/annotations.json` so they travel with the repo if the
+  user wants to commit them.
+- **5 colour variants** (amber, blue, rose, emerald, violet) +
+  per-note `pinned` flag + author attribution.
+- **`AnnotationsPanel`** modal browses every annotation in the
+  project with search / colour filter / inline edit; click any row to
+  open the file. Hook (`useAnnotations`) handles load on project
+  change + debounced 400 ms save on edits.
+
+### Added — Wave 11.5 (Live Share alpha)
+
+- **Peer-to-peer collaboration** via Yjs + y-webrtc. No Lorica server
+  involved — signaling routes through public Yjs servers, the
+  editor traffic is direct WebRTC between peers. Room id is the
+  shared secret; users start a session and copy the id to invite.
+- **v0 scope: awareness only** — peers see each other's display
+  name, active file, cursor row/col. Full text sync via
+  `y-codemirror.next` is queued for v1 (would otherwise risk losing
+  user edits when the document diverges).
+- **`CollabPanel`** UI for start/join/stop, peer list with coloured
+  presence dots and live cursor positions.
+- **Cursor beacon extension** (`cursorBeacon`) emits throttled
+  selection-change events (~80 ms) gated on
+  `window.__loricaCollabActive` — zero overhead when no session is
+  live.
+
+### Added — tests
+
+- `aiSmartPaste.test.js` — 17 cases covering language detection,
+  alias normalisation, fence stripping.
+- `annotations.test.js` — 12 cases covering id generation, defaults,
+  path normalisation, file grouping.
+- `aiProviders.test.js` — 23 cases pinning every provider's URL,
+  headers, body shape, response extraction, predicate behaviour.
+- **+52 cases total** vs. Wave 10 (was 81; now **133 across 10
+  files**, 1.7 s wall clock).
+
+### New dependencies
+
+- `yjs ^13.6.30` — CRDT engine for Live Share. Lazy-loaded; never
+  in the entrypoint.
+- `y-webrtc ^10.3.0` — WebRTC transport for Yjs. Lazy-loaded.
+- (devDep) `vitest` was already added in Wave 7.
+
+### Bundle impact
+
+- `main.bundle.js`: 287 → **303 KiB** (+18 KiB for Wave 11 wiring:
+  new Settings UI, hooks, dispatchers, extensions, dock + palette
+  entries).
+- `vendors.bundle.js`: unchanged at 186 KiB (Yjs lazy-loaded into
+  its own ~194 KiB chunk that fires only when a Live Share session
+  starts).
+- New lazy chunks: `smart-paste` 12.6 KiB, `annotations` 5.9 KiB,
+  `collab` 7 KiB, `collab-engine` 1.7 KiB.
+
+## [Unreleased] — Waves 6-10
+
+This batch is the v2.3 medium-tier follow-up: floating editor windows, a
+standalone git-worktree manager, the v0 Extension API spec, a real test
+seed, and three power-user features (voice dictation, dev-container
+shell, MCP marketplace) that were queued in `docs/V2.3_ROADMAP.md`'s
+medium tier. No version bump — these land on top of v2.3.0.
+
+### Added — Wave 6 (medium-tier features)
+
+- **Floating editor windows** — right-click any tab → "Pop out to
+  floating window" spawns an independent Tauri WebviewWindow with a
+  read-only CodeMirror viewer. The window watches the same `fs:change`
+  events as the main project and auto-refreshes on disk edits. Re-popping
+  the same file refocuses the existing window. New Rust command
+  `cmd_window_open_floating`; new entry-point split in `index.jsx`
+  (FloatingViewer is a `floating-viewer` chunk, not in the main bundle).
+- **Standalone Git Worktrees panel** — open from the dock (or via the
+  `showWorktrees` panel state). Lists every worktree git knows about
+  with branch / dirty count / ahead-behind, and exposes per-row
+  Open / Merge / Remove actions. Add new worktree with one input.
+  New backend command `cmd_git_worktree_status` (rich variant of the
+  existing `_list`).
+
+### Added — Wave 7 (test coverage seed)
+
+- **Vitest** as the test runner (`npm test` / `npm run test:watch`),
+  configured for `tests/**/*.test.{js,mjs}` against the source modules.
+- **68 tests across 5 files** covering the pure-function code paths
+  introduced in Waves 1-3:
+  - `aiCoauthor` — provider mapping, trailer formatting, dedup, the
+    localStorage-backed `shouldAppendTrailer` recency window.
+  - `conflictMarkers` — single conflicts, diff3 ancestor blocks, nested
+    blocks, malformed inputs, all three resolve actions.
+  - `promptTemplates` — frontmatter parsing (LF/CRLF, quoted values,
+    casefolding), `{{selection}}` / `{{file}}` / `{{open_files}}` substitution,
+    `buildInstructionsPrefix` shape.
+  - `gitGraphLayout` — empty input, linear history, simple merges, octopus
+    merges, off-screen parents.
+  - `parseDiffNewLineRanges` — single hunk, multi-hunk, deletions,
+    file-scoped targeting, `/dev/null` deletion sentinel.
+
+### Added — Wave 8 (medium-tier extras)
+
+- **Voice dictation in the agent input** (Web Speech API) — opt-in
+  toggle in Settings → AI. When enabled and the browser exposes
+  `SpeechRecognition` (macOS / Edge / Chrome), a mic button appears in
+  the AgentCopilot input. Audio is handled by the platform speech
+  engine (on-device on macOS, Edge speech on Windows). Hidden entirely
+  on Linux WebView2/WebKit2GTK where the API isn't exposed. Permission
+  errors are surfaced as toasts.
+- **Dev-container shell (read-only first pass)** — Lorica detects
+  `.devcontainer/devcontainer.json` (or `.devcontainer.json`) on
+  project change and surfaces a "Open in container" badge in the
+  status bar. Click it to spawn `docker run -it --rm -v $project:/workspaces/repo …`
+  in a fresh terminal session. Build-based and Compose-based configs
+  show a tooltip explaining v2.3 limits. New Rust module
+  `src-tauri/src/devcontainer.rs` with a small jsonc parser
+  (handles `// line` and `/* block */` comments).
+- **MCP server marketplace (preview)** — six curated entries in the
+  Extensions panel under a new `MCP` category: filesystem, github,
+  postgres, slack, puppeteer, fetch. Install runs the upstream `npm`
+  / `pip` command; runtime wiring into the agent toolbox is queued for
+  v2.4 with a banner that says so.
+
+### Added — Wave 9 (Phase C2 spec)
+
+- **`docs/EXTENSION_API.md`** — v0 (alpha) extension API spec.
+  Manifest schema, permission model (`ui.statusBar`, `ui.dock`,
+  `ui.commandPalette`, `storage.local`, `storage.settings`,
+  `events.editor`, `events.git`), lifecycle (install → enable →
+  activate → deactivate → remove), sandboxing model with v0
+  enforcement vs. deferred v0.1 enforcement, and the loader
+  open-questions list for the v2.4 implementation.
+- **`extensions/focus-timer/`** — reference extension translating
+  `src/components/FocusTimer.jsx` to the v0 API. Manifest, JS module
+  using only the documented surface, icon SVG, and a README explaining
+  why Focus Timer was the cleanest extraction candidate. Folder
+  ships in-tree so v2.4 can lift it directly when the loader lands.
+
 ## [2.3.0] — 2026-05-05
 
 Lorica v2.3 ships ~13 new features (drawn from a competitor scan + a

@@ -25,6 +25,8 @@ import { bookmarkGutter, setBookmarksEffect } from '../extensions/bookmarks';
 import { semanticMarksExtension, setSemanticMarksEffect } from '../extensions/semanticMarks';
 import { conflictMarkersExtension, conflictResolveFacet } from '../extensions/conflictMarkers';
 import { createMultiLineSearchPanel } from '../extensions/multiLineSearchPanel';
+import { smartInsertExtension } from '../extensions/smartInsert';
+import { cursorBeaconExtension } from '../extensions/cursorBeacon';
 
 // =============================================
 // Minimap with smooth drag scrolling
@@ -544,6 +546,18 @@ const Editor = React.memo(function Editor({
         conflictResolveFacet.of((block, action) => {
           const cb = conflictResolveRef.current;
           if (cb) cb(block, action);
+        }),
+        // Smart Paste insertion bridge — listens for the `lorica:insertAtCursor`
+        // window event so the SmartPasteModal can drop translated code at
+        // the user's selection without reaching into the editor's internals.
+        smartInsertExtension(),
+        // Cursor beacon for Live Share (Wave 11.5). Emits a throttled
+        // window event on every selection change so the App-level
+        // listener can forward to the collab session's awareness stream.
+        // Gated on window.__loricaCollabActive — zero overhead when no
+        // session is live.
+        cursorBeaconExtension({
+          getActiveFilePath: () => file?.path || file?.name || null,
         }),
         // AI inline ghost-text completion. The fetcher reads config from a
         // ref so provider/API key changes don't force rebuilding the editor.

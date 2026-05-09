@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, X, Key, Moon, Palette, Sun, Clock, Shield, Save, Map, Brain, Keyboard, Edit, AlertTriangle, Check, XCircle, Sparkles, Info, Rocket, Github, RotateCcw, Users } from 'lucide-react';
+import { Settings as SettingsIcon, X, Key, Moon, Palette, Sun, Clock, Shield, Save, Map, Brain, Keyboard, Edit, AlertTriangle, Check, XCircle, Sparkles, Info, Rocket, Github, RotateCcw, Users, Mic } from 'lucide-react';
 import { THEMES } from '../utils/themes';
 import { DEFAULT_SHORTCUTS, getAllShortcuts, loadCustomShortcuts, saveCustomShortcuts, isValidShortcut, findConflicts, eventToShortcut } from '../utils/keymap';
 import { APP_VERSION } from '../version';
@@ -9,6 +9,12 @@ import {
   setCoauthorTrailerEnabled,
   providerCoauthor,
 } from '../utils/aiCoauthor';
+import {
+  isVoiceFeatureEnabled,
+  setVoiceFeatureEnabled,
+  isVoiceSupported,
+} from '../utils/voiceInput';
+import { listOllamaModels, PROVIDER_DEFAULT_MODELS } from '../utils/aiProviders';
 
 export default function Settings({ state, dispatch, actions }) {
   const [apiKey, setApiKey] = useState(state.aiApiKey);
@@ -19,6 +25,45 @@ export default function Settings({ state, dispatch, actions }) {
   // when an AI edit happened in the last 30 minutes. Persisted to
   // localStorage by setCoauthorTrailerEnabled().
   const [coauthorOn, setCoauthorOn] = useState(() => isCoauthorTrailerEnabled());
+  // Web Speech API dictation in the agent input. Off by default — opt-in
+  // because the API hands audio to the platform speech engine (on-device
+  // on macOS, Edge speech on Windows; not available on Linux WebView2).
+  const [voiceOn, setVoiceOn] = useState(() => isVoiceFeatureEnabled());
+  const voiceSupported = isVoiceSupported();
+
+  // Ollama (local LLM) provider — Wave 11. URL + model are configured
+  // here; the model picker probes `/api/tags` to enumerate what the user
+  // has actually pulled. Failure to reach the server is silent on first
+  // open — we surface it only when the user clicks Refresh explicitly.
+  const [ollamaUrlDraft, setOllamaUrlDraft] = useState(state.aiOllamaUrl || 'http://localhost:11434');
+  const [ollamaModels, setOllamaModels] = useState([]);
+  const [ollamaProbing, setOllamaProbing] = useState(false);
+  const [ollamaProbeError, setOllamaProbeError] = useState(null);
+
+  const refreshOllamaModels = async () => {
+    setOllamaProbing(true);
+    setOllamaProbeError(null);
+    try {
+      const list = await listOllamaModels(ollamaUrlDraft);
+      setOllamaModels(list);
+      if (list.length === 0) {
+        setOllamaProbeError('No models found — is Ollama running? Try `ollama list` in a terminal.');
+      }
+    } catch (e) {
+      setOllamaProbeError(String(e?.message || e));
+    } finally {
+      setOllamaProbing(false);
+    }
+  };
+
+  // Auto-probe once when the Ollama provider becomes active so the user
+  // sees their installed models without having to click Refresh.
+  useEffect(() => {
+    if (state.aiProvider === 'ollama' && ollamaModels.length === 0 && !ollamaProbing) {
+      refreshOllamaModels();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.aiProvider]);
 
   // Dynamic shortcuts state
   const [customShortcuts, setCustomShortcuts] = useState({});
@@ -214,10 +259,94 @@ export default function Settings({ state, dispatch, actions }) {
               >
                 DeepSeek
               </button>
+              <button
+                onClick={() => dispatch({ type: 'SET_AI_PROVIDER', provider: 'ollama' })}
+                className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                  state.aiProvider === 'ollama'
+                    ? 'bg-lorica-accent text-lorica-bg'
+                    : 'bg-lorica-bg border border-lorica-border text-lorica-textDim hover:text-lorica-text'
+                }`}
+                title="Run AI fully locally via Ollama — zero network egress"
+              >
+                Ollama (local)
+              </button>
             </div>
 
             {/* Conditionally show API key input based on provider */}
-            {state.aiProvider === 'anthropic' ? (
+            {state.aiProvider === 'ollama' ? (
+              <div className="space-y-3">
+                <div className="px-3 py-2 rounded-lg bg-emerald-400/10 border border-emerald-400/30 text-[10px] text-emerald-200">
+                  <strong>Privacy mode</strong> — every request stays on your machine.
+                  No API key, no network egress. Make sure Ollama is running:{' '}
+                  <code className="text-[9px] px-1 py-0.5 bg-lorica-bg/50 border border-emerald-400/20 rounded">ollama serve</code>.
+                </div>
+
+                <div>
+                  <label className="text-[10px] uppercase tracking-widest text-lorica-textDim font-semibold">Server URL</label>
+                  <div className="flex items-center gap-2 mt-1">
+                    <input
+                      value={ollamaUrlDraft}
+                      onChange={(e) => setOllamaUrlDraft(e.target.value)}
+                      placeholder="http://localhost:11434"
+                      className="flex-1 bg-lorica-bg border border-lorica-border rounded-lg px-3 py-2 text-xs text-lorica-text outline-none focus:border-lorica-accent font-mono"
+                    />
+                    <button
+                      onClick={() => {
+                        dispatch({ type: 'SET_OLLAMA_URL', url: ollamaUrlDraft });
+                        refreshOllamaModels();
+                      }}
+                      className="px-3 py-2 rounded-lg text-xs font-semibold bg-lorica-accent text-lorica-bg hover:bg-lorica-accent/80 transition-colors"
+                    >
+                      Save & probe
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-lorica-textDim mt-1">
+                    Default <code className="text-[9px]">http://localhost:11434</code>. Point at a remote Ollama on your LAN if needed.
+                  </p>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[10px] uppercase tracking-widest text-lorica-textDim font-semibold">Model</label>
+                    <button
+                      onClick={refreshOllamaModels}
+                      disabled={ollamaProbing}
+                      className="text-[10px] text-lorica-textDim hover:text-lorica-accent disabled:opacity-40"
+                    >
+                      {ollamaProbing ? 'Probing…' : 'Refresh'}
+                    </button>
+                  </div>
+                  {ollamaModels.length > 0 ? (
+                    <select
+                      value={state.aiOllamaModel || PROVIDER_DEFAULT_MODELS.ollama}
+                      onChange={(e) => dispatch({ type: 'SET_OLLAMA_MODEL', model: e.target.value })}
+                      className="w-full bg-lorica-bg border border-lorica-border rounded-lg px-3 py-2 text-xs text-lorica-text outline-none focus:border-lorica-accent font-mono"
+                    >
+                      {ollamaModels.map((m) => (
+                        <option key={m.name} value={m.name}>
+                          {m.name}{typeof m.size === 'number' ? ` — ${(m.size / 1e9).toFixed(1)} GB` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      value={state.aiOllamaModel || ''}
+                      onChange={(e) => dispatch({ type: 'SET_OLLAMA_MODEL', model: e.target.value })}
+                      placeholder="llama3.1:8b"
+                      className="w-full bg-lorica-bg border border-lorica-border rounded-lg px-3 py-2 text-xs text-lorica-text outline-none focus:border-lorica-accent font-mono"
+                    />
+                  )}
+                  {ollamaProbeError && (
+                    <p className="text-[10px] text-amber-300 mt-1">{ollamaProbeError}</p>
+                  )}
+                  <p className="text-[10px] text-lorica-textDim mt-1">
+                    For tool-using agents pick a model with function-calling support
+                    (Llama 3.1+, Qwen 2.5+, Mistral). Smaller models (≤7B) work for inline
+                    completions but may struggle with the agent loop.
+                  </p>
+                </div>
+              </div>
+            ) : state.aiProvider === 'anthropic' ? (
               <div>
                 <label className="flex items-center gap-2 text-xs font-semibold text-lorica-text mb-2">
                   <Key size={14} className="text-lorica-accent" />
@@ -375,6 +504,49 @@ export default function Settings({ state, dispatch, actions }) {
               is not intercepted.
             </p>
           </div>
+
+          {/* Voice dictation — Web Speech API gated behind a toggle so the
+              mic icon doesn't appear in the agent input until the user
+              explicitly opts in. The platform speech engine handles audio
+              (local on macOS / Edge on Windows). Hidden entirely when the
+              browser doesn't expose SpeechRecognition (e.g. Linux). */}
+          {voiceSupported && (
+            <div>
+              <label className="flex items-center gap-2 text-xs font-semibold text-lorica-text mb-2">
+                <Mic size={14} className="text-lorica-accent" />
+                Voice dictation in agent input
+              </label>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => {
+                    const next = !voiceOn;
+                    setVoiceOn(next);
+                    setVoiceFeatureEnabled(next);
+                    dispatch({
+                      type: 'ADD_TOAST',
+                      toast: {
+                        type: 'info',
+                        message: next
+                          ? 'Voice dictation ON — mic icon appears in the agent input.'
+                          : 'Voice dictation OFF.',
+                        duration: 2500,
+                      },
+                    });
+                  }}
+                  className={`relative w-10 h-5 rounded-full transition-colors cursor-pointer ${voiceOn ? 'bg-lorica-accent' : 'bg-lorica-border'}`}
+                >
+                  <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${voiceOn ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                </button>
+                <span className="text-xs text-lorica-textDim">
+                  {voiceOn ? 'Mic button shown in the AI Copilot input' : 'Hidden'}
+                </span>
+              </div>
+              <p className="text-[10px] text-lorica-textDim mt-1">
+                Uses the browser&apos;s SpeechRecognition API. macOS and Edge route audio to the
+                local OS speech engine; first use prompts for microphone permission.
+              </p>
+            </div>
+          )}
 
           {/* Theme */}
           <div>

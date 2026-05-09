@@ -4,7 +4,7 @@ import {
   Terminal, Bug, Package, Hash, Clock, Zap, Network, Eye,
   Star, StickyNote, ClipboardCheck, Send, Regex, Clock3, Clipboard,
   Wand2, ShieldCheck, Brain, UserCircle2, FileCode, Layers, Tag,
-  Keyboard, Rocket,
+  Keyboard, Rocket, Users, MapPin,
 } from 'lucide-react';
 import LoricaLogo from './LoricaLogo';
 
@@ -32,6 +32,10 @@ const NAV_ITEMS = [
   { id: 'identity', icon: UserCircle2, panel: 'showAgentIdentity', label: 'Agent Identity', color: '#38bdf8' },
   { id: 'sandbox',  icon: FileCode,   panel: 'showSandbox',    label: 'Sandbox (Run/Replay/Probe)', color: '#c084fc' },
   { id: 'swarm2',   icon: Layers,     panel: 'showSwarm',      label: 'Swarm Development', color: '#f472b6' },
+  { id: 'worktrees', icon: GitBranch, panel: 'showWorktrees',  label: 'Git Worktrees', color: '#34d399' },
+  { id: 'smartpaste', icon: Wand2,    panel: 'showSmartPaste', label: 'Smart Paste (AI translate)', color: '#a78bfa' },
+  { id: 'annotations', icon: MapPin,  panel: 'showAnnotationsPanel', label: 'Spatial Annotations', color: '#fbbf24' },
+  { id: 'collab',   icon: Users,      panel: 'showCollab',     label: 'Live Share (peer-to-peer)', color: '#22d3ee' },
   { id: 'semtypes', icon: Tag,        panel: 'showSemanticTypes', label: 'Semantic Types (Ctrl+Alt+Y)', color: '#38bdf8' },
   { id: 'cheatsheet', icon: Keyboard, panel: 'showKeyboardCheatsheet', label: 'Keyboard shortcuts (?)', color: '#94a3b8' },
   { id: 'whatsnew',   icon: Rocket,   panel: 'showReleaseNotes',       label: "What's new in v2.2",   color: '#a78bfa' },

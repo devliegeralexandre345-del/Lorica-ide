@@ -1,0 +1,31 @@
+{
+  "id": "focus-timer",
+  "name": "Focus Timer",
+  "description": "A 25/5/15-minute Pomodoro chip that lives in the status bar.",
+  "version": "1.0.0",
+  "lorica_api_version": "0",
+  "entry": "./extension.js",
+  "icon": "./icon.svg",
+  "author": "Lorica core",
+  "license": "MIT",
+  "homepage": "https://github.com/devliegeralexandre345-del/Lorica-ide/tree/main/extensions/focus-timer",
+  "permissions": [
+    "ui.statusBar",
+    "ui.commandPalette",
+    "storage.local",
+    "storage.settings"
+  ],
+  "contributes": {
+    "settings": [
+      { "key": "focusMins", "type": "number", "default": 25, "label": "Focus duration (minutes)" },
+      { "key": "shortBreakMins", "type": "number", "default": 5, "label": "Short-break duration (minutes)" },
+      { "key": "longBreakMins", "type": "number", "default": 15, "label": "Long-break duration (minutes)" },
+      { "key": "longBreakEvery", "type": "number", "default": 4, "label": "Long break every N focus cycles" }
+    ],
+    "commands": [
+      { "id": "focusTimer.toggle", "title": "Focus: Start / Pause" },
+      { "id": "focusTimer.reset",  "title": "Focus: Reset" },
+      { "id": "focusTimer.skip",   "title": "Focus: Skip current phase" }
+    ]
+  }
+}

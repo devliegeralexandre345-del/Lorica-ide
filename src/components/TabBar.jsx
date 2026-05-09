@@ -105,6 +105,14 @@ const TabBar = memo(function TabBar({ files, activeIndex, onSelect, onClose, dis
       { label: 'Close to the right',run: () => closeToRight(i),      disabled: i === files.length - 1 },
       { label: 'Close all',         run: () => closeAll(),           hint: 'Ctrl+K W' },
       { separator: true },
+      { label: 'Pop out to floating window',
+        run: () => {
+          if (!target.path) return;
+          window.lorica?.window?.openFloating?.(target.path, target.name);
+        },
+        disabled: !target.path,
+      },
+      { separator: true },
       { label: 'Copy path',         run: () => navigator.clipboard.writeText(target.path).catch(() => {}) },
       { label: 'Copy file name',    run: () => navigator.clipboard.writeText(target.name).catch(() => {}) },
       { separator: true },

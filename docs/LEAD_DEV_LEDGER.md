@@ -69,6 +69,178 @@ _Append-only. Most recent at the top._
 
 ## Bilan log
 
+### 2026-05-09 (evening) — Wave 11 "Futuristic IDE" complete
+
+User explicitly lifted the "no new deps" rule and asked for the
+features that turn Lorica into the **perfect futuristic IDE**. Took
+the gloves off — added Yjs + y-webrtc for real collab, three big new
+panels, and a centralised provider abstraction.
+
+**Wave 11 ships 4 sub-waves (skipped 11.2 tree-sitter — outline panel already covers it via CodeMirror language exts):**
+
+| Sub-wave | Result |
+|---|---|
+| **11.1 Ollama** | ✅ 3rd AI provider, fully local. New `aiProviders.js` central config (10-call-site refactor target). Settings UI auto-probes `/api/tags`. `useAgent.js` wired for tool-using agents on Ollama. CSP + capability allow-list updated. |
+| **11.2 Tree-sitter** | ⏭️ Skipped — CodeMirror's language extensions already give us syntax-aware structure. Re-evaluate only if the OutlinePanel needs symbol-level info (LSP outlines work better there). |
+| **11.3 Smart Paste** | ✅ 10-language heuristic detector + AI cross-language translation. `SmartPasteModal` side-by-side preview. Loosely-coupled insert via `lorica:insertAtCursor` event + `smartInsert` CodeMirror extension (Editor.jsx untouched). |
+| **11.4 Annotations** | ✅ Sticky-note system anchored to `(file, line)`. Persists to `.lorica/annotations.json`. `useAnnotations` hook + `AnnotationsPanel` browser. 5 colours + pinning. Inline gutter dots = follow-up. |
+| **11.5 Live Share** | ✅ alpha — Yjs + y-webrtc peer-to-peer collab. Awareness-only v0 (peer name + active file + cursor). `CollabPanel` UX with start/join/stop + live peer list. **Yjs is lazy-loaded** so the 194 KiB doesn't enter the entrypoint until session start. `cursorBeacon` extension throttles selection events at 80 ms, gated on a window flag. |
+
+**New deps (justified):**
+
+| Dep | Size impact | Justification |
+|---|---|---|
+| `yjs` | ~140 KiB lazy | CRDT engine — peer-to-peer collab needs a real CRDT. Industry standard. |
+| `y-webrtc` | ~55 KiB lazy | WebRTC transport for Yjs. No server needed. |
+
+**Tests grew 81 → 133** (3 new files: aiSmartPaste 17, annotations 12,
+aiProviders 23). Found and fixed one bug along the way: SQL detector
+was using `\bSELECT\b.+\bFROM\b` without dotall, missing multi-line
+SQL.
+
+**Bundle final (post Wave 11):**
+
+| Chunk | Size | Δ vs Wave 10 |
+|---|---|---|
+| main.bundle.js | **303 KiB** | +16 KiB |
+| vendors.bundle.js | 186 KiB | +5 KiB (small bump from new imports inside Settings) |
+| codemirror.bundle.js | 413 KiB | unchanged |
+| Entrypoint total | **~1.01 MiB** | +25 KiB |
+| **Yjs** lazy chunk | 194 KiB | **NOT in entrypoint** — only fetched on Live Share start |
+| smart-paste lazy | 12.6 KiB | new |
+| annotations lazy | 5.9 KiB | new |
+| collab lazy | 7 KiB | new |
+
+**Decisions made (autonomous):**
+
+- **Ollama for `useAgent.js` only in this pass.** The other 9 AI call
+  sites (useAI.js, aiCommitMessage.js, aiInlineComplete.js, etc.)
+  still hardcode anthropic + deepseek URLs. Refactoring them all is
+  Wave 12 work — `aiProviders.js` is the migration target.
+- **Live Share = awareness only in v0.** Full text sync via
+  `y-codemirror.next` would silently lose user edits during diverging
+  document states without a careful UX. v1 deserves its own session
+  where we ship the divergence resolver alongside.
+- **Yjs lazy import.** Initial build pulled 194 KiB into vendors
+  because `useCollabSession` import-chained `utils/collab.js` →
+  `yjs`. Refactored to dynamic-import `utils/collab.js` from inside
+  `start()` — vendors back to 186 KiB.
+- **Smart Paste insert via window event.** Editor.jsx internals are
+  off-limits per LEDGER rule; using a custom DOM event keeps the
+  modal and the editor decoupled. Same pattern as the Wave 9
+  EXTENSION_API draft.
+- **SQL detector regression fix.** Dotall flag was missing — caught
+  by Wave 11.3's `aiSmartPaste.test.js`, the test seed paid for
+  itself within hours of being written.
+
+**Files touched (Wave 11 alone, 28 changes):**
+
+- New: `src/utils/aiProviders.js`, `aiSmartPaste.js`, `annotations.js`,
+  `collab.js`; `src/hooks/useAnnotations.js`, `useCollabSession.js`;
+  `src/components/SmartPasteModal.jsx`, `AnnotationsPanel.jsx`,
+  `CollabPanel.jsx`; `src/extensions/smartInsert.js`,
+  `cursorBeacon.js`; `tests/aiProviders.test.js`,
+  `aiSmartPaste.test.js`, `annotations.test.js`.
+- Modified: `App.jsx`, `loricaBridge.js`, `index.html`, `Editor.jsx`,
+  `LoricaDock.jsx`, `CommandPalette.jsx`, `Settings.jsx`,
+  `appReducer.js`, `useAgent.js`, `useSession.js`,
+  `tauri.conf.json`, `capabilities/main.json`, `package.json`,
+  `package-lock.json`.
+
+### 2026-05-09 — Waves 6-9 complete in one continuous session
+
+User dropped back in after relocating the project to OneDrive
+(`C:\Users\devli\Lorica-ide` → `C:\Users\devli\OneDrive\Lorica-ide`)
+and asked for "verify the waves and do the rest." Memory was empty
+post-move — re-read CHANGELOG, V2.3_ROADMAP, and the LEDGER to
+reconstruct state, verified Waves 1-5 by inspecting the file tree and
+running `npm run build` (green: entrypoint **982 KiB**, main 286 KiB).
+Then worked Waves 6-9 sequentially, no agents — local edits + per-wave
+build checks.
+
+**Wave 6 — Floating windows + Worktrees panel (no agent)**
+
+| Item | Result |
+|---|---|
+| Floating editor windows | ✅ New `cmd_window_open_floating` (Tauri 2 `WebviewWindowBuilder`) + URL-safe base64 hash routing. `index.jsx` lazy-loads `FloatingViewer.jsx` on `#floating=` URLs (kept App as the static entry to preserve the codemirror/vendors `chunks: 'initial'` split). Read-only viewer pulls the active theme from `lorica.session.v1` localStorage, watches `fs:change` events to auto-refresh. Re-popping the same path refocuses an existing window via SHA-256-derived deterministic label. TabBar context menu gets a "Pop out to floating window" entry. Capability scope expanded to `floating-*`. |
+| Worktrees panel | ✅ New `cmd_git_worktree_status` returns rich rows (`branch`, `head`, `isMain`, `isDetached`, `isDirty`, `modifiedCount`, `ahead`, `behind`). `WorktreesPanel.jsx` (lazy chunk: `worktrees`) shows every row with Open / Merge / Remove. Add new worktree with one input → fires the existing `cmd_git_worktree_add`. New `showWorktrees` state flag + LoricaDock entry. The existing SwarmPanel worktree flow is untouched — this panel is for manual / "background task on a branch" use. |
+
+**Wave 7 — Test coverage seed (no agent)**
+
+Decision: vitest over node:test. Source files use ESM `import`/`export`
+syntax but `package.json` has no `"type": "module"`, and adding it would
+cascade into renaming three `.cjs` config files. Vitest handles ESM
+transparently via Vite, dev-only dependency, doesn't bloat the user
+bundle. Trade-off accepted (204 transitive packages, 2 audit warnings —
+all transitive devDeps).
+
+| Suite | Tests |
+|---|---|
+| `aiCoauthor` | 18 (provider mapping, trailer formatting, dedup, recency window) |
+| `conflictMarkers` | 14 (simple, diff3, multi, malformed, nested, resolveBlock) |
+| `promptTemplates` | 16 (parsePromptFile + expandPrompt + buildInstructionsPrefix) |
+| `gitGraphLayout` | 11 (linear, merge, octopus, off-screen parent, geometry helpers) |
+| `parseDiffNewLineRanges` | 9 (single hunk, multi-hunk, deletions, scoping) |
+
+**Total: 68 tests, all green, 1.7 s wall clock.** New scripts: `npm test`
+(one-shot) and `npm run test:watch` (TDD).
+
+**Wave 8 — Voice / devcontainer / MCP (no agent)**
+
+| Feature | Result |
+|---|---|
+| Voice dictation | ✅ `src/utils/voiceInput.js` wraps `SpeechRecognition`. AgentCopilot gains a mic button (only visible when both the toggle is on AND `isVoiceSupported()` returns true — Linux hides it). Settings → AI gains the toggle (also only visible on supported platforms — no dead UI on Linux). Errors map to friendly toasts; `aborted` is suppressed because we abort intentionally on stop. |
+| Dev-container | ✅ New `src-tauri/src/devcontainer.rs` with a 60-line jsonc → json normalizer (state-machine over chars, string-aware so `//` inside URLs isn't stripped). `cmd_devcontainer_detect` returns name/image/workspaceFolder/composeFile/hasBuild. Frontend hook `useDevContainer.js` runs detect on project change; StatusBar renders a "Box" icon with the image name, click → spawns a fresh terminal session and writes `docker run -it --rm -v <project>:/workspace -w /workspace <image> bash`. Build-based / Compose-based configs degrade to a tooltip-only chip ("Lorica v2.3 doesn't run builds yet"). |
+| MCP marketplace | ✅ Six curated entries in `extensions.rs` registry (filesystem, github, postgres, slack, puppeteer, fetch) under new `mcp` category. ExtensionManager gets a `MCP` filter chip with a cyan info banner explaining "install only — runtime wiring lands in v2.4". Reuses the existing install pipeline, no new infrastructure needed. |
+
+**Wave 9 — Extension API spec + Focus Timer reference (no agent)**
+
+- `docs/EXTENSION_API.md` — full v0 draft. Manifest schema, 9 permissions
+  (`ui.statusBar` / `ui.dock` / `ui.settingsTab` / `ui.commandPalette` /
+  `storage.local` / `storage.settings` / `events.editor` / `events.git` /
+  `agent.tools` deferred), lifecycle table, sandboxing model (what v0
+  enforces vs. deferred to v0.1), and the loader open-questions list for
+  v2.4 (module loader strategy, CSS isolation, hot reload, signing).
+- `extensions/focus-timer/` — reference extension. Manifest with the four
+  duration settings, JS module using ONLY the documented surface (no
+  React, no `window.lorica`, no direct localStorage), 24×24 SVG icon,
+  README. Used as a sanity check that v0 is enough for at least one real
+  feature today; v2.4 lifts it directly when the loader lands.
+
+**Final numbers (post Wave 6-9):**
+
+- Build: green (`npm run build`, ~52 s)
+- Cargo check: green (1 pre-existing `unused_variables` warning unchanged
+  + 1 `unused_mut` warning, both from Wave 4 era)
+- Tests: 68 passing
+- Main bundle: **287 KiB** (+1 KiB vs. Wave 5 — the FloatingViewer router
+  in `index.jsx` is the only code added to main; everything else is in
+  lazy chunks: `floating-viewer`, `worktrees`)
+- Entrypoint total: **~982 KiB** (matches Wave 5 baseline)
+- New chunks: `floating-viewer` 8.5 KiB, `worktrees` (~6 KiB)
+
+**Decisions (autonomous):**
+
+- Voice input gated behind both `isVoiceSupported()` AND the user toggle —
+  refused to ship a dead mic button on Linux WebView2/WebKit2GTK where
+  the API isn't exposed at all.
+- Dev-container v1 covers `image` only. Compose and Build flows show
+  the badge but degrade to "v2.3 doesn't run that" on click. The
+  roadmap's read-only first pass language explicitly accepts this.
+- MCP entries use `category: "mcp"` (not "tool") so the filter chip can
+  render distinctly. Not added to `cmd_get_lsp_server` and not started
+  at boot — purely catalog work for v2.3.
+- Wave 9 is **spec only** as the roadmap directs. The extension loader
+  is v2.4 work; the reference extension exists to validate the spec
+  not to be loaded today.
+- Vitest over node:test (ESM friction), accepted the dev-dep cost as
+  worth it for the test seed value.
+
+**Branches:**
+
+- `main` advanced with one squash commit per wave (or one cumulative
+  commit covering 6+7+8+9 — TBD with the user before pushing)
+
 ### 2026-05-08 — Wave 5 complete (3 agents, all ✅)
 
 **Niche autocomplete completion (sequential agents to dodge rate limits):**

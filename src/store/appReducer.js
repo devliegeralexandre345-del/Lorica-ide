@@ -46,8 +46,15 @@ export const initialState = {
   aiMessages: [],
   aiLoading: false,
   aiApiKey: '',
-  aiProvider: 'anthropic',     // 'anthropic' | 'deepseek'
+  aiProvider: 'anthropic',     // 'anthropic' | 'deepseek' | 'ollama'
   aiDeepseekKey: '',
+  // Ollama (local LLM) provider — added in Wave 11. URL is the OpenAI-
+  // compatible endpoint base; default is localhost but advanced users can
+  // point it at an Ollama on their LAN. Model is whatever they `ollama
+  // pull`-ed; the default lines up with what Ollama installs out-of-the-
+  // box for most users.
+  aiOllamaUrl: 'http://localhost:11434',
+  aiOllamaModel: 'llama3.1:8b',
   // RGPD consent: user must explicitly agree before the first AI call
   // transmits any prompt or code context to a third-party provider.
   // Persisted to localStorage once accepted; stays per-machine.
@@ -230,6 +237,23 @@ export const initialState = {
 
   // Swarm Development
   showSwarm: false,
+  // Standalone git-worktree manager (separate from the swarm-flow worktrees
+  // — surfaces every worktree git knows about so the user can manually
+  // create / remove / merge branches without going through the swarm UI).
+  showWorktrees: false,
+  // Smart Paste modal — Wave 11. Reads the clipboard, detects the source
+  // language, asks the AI to translate it into the active file's language.
+  showSmartPaste: false,
+  // Spatial code annotations — Wave 11.4. The data lives outside the
+  // reducer in its own hook (see useAnnotations.js); two flags here:
+  //   • showAnnotations — inline gutter dots on/off (default on)
+  //   • showAnnotationsPanel — modal browser on/off
+  showAnnotations: true,
+  showAnnotationsPanel: false,
+  // Real-time collaboration — Wave 11.5. Awareness-only Live Share via
+  // Yjs + y-webrtc (peer-to-peer, no Lorica server). Session state lives
+  // in useCollabSession; this flag just gates the panel.
+  showCollab: false,
 
   // Keyboard cheatsheet
   showKeyboardCheatsheet: false,
@@ -411,6 +435,10 @@ export function appReducer(state, action) {
       return { ...state, aiProvider: action.provider };
     case 'SET_DEEPSEEK_KEY':
       return { ...state, aiDeepseekKey: action.key };
+    case 'SET_OLLAMA_URL':
+      return { ...state, aiOllamaUrl: action.url };
+    case 'SET_OLLAMA_MODEL':
+      return { ...state, aiOllamaModel: action.model };
     case 'SET_AI_INLINE_ENABLED':
       return { ...state, aiInlineEnabled: !!action.value };
     case 'SET_AI_CONSENT': {

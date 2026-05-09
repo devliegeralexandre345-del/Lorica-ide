@@ -1053,6 +1053,109 @@ pub fn cmd_git_worktree_list(project_path: String) -> CmdResult<Vec<String>> {
     }
 }
 
+// Richer worktree listing for the WorktreesPanel UI. Parses the
+// porcelain output as blocks separated by blank lines, then probes each
+// worktree for dirty-file count + ahead/behind vs its upstream so the
+// UI can show "3 modified · 2 ahead" without N round-trips from JS.
+//
+// `is_main` flags the working tree the user originally cloned into —
+// it's the only worktree git refuses to remove, so the UI hides the
+// remove button for it.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeDetail {
+    pub path: String,
+    pub branch: String,
+    pub head: String,
+    pub is_main: bool,
+    pub is_detached: bool,
+    pub is_dirty: bool,
+    pub modified_count: usize,
+    pub ahead: usize,
+    pub behind: usize,
+}
+
+#[tauri::command]
+pub fn cmd_git_worktree_status(project_path: String) -> CmdResult<Vec<WorktreeDetail>> {
+    let raw = match run_git(&project_path, &["worktree", "list", "--porcelain"]) {
+        Ok(s) => s,
+        Err(e) => return CmdResult::err(e),
+    };
+
+    // Porcelain blocks: `worktree <path>\nHEAD <sha>\nbranch refs/heads/<name>\n\n`.
+    // Detached worktrees have `detached` instead of `branch`. Bare repos
+    // have `bare` and no HEAD line; we skip those — they have no working
+    // copy to inspect.
+    let mut details = Vec::new();
+    let mut current_path: Option<String> = None;
+    let mut current_head: String = String::new();
+    let mut current_branch: String = String::new();
+    let mut detached = false;
+
+    let flush = |details: &mut Vec<WorktreeDetail>,
+                 path: &mut Option<String>,
+                 head: &mut String,
+                 branch: &mut String,
+                 det: &mut bool| {
+        if let Some(p) = path.take() {
+            // Probe dirty + ahead/behind. Failures are non-fatal —
+            // an inaccessible worktree just returns zeros.
+            let status = run_git(&p, &["status", "--porcelain"]).unwrap_or_default();
+            let modified = status.lines().filter(|l| !l.is_empty()).count();
+            let (ahead, behind) = parse_ahead_behind(&p);
+            details.push(WorktreeDetail {
+                path: p,
+                branch: std::mem::take(branch),
+                head: std::mem::take(head),
+                is_main: details.is_empty(),
+                is_detached: *det,
+                is_dirty: modified > 0,
+                modified_count: modified,
+                ahead,
+                behind,
+            });
+            *det = false;
+        }
+    };
+
+    for line in raw.lines() {
+        if line.is_empty() {
+            flush(&mut details, &mut current_path, &mut current_head, &mut current_branch, &mut detached);
+            continue;
+        }
+        if let Some(p) = line.strip_prefix("worktree ") {
+            current_path = Some(p.to_string());
+        } else if let Some(h) = line.strip_prefix("HEAD ") {
+            current_head = h.to_string();
+        } else if let Some(b) = line.strip_prefix("branch refs/heads/") {
+            current_branch = b.to_string();
+        } else if line == "detached" {
+            detached = true;
+            current_branch = String::from("(detached)");
+        }
+    }
+    // Final block (no trailing blank line).
+    flush(&mut details, &mut current_path, &mut current_head, &mut current_branch, &mut detached);
+
+    CmdResult::ok(details)
+}
+
+// Returns (ahead, behind) vs the worktree's upstream, or (0, 0) if it
+// has none / git refuses (e.g. detached HEAD).
+fn parse_ahead_behind(worktree_path: &str) -> (usize, usize) {
+    let s = match run_git(
+        worktree_path,
+        &["rev-list", "--left-right", "--count", "HEAD...@{upstream}"],
+    ) {
+        Ok(v) => v,
+        Err(_) => return (0, 0),
+    };
+    let mut parts = s.split_whitespace();
+    let ahead = parts.next().and_then(|x| x.parse().ok()).unwrap_or(0);
+    let behind = parts.next().and_then(|x| x.parse().ok()).unwrap_or(0);
+    (ahead, behind)
+}
+
 // Merge a list of Swarm branches back into the current branch sequentially.
 // Returns a per-branch outcome so the UI can surface conflicts.
 #[derive(Debug, Serialize, Deserialize, Clone)]

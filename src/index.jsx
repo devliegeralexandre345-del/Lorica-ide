@@ -49,6 +49,27 @@ window.addEventListener('error', (ev) => {
   }
 });
 
+// Floating-window routing.
+//
+// `cmd_window_open_floating` (Rust) spawns a new Tauri WebviewWindow
+// pointed at `index.html#floating=<base64-path>`. We detect that hash
+// here and lazy-load the FloatingViewer instead of rendering App so the
+// floating window doesn't paint the full IDE chrome. App stays as a
+// static import so the existing webpack chunk graph (codemirror /
+// vendors split with `chunks: 'initial'`) is preserved — moving App to
+// dynamic would force every codemirror module into the App chunk and
+// undo the perf passes from Waves 2+5.
 const root = createRoot(document.getElementById('root'));
-root.render(<App />);
 
+if (/^#floating=/.test(window.location.hash || '')) {
+  import(/* webpackChunkName: "floating-viewer" */ './FloatingViewer')
+    .then(({ default: FloatingViewer }) => root.render(<FloatingViewer />))
+    .catch((e) => {
+      // eslint-disable-next-line no-console
+      console.error('[lorica] floating viewer failed to load:', e);
+      document.getElementById('root').innerHTML =
+        `<pre style="color:#f87171;padding:24px;font:12px monospace">Floating viewer failed to load:\n${String(e?.stack || e)}</pre>`;
+    });
+} else {
+  root.render(<App />);
+}

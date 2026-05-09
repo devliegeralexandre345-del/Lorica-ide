@@ -37,6 +37,11 @@ const windowControls = {
     }
   },
   close: () => appWindow.close(),
+  // Pop a single file out into its own OS window. Read-only viewer in v1
+  // (see docs/V2.3_ROADMAP.md). Reusing the same file path re-focuses
+  // the existing floating window instead of opening a duplicate.
+  openFloating: (filePath, fileName) =>
+    safeInvoke('cmd_window_open_floating', { filePath, fileName }),
 };
 
 // ============================================
@@ -283,6 +288,9 @@ const git = {
   worktreeRemove: (projectPath, worktreePath, force) => safeInvoke('cmd_git_worktree_remove', { projectPath, worktreePath, force: !!force }),
   worktreeList:   (projectPath) => safeInvoke('cmd_git_worktree_list', { projectPath }),
   worktreeMerge:  (projectPath, branches) => safeInvoke('cmd_git_worktree_merge', { projectPath, branches }),
+  // Richer per-worktree info (branch, dirty count, ahead/behind) for the
+  // standalone WorktreesPanel — one round-trip instead of N from JS.
+  worktreeStatus: (projectPath) => safeInvoke('cmd_git_worktree_status', { projectPath }),
 };
 
 // ============================================
@@ -296,6 +304,14 @@ const extensions = {
 
 const debug = {
   run: (config) => safeInvoke('cmd_debug_run', { config }),
+};
+
+// ============================================
+// Dev containers (read-only v1 — surfaces .devcontainer/devcontainer.json
+// + lets the user open a docker shell in a terminal session)
+// ============================================
+const devcontainer = {
+  detect: (projectPath) => safeInvoke('cmd_devcontainer_detect', { projectPath }),
 };
 
 // ============================================
@@ -349,6 +365,7 @@ window.lorica = {
   debug,
   dap,
   lsp,
+  devcontainer,
   platform,
 };
 

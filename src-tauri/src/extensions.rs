@@ -701,6 +701,89 @@ fn get_registry() -> Vec<Extension> {
                 "sourcekit-lsp".into()
             }),
         },
+
+        // ----------------------------------------------------------------
+        // MCP server marketplace (Wave 8 / V2.3 medium-tier).
+        //
+        // Surfaces a small curated catalog of well-known Model Context
+        // Protocol servers in the Extensions panel so the user can
+        // install them from one place. v1 only handles the install side
+        // — the runtime that wires installed servers into the agent's
+        // tool layer is queued for v2.4. We mark the category as `mcp`
+        // so the UI can filter / badge them differently from LSPs and
+        // debuggers.
+        Extension {
+            id: "mcp-filesystem".into(),
+            name: "MCP — Filesystem".into(),
+            description: "Anthropic's reference Filesystem MCP server (read/write files, list directories) for use as an agent tool.".into(),
+            version: "latest".into(),
+            category: "mcp".into(),
+            languages: vec![],
+            installed: false,
+            install_cmd: Some("npm install -g @modelcontextprotocol/server-filesystem".into()),
+            install_note: Some("Requires Node.js 18+. Once installed the binary is available as `mcp-server-filesystem`. Runtime wiring into the agent toolbox lands in v2.4.".into()),
+            binary: Some("mcp-server-filesystem".into()),
+        },
+        Extension {
+            id: "mcp-github".into(),
+            name: "MCP — GitHub".into(),
+            description: "Official GitHub MCP server. Exposes repos, issues, and PRs as agent tools (requires a GitHub PAT in the vault).".into(),
+            version: "latest".into(),
+            category: "mcp".into(),
+            languages: vec![],
+            installed: false,
+            install_cmd: Some("npm install -g @modelcontextprotocol/server-github".into()),
+            install_note: Some("Requires Node.js 18+. After install, store a GitHub PAT under `mcp.github.token` in the Lorica vault. Runtime wiring into the agent toolbox lands in v2.4.".into()),
+            binary: Some("mcp-server-github".into()),
+        },
+        Extension {
+            id: "mcp-postgres".into(),
+            name: "MCP — Postgres".into(),
+            description: "Read-only Postgres MCP server. Lets the agent run SELECT queries and inspect schemas, with no write access.".into(),
+            version: "latest".into(),
+            category: "mcp".into(),
+            languages: vec![],
+            installed: false,
+            install_cmd: Some("npm install -g @modelcontextprotocol/server-postgres".into()),
+            install_note: Some("Requires Node.js 18+. Configure the connection URL once installed. Runtime wiring into the agent toolbox lands in v2.4.".into()),
+            binary: Some("mcp-server-postgres".into()),
+        },
+        Extension {
+            id: "mcp-slack".into(),
+            name: "MCP — Slack".into(),
+            description: "Slack MCP server — search channels, post messages, fetch threads from the agent.".into(),
+            version: "latest".into(),
+            category: "mcp".into(),
+            languages: vec![],
+            installed: false,
+            install_cmd: Some("npm install -g @modelcontextprotocol/server-slack".into()),
+            install_note: Some("Requires Node.js 18+. Needs a Slack bot token. Runtime wiring into the agent toolbox lands in v2.4.".into()),
+            binary: Some("mcp-server-slack".into()),
+        },
+        Extension {
+            id: "mcp-puppeteer".into(),
+            name: "MCP — Puppeteer".into(),
+            description: "Headless Chromium controller. Lets the agent navigate, screenshot, and scrape pages as a tool call.".into(),
+            version: "latest".into(),
+            category: "mcp".into(),
+            languages: vec![],
+            installed: false,
+            install_cmd: Some("npm install -g @modelcontextprotocol/server-puppeteer".into()),
+            install_note: Some("Requires Node.js 18+ and downloads Chromium on first install (~150 MB). Runtime wiring into the agent toolbox lands in v2.4.".into()),
+            binary: Some("mcp-server-puppeteer".into()),
+        },
+        Extension {
+            id: "mcp-fetch".into(),
+            name: "MCP — Fetch".into(),
+            description: "Generic HTTP fetch MCP server. Useful for web research without a full headless browser.".into(),
+            version: "latest".into(),
+            category: "mcp".into(),
+            languages: vec![],
+            installed: false,
+            install_cmd: Some("pip install mcp-server-fetch".into()),
+            install_note: Some("Python-based — requires Python 3.10+. Runtime wiring into the agent toolbox lands in v2.4.".into()),
+            binary: Some("mcp-server-fetch".into()),
+        },
     ];
 
     // Check which are installed by looking for binaries
@@ -794,8 +877,11 @@ pub fn cmd_debug_run(config: DebugConfig) -> CmdResult<DebugOutput> {
             .unwrap_or_else(|| ".".to_string())
     });
 
-    // Get just the filename for compilers
-    let filename = std::path::Path::new(program)
+    // Reserved for future error messages that mention the filename when
+    // a compile or run step fails. Unused today — prefix to silence the
+    // warning without losing the line so we don't have to redo the path
+    // logic when we plumb the message through.
+    let _filename = std::path::Path::new(program)
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| program.clone());

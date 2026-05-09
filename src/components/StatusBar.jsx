@@ -1,5 +1,5 @@
 import React, { useState, useEffect, Suspense, lazy } from 'react';
-import { Shield, ShieldAlert, Bot, Music, Maximize, Save, Map, GitBranch, Search, Download, Wifi, WifiOff } from 'lucide-react';
+import { Shield, ShieldAlert, Bot, Music, Maximize, Save, Map, GitBranch, Search, Download, Wifi, WifiOff, Box } from 'lucide-react';
 import { getLanguageName } from '../utils/languages';
 import { APP_VERSION } from '../version';
 
@@ -27,7 +27,7 @@ function useOnlineStatus() {
   return online;
 }
 
-export default function StatusBar({ state, activeFile, dispatch, updateInfo, currentVersion }) {
+export default function StatusBar({ state, activeFile, dispatch, updateInfo, currentVersion, devContainer }) {
   const hasAlerts = state.securityAlerts.length > 0;
   const online = useOnlineStatus();
   const [gitBranch, setGitBranch] = useState('');
@@ -113,6 +113,28 @@ export default function StatusBar({ state, activeFile, dispatch, updateInfo, cur
             className="flex items-center gap-1 text-lorica-textDim hover:text-lorica-accent transition-colors"
           >
             <GitBranch size={10} /> {gitBranch}
+          </button>
+        )}
+
+        {/* Dev container — surfaces .devcontainer/devcontainer.json with a
+            one-click "open shell" via docker. Read-only first pass; build
+            and compose flows show a tooltip explaining v1 limits. */}
+        {devContainer?.info && (
+          <button
+            onClick={devContainer.openShell}
+            title={
+              devContainer.info.image
+                ? `Open shell in ${devContainer.info.image}`
+                : devContainer.info.composeFile
+                ? 'Compose-based devcontainer (run manually for now)'
+                : devContainer.info.hasBuild
+                ? 'Build-based devcontainer (Lorica v2.3 doesn’t run builds yet)'
+                : 'Devcontainer config detected — no image declared'
+            }
+            className="flex items-center gap-1 text-lorica-textDim hover:text-lorica-accent transition-colors"
+          >
+            <Box size={10} />
+            <span className="truncate max-w-[120px]">{devContainer.info.name || devContainer.info.image || 'devcontainer'}</span>
           </button>
         )}
 

@@ -1,7 +1,7 @@
 {
   "identifier": "main-capability",
   "description": "Lorica full permissions",
-  "windows": ["main"],
+  "windows": ["main", "floating-*"],
   "remote": {
     "urls": ["http://localhost:*", "http://127.0.0.1:*", "tauri://localhost"]
   },
@@ -45,6 +45,8 @@
       "allow": [
         { "url": "https://api.anthropic.com/*" },
         { "url": "https://api.deepseek.com/*" },
+        { "url": "http://localhost:*/*" },
+        { "url": "http://127.0.0.1:*/*" },
         { "url": "https://*" },
         { "url": "http://*" }
       ]

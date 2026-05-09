@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Package, Download, Trash2, Check, Bug, Wrench, Palette, RefreshCw,
-  ChevronDown, ChevronRight, X, ExternalLink, Search, Info, ExternalLink as ExternalLinkIcon, AlertCircle
+  ChevronDown, ChevronRight, X, ExternalLink, Search, Info, ExternalLink as ExternalLinkIcon, AlertCircle, Plug,
 } from 'lucide-react';
 
-const CATEGORY_ICONS = { debugger: Bug, tool: Wrench, language: Package, theme: Palette };
-const CATEGORY_COLORS = { debugger: 'text-red-400', tool: 'text-blue-400', language: 'text-green-400', theme: 'text-purple-400' };
+const CATEGORY_ICONS = { debugger: Bug, tool: Wrench, language: Package, theme: Palette, mcp: Plug };
+const CATEGORY_COLORS = { debugger: 'text-red-400', tool: 'text-blue-400', language: 'text-green-400', theme: 'text-purple-400', mcp: 'text-cyan-400' };
+// Friendly label for the chip row — `mcp` would otherwise display as a
+// raw lowercase token. `language` and `debugger` already read fine.
+const CATEGORY_LABELS = { all: 'All', mcp: 'MCP', debugger: 'Debugger', tool: 'Tool', language: 'Language', theme: 'Theme' };
 
 export default function ExtensionManager({ dispatch }) {
   const [extensions, setExtensions] = useState([]);
@@ -196,22 +199,38 @@ export default function ExtensionManager({ dispatch }) {
               className="flex-1 bg-transparent text-xs text-lorica-text outline-none placeholder:text-lorica-textDim/50"
             />
           </div>
-          <div className="flex gap-1">
+          <div className="flex gap-1 flex-wrap">
             {categories.map(cat => (
               <button
                 key={cat}
                 onClick={() => setCategory(cat)}
-                className={`px-2.5 py-1 rounded-full text-[10px] transition-colors capitalize ${
+                className={`px-2.5 py-1 rounded-full text-[10px] transition-colors ${
                   category === cat
                     ? 'bg-lorica-accent/20 text-lorica-accent'
                     : 'text-lorica-textDim hover:text-lorica-text bg-lorica-bg'
                 }`}
               >
-                {cat}
+                {CATEGORY_LABELS[cat] || cat.charAt(0).toUpperCase() + cat.slice(1)}
               </button>
             ))}
           </div>
         </div>
+
+        {category === 'mcp' && (
+          <div className="px-4 pt-2 pb-1">
+            <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-cyan-400/10 border border-cyan-400/30 text-[10px] text-cyan-200">
+              <Plug size={11} className="mt-0.5 shrink-0" />
+              <div>
+                <div className="font-semibold">Model Context Protocol — preview marketplace</div>
+                <div className="text-cyan-200/80 mt-0.5">
+                  Install creates the server binary on your system. Wiring installed
+                  servers into the agent&apos;s tool layer lands in v2.4 — for now
+                  Lorica only manages the install step.
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Extension List */}
         <div className="flex-1 overflow-y-auto">

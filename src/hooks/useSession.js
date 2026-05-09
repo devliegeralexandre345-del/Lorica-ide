@@ -49,6 +49,8 @@ function captureSession(state) {
     blameEnabled: state.blameEnabled,
     aiInlineEnabled: state.aiInlineEnabled,
     aiProvider: state.aiProvider,
+    aiOllamaUrl: state.aiOllamaUrl,
+    aiOllamaModel: state.aiOllamaModel,
     heatmapEnabled: state.heatmapEnabled,
     heatmapRange: state.heatmapRange,
     semanticAutoEnabled: state.semanticAutoEnabled,
@@ -91,6 +93,8 @@ export function useSession(state, dispatch, fs) {
       switch (key) {
         case 'theme':            dispatch({ type: 'SET_THEME', theme: value }); break;
         case 'aiProvider':       dispatch({ type: 'SET_AI_PROVIDER', provider: value }); break;
+        case 'aiOllamaUrl':      dispatch({ type: 'SET_OLLAMA_URL', url: value }); break;
+        case 'aiOllamaModel':    dispatch({ type: 'SET_OLLAMA_MODEL', model: value }); break;
         case 'aiInlineEnabled':  dispatch({ type: 'SET_AI_INLINE_ENABLED', value }); break;
         case 'blameEnabled':     dispatch({ type: 'SET_BLAME_ENABLED', value }); break;
         case 'showMinimap':      dispatch({ type: 'SET_MINIMAP', value }); break;
@@ -118,6 +122,7 @@ export function useSession(state, dispatch, fs) {
       'theme', 'showFileTree', 'showTerminal', 'showAIPanel',
       'showInstantPreview', 'showMinimap', 'blameEnabled',
       'aiInlineEnabled', 'aiProvider',
+      'aiOllamaUrl', 'aiOllamaModel',
       'autoSave', 'autoSaveDelay', 'autoLockMinutes',
       'heatmapEnabled', 'heatmapRange', 'semanticAutoEnabled',
     ];

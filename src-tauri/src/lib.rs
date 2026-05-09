@@ -12,9 +12,10 @@ pub mod spotify_auth;
 pub mod dap;
 pub mod lsp;
 pub mod semantic;
+pub mod devcontainer;
 
 use state::AppState;
-use tauri::Manager;
+use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -36,6 +37,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             cmd_window_minimize,
             cmd_window_maximize,
             cmd_window_close,
+            cmd_window_open_floating,
             // File system
             filesystem::cmd_read_dir,
             filesystem::cmd_read_file,
@@ -104,6 +106,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             git::cmd_git_worktree_remove,
             git::cmd_git_worktree_list,
             git::cmd_git_worktree_merge,
+            git::cmd_git_worktree_status,
             // Extensions & Debug
             extensions::cmd_list_extensions,
             extensions::cmd_install_extension,
@@ -132,6 +135,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             semantic::cmd_semantic_index_status,
             semantic::cmd_semantic_search,
             semantic::cmd_semantic_index_clear,
+            // Dev containers (read-only first pass)
+            devcontainer::cmd_devcontainer_detect,
             // File watcher
             watcher::cmd_watch_project,
             watcher::cmd_unwatch_project,
@@ -169,5 +174,69 @@ fn cmd_window_maximize(window: tauri::Window) {
 #[tauri::command]
 fn cmd_window_close(window: tauri::Window) {
     let _ = window.close();
+}
+
+// ----------------------------------------------------------------------
+// Floating editor window — pop a single file out into its own OS window.
+// First pass is read-only: the floating viewer renders CodeMirror with
+// syntax highlighting + the active theme but does NOT save back. The
+// roadmap calls this out (V2.3_ROADMAP.md, "Floating editor windows"
+// row): "scope to read-only floating preview first".
+//
+// We pass the file path through a URL hash fragment (URL-safe base64)
+// because Tauri's `WebviewUrl::App` does not allow query parameters in
+// dev mode but hash fragments survive both dev (vite/webpack-dev-server)
+// and bundled (tauri://localhost) navigation. The frontend's index.jsx
+// inspects `location.hash`, sees the `#floating=` prefix, and renders
+// `FloatingViewer` instead of the full `App`.
+//
+// Window labels are unique per file path so re-popping the same file
+// re-focuses the existing window instead of opening a duplicate.
+#[tauri::command]
+fn cmd_window_open_floating(
+    app: tauri::AppHandle,
+    file_path: String,
+    file_name: String,
+) -> Result<(), String> {
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+
+    if file_path.is_empty() {
+        return Err("file_path is required".to_string());
+    }
+
+    let label = label_for_path(&file_path);
+
+    // Re-focus an already-open floating window for this file.
+    if let Some(existing) = app.get_webview_window(&label) {
+        let _ = existing.set_focus();
+        return Ok(());
+    }
+
+    let encoded = URL_SAFE_NO_PAD.encode(file_path.as_bytes());
+    let url = format!("index.html#floating={}", encoded);
+
+    WebviewWindowBuilder::new(&app, &label, WebviewUrl::App(url.into()))
+        .title(&format!("{} — Lorica", file_name))
+        .inner_size(900.0, 700.0)
+        .min_inner_size(400.0, 300.0)
+        .resizable(true)
+        .center()
+        .build()
+        .map_err(|e| format!("failed to create floating window: {}", e))?;
+
+    Ok(())
+}
+
+// Deterministic per-path label so reopening the same file re-focuses the
+// existing window. Tauri labels must be ASCII alphanumerics, dashes, or
+// underscores; we hash anything else away to satisfy that constraint.
+fn label_for_path(file_path: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(file_path.as_bytes());
+    let digest = h.finalize();
+    // 16 hex chars is plenty for collision avoidance per session.
+    let short: String = digest.iter().take(8).map(|b| format!("{:02x}", b)).collect();
+    format!("floating-{}", short)
 }
 

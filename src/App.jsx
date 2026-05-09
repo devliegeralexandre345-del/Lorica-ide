@@ -24,6 +24,9 @@ import { useAgentSessionPersistence } from './hooks/useAgentSessionPersistence';
 import { useGlobalErrorHandler } from './hooks/useGlobalErrorHandler';
 import { useTimeScrub } from './hooks/useTimeScrub';
 import { useSemanticAuto } from './hooks/useSemanticAuto';
+import { useDevContainer } from './hooks/useDevContainer';
+import { useAnnotations } from './hooks/useAnnotations';
+import { useCollabSession } from './hooks/useCollabSession';
 import { loadIdentity } from './utils/agentIdentity';
 import { loadSemanticStore } from './utils/semanticTypes';
 
@@ -78,6 +81,10 @@ const AutoFixModal      = lazy(() => import(/* webpackChunkName: "auto-fix"    *
 const AgentIdentityModal = lazy(() => import(/* webpackChunkName: "identity"   */ './components/AgentIdentityModal'));
 const SandboxPanel      = lazy(() => import(/* webpackChunkName: "sandbox"     */ './components/SandboxPanel'));
 const SwarmPanel        = lazy(() => import(/* webpackChunkName: "swarm-dev"   */ './components/SwarmPanel'));
+const WorktreesPanel    = lazy(() => import(/* webpackChunkName: "worktrees"   */ './components/WorktreesPanel'));
+const SmartPasteModal   = lazy(() => import(/* webpackChunkName: "smart-paste" */ './components/SmartPasteModal'));
+const AnnotationsPanel  = lazy(() => import(/* webpackChunkName: "annotations" */ './components/AnnotationsPanel'));
+const CollabPanel       = lazy(() => import(/* webpackChunkName: "collab"      */ './components/CollabPanel'));
 const SemanticTypesPanel = lazy(() => import(/* webpackChunkName: "sem-types"  */ './components/SemanticTypesPanel'));
 const KeyboardCheatsheet = lazy(() => import(/* webpackChunkName: "cheatsheet" */ './components/KeyboardCheatsheet'));
 const ReleaseNotes      = lazy(() => import(/* webpackChunkName: "release"    */ './components/ReleaseNotes'));
@@ -170,6 +177,16 @@ export default function App() {
   const projectPrompts = useProjectPrompts(state.projectPath);
   useTimeScrub(state, dispatch);
   useSemanticAuto(state, dispatch);
+  // Detects .devcontainer/devcontainer.json so the StatusBar can surface
+  // a "Open in container" badge. Read-only v1 — clicking opens a shell
+  // via `docker run` in a fresh terminal session.
+  const devContainer = useDevContainer(state.projectPath, dispatch);
+  // Spatial annotations — Wave 11.4. One source of truth for the modal
+  // browser (AnnotationsPanel) and (later) the inline editor gutter.
+  const annotationsApi = useAnnotations(state.projectPath);
+  // Real-time collaboration — Wave 11.5. The hook owns the Yjs+WebRTC
+  // session lifecycle; the panel just renders state.
+  const collab = useCollabSession();
 
   // Load persistent agent identity + semantic-types store on project change.
   useEffect(() => {
@@ -700,6 +717,7 @@ Suggest the best resolution and explain why. Output ONLY the replacement code in
             isInstalling: update.isInstalling,
             onInstall: update.installUpdate,
           }}
+          devContainer={devContainer}
         />
       ) : (
         <div className="h-6 flex items-center justify-center text-[10px] text-lorica-textDim/30 bg-lorica-bg cursor-pointer hover:text-lorica-textDim/60 transition-colors"
@@ -764,6 +782,45 @@ Suggest the best resolution and explain why. Output ONLY the replacement code in
         {state.showAgentIdentity && <AgentIdentityModal state={state} dispatch={dispatch} />}
         {state.showSandbox && <SandboxPanel state={state} dispatch={dispatch} />}
         {state.showSwarm && <SwarmPanel state={state} dispatch={dispatch} />}
+        {state.showWorktrees && (
+          <WorktreesPanel
+            state={state}
+            dispatch={dispatch}
+            onSwitchProject={fs.openProject}
+          />
+        )}
+        {state.showSmartPaste && (
+          <SmartPasteModal
+            state={state}
+            dispatch={dispatch}
+            activeFile={activeFile}
+            onInsert={(text) => {
+              // Loosely coupled: emit a DOM event the Editor listens for.
+              // Avoids reaching into Editor.jsx internals (LEDGER rule).
+              try {
+                window.dispatchEvent(new CustomEvent('lorica:insertAtCursor', { detail: { text } }));
+              } catch {}
+            }}
+          />
+        )}
+        {state.showAnnotationsPanel && (
+          <AnnotationsPanel
+            state={state}
+            dispatch={dispatch}
+            annotations={annotationsApi.annotations}
+            removeAnnotation={annotationsApi.removeAnnotation}
+            updateAnnotation={annotationsApi.updateAnnotation}
+            onOpenFile={(path /* , line */) => fs.openFile(path)}
+          />
+        )}
+        {state.showCollab && (
+          <CollabPanel
+            state={state}
+            dispatch={dispatch}
+            collab={collab}
+            activeFile={activeFile}
+          />
+        )}
         {state.showSemanticTypes && <SemanticTypesPanel state={state} dispatch={dispatch} />}
         {state.showKeyboardCheatsheet && <KeyboardCheatsheet state={state} dispatch={dispatch} />}
         {state.showReleaseNotes && <ReleaseNotes state={state} dispatch={dispatch} />}

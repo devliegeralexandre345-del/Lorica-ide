@@ -16,7 +16,16 @@ const DEEPSEEK_ENDPOINT = 'https://api.deepseek.com/v1/chat/completions';
 const DEFAULT_MODELS = {
   anthropic: 'claude-sonnet-4-20250514',
   deepseek: 'deepseek-chat',
+  ollama: 'llama3.1:8b',
 };
+
+// Build the OpenAI-compatible chat-completions endpoint for an Ollama
+// install. Ollama exposes `/v1/chat/completions` since v0.1.31, so we
+// share the request shape with DeepSeek and only swap the URL.
+function ollamaEndpoint(baseUrl) {
+  const base = (baseUrl || 'http://localhost:11434').replace(/\/$/, '');
+  return `${base}/v1/chat/completions`;
+}
 
 // Convert Anthropic-style tool defs to OpenAI/DeepSeek format
 function toOpenAITools(anthropicTools) {
@@ -499,8 +508,12 @@ export function useAgent(state, dispatch) {
     };
   }
 
-  // --- Non-streaming DeepSeek fallback (used when stream fails) ---
-  async function callDeepSeekNonStreaming(apiMessages, tools, model, apiKey, signal) {
+  // --- Non-streaming OpenAI-compatible fallback (DeepSeek + Ollama) ---
+  // Used when streaming fails (network hiccup, CORS quirk, an Ollama
+  // model that doesn't respect SSE format). Same body shape for both
+  // providers — only the URL and the auth header differ.
+  async function callDeepSeekNonStreaming(apiMessages, tools, model, apiKey, signal, opts = {}) {
+    const { endpoint = DEEPSEEK_ENDPOINT, requireAuth = true } = opts;
     const body = {
       model,
       max_tokens: 4096,
@@ -509,26 +522,21 @@ export function useAgent(state, dispatch) {
     };
     if (tools && tools.length > 0) body.tools = tools;
 
-    // Try native fetch first (DeepSeek allows CORS)
+    const headers = { 'Content-Type': 'application/json' };
+    if (requireAuth) headers.Authorization = `Bearer ${apiKey}`;
+
     let response;
     try {
-      response = await fetch(DEEPSEEK_ENDPOINT, {
+      response = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-        },
+        headers,
         body: JSON.stringify(body),
         signal,
       });
     } catch (nativeErr) {
-      // Fall back to Tauri
-      response = await tauriFetch(DEEPSEEK_ENDPOINT, {
+      response = await tauriFetch(endpoint, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-        },
+        headers,
         body: JSON.stringify(body),
         signal,
       });
@@ -551,10 +559,19 @@ export function useAgent(state, dispatch) {
     // `userMessage`). Lets the caller hide huge attachments behind a
     // short placeholder while the model still gets the full payload.
     const provider = state.aiProvider || 'anthropic';
-    const apiKey = provider === 'anthropic' ? state.aiApiKey : state.aiDeepseekKey;
-    const providerLabel = provider === 'anthropic' ? 'Anthropic' : 'DeepSeek';
+    const apiKey = provider === 'anthropic'
+      ? state.aiApiKey
+      : provider === 'deepseek'
+      ? state.aiDeepseekKey
+      : null; // Ollama runs locally, no key
+    const providerLabel = provider === 'anthropic'
+      ? 'Anthropic'
+      : provider === 'deepseek'
+      ? 'DeepSeek'
+      : 'Ollama';
 
-    if (!apiKey) {
+    // Ollama is keyless — skip the "configure your key" gate.
+    if (provider !== 'ollama' && !apiKey) {
       dispatch({
         type: 'AGENT_ADD_MESSAGE',
         message: { role: 'assistant', content: `⚠️ Configure ta clé API ${providerLabel} dans les Paramètres.` },
@@ -730,11 +747,16 @@ You have direct access to the user's codebase via tools. Be concise, precise, an
             }
           }
 
-          endpoint = DEEPSEEK_ENDPOINT;
-          headers = {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${apiKey}`,
-          };
+          if (provider === 'ollama') {
+            endpoint = ollamaEndpoint(state.aiOllamaUrl);
+            headers = { 'Content-Type': 'application/json' };
+          } else {
+            endpoint = DEEPSEEK_ENDPOINT;
+            headers = {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${apiKey}`,
+            };
+          }
           requestBody = {
             model,
             max_tokens: 4096,
@@ -743,7 +765,10 @@ You have direct access to the user's codebase via tools. Be concise, precise, an
             messages: apiMessages,
           };
           parseStreamFn = parseOpenAIStream;
-          preferNativeFetch = true; // DeepSeek supports CORS — native fetch is faster and more reliable
+          // Ollama is on localhost — native fetch avoids the Tauri http
+          // plugin's `resource id invalid` chatter on aborts. DeepSeek
+          // supports CORS too. Both prefer native.
+          preferNativeFetch = true;
         }
 
         // ── Attempt streaming request ──
@@ -793,6 +818,9 @@ You have direct access to the user's codebase via tools. Be concise, precise, an
               model,
               apiKey,
               controller.signal,
+              provider === 'ollama'
+                ? { endpoint: ollamaEndpoint(state.aiOllamaUrl), requireAuth: false }
+                : { endpoint: DEEPSEEK_ENDPOINT, requireAuth: true },
             );
             const choice = data.choices?.[0];
             const msg = choice?.message || {};

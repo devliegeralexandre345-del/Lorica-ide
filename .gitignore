@@ -22,7 +22,11 @@ rename_script.ps1
 
 # Git worktrees
 .worktrees/
+.lorica-worktrees/
 .claude/
+
+# Project Brain + project-local settings (per-project Lorica state)
+.lorica/
 
 # Tauri build artefacts / scratch files
 src-tauri/gen/

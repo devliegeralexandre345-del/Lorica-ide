@@ -342,6 +342,224 @@ node scripts/completions-gen/build.mjs
 
 ---
 
+## Wave 6 — Floating windows + WorktreesPanel
+
+### 6.1 Floating editor window (P0, 3 min)
+
+**Setup**
+- Open a project with at least one source file open in a tab.
+
+**Steps**
+1. Right-click the tab → menu appears.
+2. Click **Pop out to floating window**.
+
+**Expect**
+- A new OS window opens, titled `<filename> — Lorica`, ~900×700.
+- Inside: a tiny header (filename · path · "read-only" · refresh · close)
+  plus the file contents in syntax-highlighted CodeMirror.
+- The window's theme matches the main window's theme (read from
+  `lorica.session.v1`).
+
+**More cases**
+- Edit the file externally (another editor, `echo >> path` in a terminal):
+  the floating window auto-refreshes within ~250 ms.
+- Right-click the same tab → Pop out again: **no new window**, the
+  existing one re-focuses.
+- Click the refresh button: re-reads from disk.
+- Switch theme in the main window: floating window keeps its old theme
+  (read once at mount) — this is intentional v1 behaviour. Close & re-pop
+  to pick up the new theme.
+
+**Fail signs**: window doesn't open; lorica bridge errors in floating
+window console (CSP / capabilities issue); editing on disk doesn't
+trigger refresh; second pop creates a duplicate.
+
+### 6.2 Git Worktrees panel (P1, 4 min)
+
+**Setup**
+- Open any git repo with at least one extra branch.
+
+**Steps**
+1. Click the green **GitBranch** icon in the dock (tooltip: "Git Worktrees").
+2. Panel opens listing every worktree git knows about (just `main`
+   initially in a fresh repo).
+
+**Expect**
+- The active worktree shows a **main** badge.
+- Each row: branch · short SHA · "↑N ↓M" if any · "K modified" if dirty.
+- Buttons: **Open** (always) · **Merge** + **Remove** (only on non-main).
+
+**Test add + merge**
+1. Click **New worktree**, type a fresh branch name (e.g. `feat/test-wt`),
+   press Enter.
+2. Toast: `Worktree "feat/test-wt" created`.
+3. New row appears. SHA = HEAD of current branch.
+4. Click **Open** on it → Lorica switches the active project to the
+   worktree path.
+5. Edit a file inside, commit it from the Git Panel.
+6. Open Worktrees again, click **Merge** on the worktree.
+7. Toast: `Merged "feat/test-wt"`. The merge result panel shows OK.
+
+**Test remove**
+1. Click **Remove** on the worktree row.
+2. If dirty, browser confirm asks before forcing.
+3. Row disappears from the list.
+
+**Fail signs**: panel empty; Add fails silently; Open doesn't switch
+project; Merge reports a fake conflict on a clean merge; Remove leaves
+the .lorica-worktrees/ directory behind.
+
+---
+
+## Wave 7 — Test seed (Vitest)
+
+### 7.1 npm test runs green (P0, 1 min)
+
+**Steps**
+```bash
+npm test
+```
+
+**Expect**
+- `RUN  vitest run`
+- 5 test files / 68 tests passed
+- Total wall time < 5 s
+
+**Fail signs**: any red `✗`; "0 tests found" (means the include glob
+broke); module-import errors (means a source file changed shape).
+
+### 7.2 Watch mode picks up edits (P2, 2 min)
+
+```bash
+npm run test:watch
+```
+
+Edit one of the `tests/*.test.js` files (add a no-op `it.skip(...)`),
+save. Vitest re-runs the file in < 1 s.
+
+**Fail signs**: watch never re-runs (mtime / fs-poll bug).
+
+---
+
+## Wave 8 — Voice / Devcontainer / MCP
+
+### 8.1 Voice dictation (P1, macOS / Edge only, 3 min)
+
+**Setup**
+- Settings → AI → toggle **Voice dictation in agent input** ON.
+
+**Steps**
+1. Open the AI Copilot panel.
+2. A mic icon appears next to the Send button.
+3. Click the mic → browser asks for microphone permission (first time).
+4. Speak: "explain this function"
+5. The text appears in the input as you speak (interim results) and
+   finalises after a short pause.
+
+**Edge cases**
+- Click the mic while it's red/pulsing → stops cleanly, no toast.
+- Deny mic permission → toast "Microphone permission denied".
+- Speak nothing for a few seconds → API ends naturally; mic icon goes
+  back to idle. No toast (the natural end is silent by design).
+- Linux (no SpeechRecognition): the toggle row in Settings is hidden
+  entirely. The mic icon never appears.
+
+**Fail signs**: mic icon visible without the toggle ON; mic visible on
+Linux; speech captures but doesn't insert into the input box; permission
+denial spams the same toast on every retry.
+
+### 8.2 Devcontainer badge (P1, 4 min, requires Docker)
+
+**Setup**
+- Open a project that has `.devcontainer/devcontainer.json` with at
+  minimum:
+  ```json
+  { "name": "Test", "image": "alpine:latest" }
+  ```
+
+**Steps**
+1. The status bar shows a small **Box** icon followed by `Test` (or
+   the image name if `name` is missing).
+2. Hover: tooltip "Open shell in alpine:latest".
+3. Click it.
+
+**Expect**
+- The terminal panel pops open if it wasn't already.
+- A new terminal session spawns and you see Lorica type the command:
+  `docker run --rm -it -v "<your-project-path>:/workspaces/repo" -w "/workspaces/repo" alpine:latest bash`
+- Toast: `Launching alpine:latest in a new terminal — first run pulls the image.`
+- After the pull, you land at a `/workspaces/repo #` prompt **inside** the container.
+- `ls` shows your project files.
+
+**Negative cases**
+- `dockerComposeFile` config: badge shows but tooltip explains "v2.3
+  doesn't run that". Click → toast warning.
+- `build:` config (Dockerfile build): same story — badge + tooltip
+  warning.
+- Project without devcontainer.json: no badge at all.
+
+**Fail signs**: badge stuck spinning; docker command typed wrong (paths
+not quoted, no `-it`); cross-mount fails on Windows because of `\\`
+escaping.
+
+### 8.3 MCP marketplace (P2, 2 min)
+
+**Steps**
+1. Open Extensions panel.
+2. Click the **MCP** filter chip in the category row.
+
+**Expect**
+- 6 entries listed: Filesystem, GitHub, Postgres, Slack, Puppeteer, Fetch.
+- A cyan info banner explains "install only — runtime wiring lands in v2.4".
+
+**Test install**
+1. Click **Install** on `MCP — Filesystem` (npm-based, fast).
+2. The standard install spinner runs.
+3. On success, the row shows the **Installed** check and (if Node + npm
+   are present) `mcp-server-filesystem` is on PATH.
+
+**Fail signs**: chip not in the filter row; banner missing; install runs
+the wrong command; "tool" entries leak into the MCP filter.
+
+---
+
+## Wave 9 — Extension API (spec only)
+
+### 9.1 EXTENSION_API.md is complete (P0, 1 min — review-only)
+
+```bash
+wc -l docs/EXTENSION_API.md
+```
+
+Should be ≥ 250 lines. Skim the headings:
+- Goals / Non-goals
+- Filesystem layout
+- manifest.json schema
+- Extension module shape (`activate` / `deactivate`)
+- Permissions (9 entries)
+- Sandboxing model
+- Lifecycle table
+- Reference implementation: `extensions/focus-timer`
+- Versioning policy
+- Open questions
+
+### 9.2 Focus Timer reference is self-contained (P0, 1 min)
+
+```bash
+ls extensions/focus-timer/
+# manifest.json  extension.js  icon.svg  README.md
+```
+
+Open `extension.js` — it must NOT import React, `window.lorica`,
+`localStorage`, or any in-tree Lorica module. The only outside surface
+it touches is the `ctx` parameter Lorica will pass to `activate()`.
+
+**Fail signs**: any direct `localStorage` call; any `import` from
+`../../src/...`; any `window.*` access outside the host node Lorica
+gives the extension.
+
+---
+
 ## Smoke tests (cross-wave, P0, 5 min)
 
 After any wave's tests pass, run these for sanity:

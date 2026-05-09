@@ -26,7 +26,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' tauri: ipc: https://open.spotify.com https://accounts.spotify.com https://*.scdn.co; connect-src 'self' https://accounts.spotify.com https://api.spotify.com https://*.scdn.co; img-src 'self' data: https://*.scdn.co https://i.scdn.co https://mosaic.scdn.co https://lineup-images.scdn.co https://seeded-session-images.scdn.co https://charts-images.scdn.co; media-src https://*.scdn.co https://*.spotify.com; frame-src https://open.spotify.com; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval';"
+      "csp": "default-src 'self' tauri: ipc: https://open.spotify.com https://accounts.spotify.com https://*.scdn.co; connect-src 'self' http://localhost:* http://127.0.0.1:* https://accounts.spotify.com https://api.spotify.com https://*.scdn.co https://api.anthropic.com https://api.deepseek.com; img-src 'self' data: https://*.scdn.co https://i.scdn.co https://mosaic.scdn.co https://lineup-images.scdn.co https://seeded-session-images.scdn.co https://charts-images.scdn.co; media-src https://*.scdn.co https://*.spotify.com; frame-src https://open.spotify.com; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval';"
     }
   },
   "bundle": {

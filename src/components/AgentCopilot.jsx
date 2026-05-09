@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import {
   Bot, Send, Square, Plus, Trash2, Loader2, RefreshCw, Activity,
-  AtSign, FileText, Folder, Star, GitBranch,
+  AtSign, FileText, Folder, Star, GitBranch, Mic, MicOff,
 } from 'lucide-react';
 import AgentConfigModal from './AgentConfigModal';
 import AgentToolBlock from './AgentToolBlock';
@@ -18,6 +18,11 @@ import {
 import { estimateCost, formatCost } from '../utils/agentCost';
 import { expandPrompt } from '../utils/promptTemplates';
 import { markAiEdit } from '../utils/aiCoauthor';
+import {
+  startDictation,
+  isVoiceSupported,
+  isVoiceFeatureEnabled,
+} from '../utils/voiceInput';
 
 // Memoized message row. Non-last messages are stable once the agent has
 // moved on — React.memo with a cheap equality check prevents thousands of
@@ -149,6 +154,15 @@ export default function AgentCopilot({ state, dispatch, agent, activeFile, proje
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const inputRef = useRef(null);
+
+  // Voice dictation (opt-in via Settings → AI). The mic button only
+  // renders when both the toggle is on AND the browser exposes the
+  // Web Speech API. We capture the input value at the moment dictation
+  // starts so partial transcripts don't trample text the user typed.
+  const [dictating, setDictating] = useState(false);
+  const dictationStopRef = useRef(null);
+  const dictationBaseRef = useRef('');
+  const voiceCapable = isVoiceSupported() && isVoiceFeatureEnabled();
 
   // Flatten the project file tree once per update — used by the mention picker
   // for fuzzy path search. Folders and files both land in the same list so a
@@ -461,6 +475,52 @@ export default function AgentCopilot({ state, dispatch, agent, activeFile, proje
     });
     setTimeout(() => inputRef.current?.focus(), 100);
   };
+
+  // ----- Voice dictation handlers -----
+  // Stop the active session on unmount so an orphan recognition doesn't
+  // keep the mic open after the panel closes.
+  useEffect(() => () => {
+    if (dictationStopRef.current) {
+      try { dictationStopRef.current(); } catch {}
+    }
+  }, []);
+
+  const toggleDictation = useCallback(() => {
+    if (dictating) {
+      dictationStopRef.current?.();
+      return;
+    }
+    dictationBaseRef.current = input;
+    setDictating(true);
+    dictationStopRef.current = startDictation({
+      onTranscript: (text, { final }) => {
+        // Append the transcript to whatever the user already had, with a
+        // space separator so consecutive dictations don't run together.
+        const base = dictationBaseRef.current || '';
+        const sep = base && !base.endsWith(' ') ? ' ' : '';
+        setInput(base + sep + text);
+        if (final) {
+          dictationBaseRef.current = base + sep + text;
+        }
+      },
+      onError: (err) => {
+        setDictating(false);
+        const msg = err === 'not-allowed'
+          ? 'Microphone permission denied'
+          : err === 'no-speech'
+          ? 'No speech detected'
+          : err === 'aborted'
+          ? null
+          : `Voice input error: ${err}`;
+        if (msg) {
+          dispatch({ type: 'ADD_TOAST', toast: { type: 'warning', message: msg, duration: 3500 } });
+        }
+      },
+      onEnd: () => {
+        setDictating(false);
+      },
+    });
+  }, [dictating, input, dispatch]);
 
   const handleSend = async () => {
     if (!input.trim() || state.agentLoading) return;
@@ -824,6 +884,20 @@ export default function AgentCopilot({ state, dispatch, agent, activeFile, proje
               className="flex-1 bg-transparent text-xs text-lorica-text outline-none placeholder:text-lorica-textDim/50"
               disabled={state.agentLoading}
             />
+            {voiceCapable && (
+              <button
+                onClick={toggleDictation}
+                disabled={state.agentLoading}
+                title={dictating ? 'Stop dictation' : 'Dictate (Web Speech API — local on macOS / Edge)'}
+                className={`p-1 rounded transition-colors disabled:opacity-30 ${
+                  dictating
+                    ? 'text-red-400 bg-red-400/15 animate-pulse'
+                    : 'text-lorica-textDim hover:text-lorica-accent hover:bg-lorica-accent/10'
+                }`}
+              >
+                {dictating ? <MicOff size={14} /> : <Mic size={14} />}
+              </button>
+            )}
             <button
               onClick={handleSend}
               disabled={!input.trim() || state.agentLoading}
