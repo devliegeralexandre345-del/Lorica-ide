@@ -4,14 +4,23 @@
 // separate from useAgent (which handles multi-turn chat with tools). This
 // just asks a small model for the next few tokens given surrounding code.
 //
-// Providers:
+// Providers (Wave 12.3 routes through aiProviders.js):
 //   • Anthropic  → Claude Haiku 3.5 via tauri-plugin-http (CORS-safe).
 //   • DeepSeek   → deepseek-chat via native fetch (DeepSeek allows CORS).
+//   • Ollama     → user-configured local model via native fetch.
+//
+// Ollama models smaller than ~7B will produce noisier completions than
+// Haiku — for inline completion the speed/quality tradeoff favours
+// 7-13B coder models (codellama:7b, qwen2.5-coder:7b, etc.).
 
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
-
-const ANTHROPIC_ENDPOINT = 'https://api.anthropic.com/v1/messages';
-const DEEPSEEK_ENDPOINT = 'https://api.deepseek.com/v1/chat/completions';
+import {
+  getEndpoint,
+  getHeaders,
+  buildChatBody,
+  extractText,
+  isKeyless,
+} from './aiProviders';
 
 const FAST_MODELS = {
   anthropic: 'claude-3-5-haiku-20241022',
@@ -115,16 +124,19 @@ async function robustFetch(url, opts, preferNative) {
  * @param {string}   args.suffix     — code after the cursor
  * @param {string}   args.language   — language id (e.g. 'javascript')
  * @param {string}   args.filePath   — optional file path for context
- * @param {string}   args.provider   — 'anthropic' | 'deepseek'
- * @param {string}   args.apiKey
+ * @param {string}   args.provider   — 'anthropic' | 'deepseek' | 'ollama'
+ * @param {string}   args.apiKey     — ignored when provider is 'ollama'
  * @param {string=}  args.model      — override (optional)
+ * @param {string=}  args.ollamaBaseUrl
  * @param {AbortSignal=} args.signal
  * @returns {Promise<string>} completion text (may be empty)
  */
 export async function fetchInlineCompletion({
-  prefix, suffix, language, filePath, provider, apiKey, model, signal,
+  prefix, suffix, language, filePath, provider, apiKey, model, ollamaBaseUrl, signal,
 }) {
-  if (!apiKey) return '';
+  // Keyless providers (Ollama) skip the API-key gate; everything else
+  // returns empty so we don't surface auth errors on every keystroke.
+  if (!isKeyless(provider) && !apiKey) return '';
   if (signal?.aborted) return '';
   const chosenModel = model || FAST_MODELS[provider] || FAST_MODELS.anthropic;
 
@@ -138,61 +150,27 @@ export async function fetchInlineCompletion({
   });
 
   try {
-    if (provider === 'anthropic') {
-      const body = {
-        model: chosenModel,
-        max_tokens: 200,
-        temperature: 0.2,
-        system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: userMsg }],
-      };
-      const r = await robustFetch(
-        ANTHROPIC_ENDPOINT,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01',
-            'anthropic-dangerous-direct-browser-access': 'true',
-          },
-          body: JSON.stringify(body),
-          signal,
-        },
-        false, // prefer tauri — Anthropic is CORS-hostile
-      );
-      if (!r.ok) return '';
-      const data = await r.json();
-      const raw = (data?.content || []).map((b) => b.text || '').join('');
-      return cleanCompletion(raw, { prefix: clippedPrefix, suffix: clippedSuffix });
-    }
-
-    // DeepSeek / OpenAI-shaped
-    const body = {
+    const endpoint = getEndpoint(provider, provider === 'ollama' ? ollamaBaseUrl : undefined);
+    const headers = getHeaders(provider, apiKey);
+    const body = buildChatBody({
+      provider,
       model: chosenModel,
-      max_tokens: 200,
+      system: SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: userMsg }],
+      maxTokens: 200,
       temperature: 0.2,
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: userMsg },
-      ],
-    };
+    });
+    // Anthropic is CORS-hostile in some builds; everything else is
+    // CORS-friendly and faster via native fetch.
+    const preferNative = provider !== 'anthropic';
     const r = await robustFetch(
-      DEEPSEEK_ENDPOINT,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify(body),
-        signal,
-      },
-      true, // prefer native — DeepSeek has friendly CORS
+      endpoint,
+      { method: 'POST', headers, body: JSON.stringify(body), signal },
+      preferNative,
     );
     if (!r.ok) return '';
     const data = await r.json();
-    const raw = data?.choices?.[0]?.message?.content || '';
+    const raw = extractText(provider, data);
     return cleanCompletion(raw, { prefix: clippedPrefix, suffix: clippedSuffix });
   } catch (e) {
     // Benign: AbortError fires when the user types during an inflight call.

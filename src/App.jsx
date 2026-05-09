@@ -26,6 +26,7 @@ import { useTimeScrub } from './hooks/useTimeScrub';
 import { useSemanticAuto } from './hooks/useSemanticAuto';
 import { useDevContainer } from './hooks/useDevContainer';
 import { useAnnotations } from './hooks/useAnnotations';
+import { normalizeFilePath as normalizeAnnotationPath } from './utils/annotations';
 import { useCollabSession } from './hooks/useCollabSession';
 import { loadIdentity } from './utils/agentIdentity';
 import { loadSemanticStore } from './utils/semanticTypes';
@@ -47,6 +48,7 @@ import LoricaDock from './components/LoricaDock';
 import ImagePreview, { isImageFile } from './components/ImagePreview';
 import FilePreview, { hasPreview } from './components/FilePreview';
 import AmbientHUD from './components/AmbientHUD';
+import AddAnnotationPrompt from './components/AddAnnotationPrompt';
 
 // Lazy: Terminal pulls in the entire xterm bundle (~283 KiB) — splitting
 // it off the entrypoint is the single biggest first-paint win available
@@ -201,6 +203,10 @@ export default function App() {
   const [aiPanelWidth, setAiPanelWidth] = React.useState(340);
   const [terminalHeight, setTerminalHeight] = React.useState(200);
   const [splitRatio, setSplitRatio] = React.useState(0.5);
+  // Pending "add annotation" intent — populated when the user right-
+  // clicks the annotations gutter (Wave 12.1). Shape:
+  // `{ line, file }` while open, `null` when closed.
+  const [addAnnotationAt, setAddAnnotationAt] = React.useState(null);
 
   // Refs for timers and stale closure avoidance
   const stateRef = useRef(state);
@@ -210,6 +216,30 @@ export default function App() {
 
   useEffect(() => { stateRef.current = state; }, [state]);
   useEffect(() => { fsRef.current = fs; }, [fs]);
+
+  // Wire the gutter → annotations bridge (Wave 12.1). The annotations
+  // gutter fires DOM events instead of importing the hook, keeping the
+  // CodeMirror extension framework-agnostic.
+  useEffect(() => {
+    const onAdd = (ev) => {
+      const line = ev?.detail?.line;
+      const s = stateRef.current;
+      const file = s.openFiles?.[s.activeFileIndex];
+      if (!file?.path || typeof line !== 'number') return;
+      setAddAnnotationAt({ line, file: file.path });
+    };
+    const onFocus = (ev) => {
+      // Open the panel and let the user spot the highlighted row.
+      // Highlighting itself is panel-side polish for a follow-up.
+      dispatch({ type: 'SET_PANEL', panel: 'showAnnotationsPanel', value: true });
+    };
+    window.addEventListener('lorica:addAnnotation', onAdd);
+    window.addEventListener('lorica:focusAnnotation', onFocus);
+    return () => {
+      window.removeEventListener('lorica:addAnnotation', onAdd);
+      window.removeEventListener('lorica:focusAnnotation', onFocus);
+    };
+  }, [dispatch]);
 
   // Boot-time perf marks — paired with `lorica:boot:start` (in index.jsx).
   // The HUD reads these and shows `firstpaint - start` and
@@ -574,11 +604,16 @@ Suggest the best resolution and explain why. Output ONLY the replacement code in
                         showMinimap={state.showMinimap !== false}
                         aiInlineEnabled={state.aiInlineEnabled}
                         aiProvider={state.aiProvider}
-                        aiApiKey={state.aiProvider === 'anthropic' ? state.aiApiKey : state.aiDeepseekKey}
+                        aiApiKey={state.aiProvider === 'anthropic' ? state.aiApiKey : state.aiProvider === 'deepseek' ? state.aiDeepseekKey : ''}
+                        aiOllamaUrl={state.aiOllamaUrl}
+                        aiOllamaModel={state.aiOllamaModel}
                         blameEnabled={state.blameEnabled}
                         projectPath={state.projectPath}
                         bookmarks={state.bookmarks?.[activeFile?.path] || null}
                         semanticMarks={state.semanticTypes?.[activeFile?.path]?.mismatches || null}
+                        annotations={annotationsApi.byFile[
+                          normalizeAnnotationPath(activeFile?.path || '', state.projectPath)
+                        ] || []}
                         lspRequestCompletion={lsp.requestCompletion}
                         lspDiagnostics={lsp.diagnostics}
                         onConflictResolve={handleConflictResolve}
@@ -602,7 +637,9 @@ Suggest the best resolution and explain why. Output ONLY the replacement code in
                             showMinimap: false,
                             aiInlineEnabled: state.aiInlineEnabled,
                             aiProvider: state.aiProvider,
-                            aiApiKey: state.aiProvider === 'anthropic' ? state.aiApiKey : state.aiDeepseekKey,
+                            aiApiKey: state.aiProvider === 'anthropic' ? state.aiApiKey : state.aiProvider === 'deepseek' ? state.aiDeepseekKey : '',
+                            aiOllamaUrl: state.aiOllamaUrl,
+                            aiOllamaModel: state.aiOllamaModel,
                           }}
                         />
                       ) : (
@@ -615,11 +652,16 @@ Suggest the best resolution and explain why. Output ONLY the replacement code in
                             showMinimap={false}
                             aiInlineEnabled={state.aiInlineEnabled}
                             aiProvider={state.aiProvider}
-                            aiApiKey={state.aiProvider === 'anthropic' ? state.aiApiKey : state.aiDeepseekKey}
+                            aiApiKey={state.aiProvider === 'anthropic' ? state.aiApiKey : state.aiProvider === 'deepseek' ? state.aiDeepseekKey : ''}
+                            aiOllamaUrl={state.aiOllamaUrl}
+                            aiOllamaModel={state.aiOllamaModel}
                             blameEnabled={state.blameEnabled}
                             projectPath={state.projectPath}
                             bookmarks={state.bookmarks?.[splitFile?.path] || null}
                             semanticMarks={state.semanticTypes?.[splitFile?.path]?.mismatches || null}
+                            annotations={annotationsApi.byFile[
+                              normalizeAnnotationPath(splitFile?.path || '', state.projectPath)
+                            ] || []}
                             lspRequestCompletion={lsp.requestCompletion}
                             lspDiagnostics={splitFile?.path === activeFile?.path ? lsp.diagnostics : []}
                             onConflictResolve={handleConflictResolve}
@@ -819,6 +861,19 @@ Suggest the best resolution and explain why. Output ONLY the replacement code in
             dispatch={dispatch}
             collab={collab}
             activeFile={activeFile}
+          />
+        )}
+        {addAnnotationAt && (
+          <AddAnnotationPrompt
+            at={addAnnotationAt}
+            onClose={() => setAddAnnotationAt(null)}
+            onSave={({ file, line, color, text }) => {
+              annotationsApi.addAnnotation({ file, line, color, text });
+              dispatch({
+                type: 'ADD_TOAST',
+                toast: { type: 'success', message: 'Annotation added', duration: 1800 },
+              });
+            }}
           />
         )}
         {state.showSemanticTypes && <SemanticTypesPanel state={state} dispatch={dispatch} />}

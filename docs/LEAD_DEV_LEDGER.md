@@ -69,6 +69,54 @@ _Append-only. Most recent at the top._
 
 ## Bilan log
 
+### 2026-05-09 (night) — Wave 12 polish round 2 complete
+
+User pushed Wave 6-11 mega commit (`83d71a1`), then asked to keep
+shipping. Picked four sub-waves from the deepseek.md "What's open"
+section, did them locally, no agents.
+
+| Sub-wave | Result |
+|---|---|
+| **12.1 Annotations gutter** | ✅ New `annotationsGutter.js` CodeMirror extension with coloured dots (5 colours) + multi-annotation stacking (max 3 + `+N`). Click dot → focus panel; right-click line → `AddAnnotationPrompt` modal (small toast-style with Ctrl+Enter save). Loosely coupled via `lorica:addAnnotation` / `lorica:focusAnnotation` window events so Editor.jsx stays clean. Editor + App threaded for `annotations` prop, normalised file paths via `normalizeFilePath`. |
+| **12.2 Three new themes** | ✅ Tokyo Night, Dracula, Rosé Pine. Total 10 → **13**. Each declares 5-stop `logoBars`. createEditorTheme picks them up automatically from THEMES dict. Settings dropdown auto-includes them via `Object.entries(THEMES)`. |
+| **12.3 Ollama everywhere (lighter call sites)** | ✅ Refactored `aiCommitMessage.js`, `aiInlineComplete.js`, `aiPrDescription.js` to route through `aiProviders.js`. Editor now accepts `aiOllamaUrl` + `aiOllamaModel` props; threaded through both eager + split-view Editor invocations and through FilePreview's `editorProps`. GitPanel + PrDescriptionModal pass them to the generators. `isKeyless(provider)` is the gate — Ollama skips the API-key check, anthropic/deepseek still require one. **Ollama now works for**: agent loop, inline complete, commit messages, PR descriptions, smart paste, smart paste translation. **Still queued (12 sites)**: SnippetPalette, AgentSwarmPanel, AutoFixModal, GlobalSearch (semantic re-rank), ProjectBrainPanel, SandboxPanel, TimeScrubBar, brainAutoExtract, agentSwarm, aiSemanticRerank, predictNextEdit, useAI. |
+| **12.4 Perf pass 5** | ⏭️ Investigated and **deferred**. The 413 KiB codemirror chunk is mostly the unavoidable core (view, state, commands, language, autocomplete, search) + lezer + helpers. Real wins would mean lazy-loading `@codemirror/search` or restructuring eager imports — invasive, and the entrypoint is already ~1 MiB which is healthy. Documented in deepseek.md "What's open" for Wave 13. |
+
+**Bundle final (post Wave 12):**
+
+| Chunk | Size | Δ vs Wave 11 |
+|---|---|---|
+| main.bundle.js | **312 KiB** | +9 KiB (annotations gutter + Ollama thread + 3 themes) |
+| vendors.bundle.js | 186 KiB | unchanged |
+| codemirror.bundle.js | 413 KiB | unchanged |
+| Entrypoint total | **~1.02 MiB** | +9 KiB |
+
+**Decisions made (autonomous):**
+
+- **Inline modal vs popover for AddAnnotationPrompt.** Popover anchored
+  at the click position would be nicer UX but requires reaching into
+  Editor for line geometry — too invasive for v1. The toast-style modal
+  is good enough.
+- **Annotation gutter is its own gutter, not co-located with bookmarks.**
+  Mixing them would crowd the gutter and break the bookmark "star one
+  spot" UX. Two thin gutters side by side is fine.
+- **Ollama refactor scope: lighter call sites only.** The medium /
+  small AI integrations (commit messages, inline completion, PR
+  description) are done. The heavier ones (Swarm, Sandbox, Brain) all
+  use bespoke prompt templates and tool flows; refactoring them is
+  Wave 13 — same pattern, just more files.
+- **Perf pass 5 deferred.** Don't optimise prematurely. The
+  entrypoint is healthy.
+
+**Files touched (Wave 12 alone, 9 changes):**
+
+- New: `src/extensions/annotationsGutter.js`,
+  `src/components/AddAnnotationPrompt.jsx`.
+- Modified: `App.jsx`, `Editor.jsx`, `CommandPalette.jsx`,
+  `Settings.jsx` (no — wait, themes only touch themes.js),
+  `themes.js`, `aiCommitMessage.js`, `aiInlineComplete.js`,
+  `aiPrDescription.js`, `GitPanel.jsx`, `PrDescriptionModal.jsx`.
+
 ### 2026-05-09 (evening) — Wave 11 "Futuristic IDE" complete
 
 User explicitly lifted the "no new deps" rule and asked for the

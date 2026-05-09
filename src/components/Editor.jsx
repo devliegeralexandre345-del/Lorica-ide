@@ -27,6 +27,7 @@ import { conflictMarkersExtension, conflictResolveFacet } from '../extensions/co
 import { createMultiLineSearchPanel } from '../extensions/multiLineSearchPanel';
 import { smartInsertExtension } from '../extensions/smartInsert';
 import { cursorBeaconExtension } from '../extensions/cursorBeacon';
+import { annotationsGutter, setAnnotationsEffect } from '../extensions/annotationsGutter';
 
 // =============================================
 // Minimap with smooth drag scrolling
@@ -223,9 +224,15 @@ function collectCandidatePaths(oldText, newText) {
 const Editor = React.memo(function Editor({
   file, index, dispatch, theme, showMinimap = true,
   aiInlineEnabled = false, aiProvider = 'anthropic', aiApiKey = '',
+  // Ollama-specific config — only consulted when aiProvider === 'ollama'.
+  // Wired in App.jsx from state.aiOllamaUrl / state.aiOllamaModel.
+  aiOllamaUrl = 'http://localhost:11434', aiOllamaModel = 'llama3.1:8b',
   blameEnabled = false, projectPath = null,
   bookmarks = null, // lines bookmarked in THIS file (array of numbers)
   semanticMarks = null, // [{line,col,length,severity,message}] from the semantic-types store
+  // Spatial annotations for the active file (Wave 12.1). Slim shape:
+  // [{id, line, color, pinned, text}]. Empty array == no dots rendered.
+  annotations = null,
   // LSP completion fetcher: takes (file, line, character) and returns
   // LSP CompletionItems or null. Passed in from App via useLSP hook so
   // completion queries route to the right language server session.
@@ -253,10 +260,22 @@ const Editor = React.memo(function Editor({
   // AI inline config lives in a ref so the fetcher closure (captured once
   // at editor creation) always sees the latest provider / key / enabled
   // state without having to rebuild the whole EditorView.
-  const aiConfigRef = useRef({ enabled: aiInlineEnabled, provider: aiProvider, apiKey: aiApiKey });
+  const aiConfigRef = useRef({
+    enabled: aiInlineEnabled,
+    provider: aiProvider,
+    apiKey: aiApiKey,
+    ollamaBaseUrl: aiOllamaUrl,
+    ollamaModel: aiOllamaModel,
+  });
   useEffect(() => {
-    aiConfigRef.current = { enabled: aiInlineEnabled, provider: aiProvider, apiKey: aiApiKey };
-  }, [aiInlineEnabled, aiProvider, aiApiKey]);
+    aiConfigRef.current = {
+      enabled: aiInlineEnabled,
+      provider: aiProvider,
+      apiKey: aiApiKey,
+      ollamaBaseUrl: aiOllamaUrl,
+      ollamaModel: aiOllamaModel,
+    };
+  }, [aiInlineEnabled, aiProvider, aiApiKey, aiOllamaUrl, aiOllamaModel]);
 
   // Same pattern for bookmarks: the Mod-; keybind closes over this ref so
   // "next bookmark" always sees the current list without rebuilding the
@@ -532,6 +551,10 @@ const Editor = React.memo(function Editor({
         ...blameGutter(),
         // Bookmarks gutter — sits next to blame, star icon on bookmarked lines.
         ...bookmarkGutter(),
+        // Spatial-annotation gutter — coloured dots for any line that
+        // has a sticky note attached. Click a dot → focus the note in
+        // the AnnotationsPanel. Right-click empty area → emit add intent.
+        ...annotationsGutter(),
         // Git diff gutter — staged-vs-unstaged colour bars (parity with VS
         // Code v1.100). Data is fed in by useGitDiffGutter below.
         ...gitDiffGutter(),
@@ -565,7 +588,11 @@ const Editor = React.memo(function Editor({
           enabled: true,
           getFetcher: async ({ prefix, suffix, signal }) => {
             const cfg = aiConfigRef.current;
-            if (!cfg.enabled || !cfg.apiKey) return '';
+            // Ollama is keyless — gate only on the toggle. Anthropic /
+            // DeepSeek still require a key.
+            const isOllama = cfg.provider === 'ollama';
+            if (!cfg.enabled) return '';
+            if (!isOllama && !cfg.apiKey) return '';
             return fetchInlineCompletion({
               prefix,
               suffix,
@@ -573,6 +600,8 @@ const Editor = React.memo(function Editor({
               filePath: file.path,
               provider: cfg.provider,
               apiKey: cfg.apiKey,
+              ollamaBaseUrl: cfg.ollamaBaseUrl,
+              model: isOllama ? cfg.ollamaModel : undefined,
               signal,
             });
           },
@@ -898,6 +927,16 @@ const Editor = React.memo(function Editor({
       effects: setSemanticMarksEffect.of(semanticMarks || []),
     });
   }, [ready, semanticMarks]);
+
+  // Push spatial annotations for the active file into the gutter
+  // extension's state field. Same pattern as bookmarks — Editor stays
+  // stateless about the annotation store; the panel/hook owns it.
+  useEffect(() => {
+    if (!ready || !viewRef.current) return;
+    viewRef.current.dispatch({
+      effects: setAnnotationsEffect.of(annotations || []),
+    });
+  }, [ready, annotations]);
 
   // Status chip: only show when the user actually enabled inline AI, and only
   // when the state is interesting (thinking/ready/error). "idle" stays hidden

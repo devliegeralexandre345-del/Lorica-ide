@@ -16,12 +16,18 @@ export default function PrDescriptionModal({ state, dispatch, onClose }) {
   const abortRef = useRef(null);
 
   const provider = state.aiProvider || 'anthropic';
-  const apiKey = provider === 'anthropic' ? state.aiApiKey : state.aiDeepseekKey;
+  const apiKey = provider === 'anthropic'
+    ? state.aiApiKey
+    : provider === 'deepseek'
+    ? state.aiDeepseekKey
+    : null;
+  // Ollama runs locally and doesn't need a key — gate stays open.
+  const keyOk = provider === 'ollama' ? true : !!apiKey;
 
   const run = useCallback(async () => {
     if (!state.projectPath) return;
-    if (!apiKey) {
-      setError(`Configure ta clé ${provider === 'anthropic' ? 'Anthropic' : 'DeepSeek'} dans les Paramètres.`);
+    if (!keyOk) {
+      setError(`Configure ta clé ${provider === 'anthropic' ? 'Anthropic' : 'DeepSeek'} dans les Paramètres (ou bascule sur Ollama pour le local).`);
       return;
     }
 
@@ -54,6 +60,8 @@ export default function PrDescriptionModal({ state, dispatch, onClose }) {
         context: ctx,
         provider,
         apiKey,
+        ollamaBaseUrl: state.aiOllamaUrl,
+        model: provider === 'ollama' ? state.aiOllamaModel : undefined,
         signal: ctrl.signal,
       });
       if (ctrl.signal.aborted) return;
@@ -64,7 +72,7 @@ export default function PrDescriptionModal({ state, dispatch, onClose }) {
     } finally {
       setLoading(false);
     }
-  }, [state.projectPath, apiKey, provider]);
+  }, [state.projectPath, apiKey, provider, state.aiOllamaUrl, state.aiOllamaModel, keyOk]);
 
   useEffect(() => {
     run();

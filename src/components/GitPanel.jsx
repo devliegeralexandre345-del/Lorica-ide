@@ -332,7 +332,11 @@ export default function GitPanel({ state, dispatch }) {
       return;
     }
     const provider = state.aiProvider || 'anthropic';
-    const apiKey = provider === 'anthropic' ? state.aiApiKey : state.aiDeepseekKey;
+    const apiKey = provider === 'anthropic'
+      ? state.aiApiKey
+      : provider === 'deepseek'
+      ? state.aiDeepseekKey
+      : null; // Ollama: keyless
     if (!apiKey) {
       dispatch({
         type: 'ADD_TOAST',
@@ -364,6 +368,8 @@ export default function GitPanel({ state, dispatch }) {
         diff,
         provider,
         apiKey,
+        ollamaBaseUrl: state.aiOllamaUrl,
+        model: provider === 'ollama' ? state.aiOllamaModel : undefined,
         signal: ctrl.signal,
       });
       if (ctrl.signal.aborted) return;
@@ -378,7 +384,7 @@ export default function GitPanel({ state, dispatch }) {
       if (generateAbortRef.current === ctrl) generateAbortRef.current = null;
       setGeneratingMsg(false);
     }
-  }, [generatingMsg, state.projectPath, state.aiProvider, state.aiApiKey, state.aiDeepseekKey, dispatch]);
+  }, [generatingMsg, state.projectPath, state.aiProvider, state.aiApiKey, state.aiDeepseekKey, state.aiOllamaUrl, state.aiOllamaModel, dispatch]);
 
   // Cancel any in-flight generation when the panel unmounts.
   useEffect(() => () => generateAbortRef.current?.abort(), []);

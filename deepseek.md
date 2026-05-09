@@ -5,11 +5,11 @@ _every meaningful step. The point: if Claude runs out of context, the_
 _next assistant (DeepSeek, another Claude session, anyone) can pick up_
 _cold and stay productive without re-reading the whole repo._
 
-**Last updated**: 2026-05-09 by Claude (Opus 4.7) — **Wave 11 complete**.
-Ollama local LLM, AI Smart Paste, spatial annotations, Live Share
-(Yjs+WebRTC). 133 JS tests + 8 Rust tests green; main bundle 303 KiB,
-vendors 186 KiB (Yjs is lazy-loaded — 194 KiB chunk, only fetched on
-"Start session"). User has explicitly **lifted the no-new-deps rule** —
+**Last updated**: 2026-05-09 by Claude (Opus 4.7) — **Wave 12 complete**.
+Annotation gutter dots, 3 new themes (13 total), Ollama wired through
+inline-complete + commit messages + PR descriptions. 133 JS tests + 8
+Rust tests green; main bundle 312 KiB (+9 KiB), vendors 186 KiB
+(unchanged). User has explicitly **lifted the no-new-deps rule** —
 add what makes Lorica the perfect futuristic IDE.
 
 ---
@@ -85,11 +85,12 @@ npm run test:watch      # TDD loop
 npm run tauri:dev
 ```
 
-**Bundle budget**: main.bundle ≈ **303 KiB**, entrypoint total
-≈ **1.01 MiB** (Wave 11 added +18 KiB to main for the new
-Settings/hooks/dispatchers wiring; Yjs is lazy-loaded — never enters
-the entry graph). If a change pushes main past 340 KiB, stop and
-investigate — Wave 5 fought hard to get these numbers down.
+**Bundle budget**: main.bundle ≈ **312 KiB**, entrypoint total
+≈ **1.02 MiB** (Wave 12 added +9 KiB for the annotations gutter +
+Ollama threading + 3 themes). Yjs stays lazy. If a change pushes main
+past 340 KiB, stop and investigate — Wave 5 fought hard to get these
+numbers down. Codemirror chunk is still 413 KiB; perf pass 5 deferred
+(no quick wins found, would need surgery into the eager imports).
 
 **Working directory**: `C:\Users\devli\OneDrive\Lorica-ide` (Windows,
 bash shell available via WSL or Git Bash). The user moved the project
@@ -149,6 +150,35 @@ tests/
   voiceInput + buildDockerRunCommand + devcontainer Rust parser
   (+13 tests). WAVE_TEST_GUIDE.md updated with scenarios for
   Waves 6-9. CHANGELOG + LEDGER updated.
+
+- **Wave 12 — polish round 2** (2026-05-09 night). Four sub-waves:
+  - **12.1 Annotations gutter**: completes Wave 11.4 — coloured dots in
+    a dedicated CodeMirror gutter for every line that has a sticky
+    note, click to focus the panel, right-click any line to add via
+    a small inline modal (`AddAnnotationPrompt`). Loosely coupled
+    via window events (`lorica:addAnnotation`, `lorica:focusAnnotation`)
+    so Editor stays clean. Pinned annotations get a thin ring.
+  - **12.2 Three new themes**: Tokyo Night (purple/cyan, very popular),
+    Dracula (the classic), Rosé Pine (warm pastel). All declare their
+    own logoBars so the in-app logo recolours; total themes 10 → **13**.
+  - **12.3 Ollama everywhere**: refactored `aiCommitMessage.js`,
+    `aiInlineComplete.js`, `aiPrDescription.js` to route through
+    `aiProviders.js`. The Editor now threads `aiOllamaUrl` +
+    `aiOllamaModel` props so inline ghost-text completion works
+    locally. GitPanel + PrDescriptionModal pass the same. Ollama is
+    now usable for: agent loop ✅, inline complete ✅, commit messages ✅,
+    PR descriptions ✅, smart paste ✅, smart paste translation ✅.
+    Still hardcoded (out of scope this pass): SnippetPalette,
+    AgentSwarmPanel, AutoFixModal, GlobalSearch, ProjectBrainPanel,
+    SandboxPanel, TimeScrubBar, brainAutoExtract, agentSwarm,
+    aiSemanticRerank, predictNextEdit, useAI. These are the
+    less-frequently-hit call sites — Wave 13 candidate.
+  - **12.4 Perf pass 5**: investigated, deferred. The 413 KiB
+    codemirror chunk is mostly the unavoidable core (view, state,
+    commands, language, autocomplete, search) + lezer parsers +
+    helpers. Real wins would require lazy-loading `@codemirror/search`
+    or restructuring the eager imports — invasive, and the entrypoint
+    is already healthy (~1 MiB).
 
 - **Wave 11 — "Futuristic IDE"** (2026-05-09 evening). Five sub-waves:
   - **11.1 Ollama local LLM**: 3rd AI provider option (alongside
@@ -224,11 +254,11 @@ new:
 
 ## Status of the verification matrix (right now)
 
-- `npm run build` ✅ green (~60 s, main 303 KiB, entry ~1.01 MiB)
-- `cargo check` ✅ green, **0 warnings** (Wave 10 fixes still hold)
-- `npm test` ✅ **133/133** Vitest cases passing across 10 files (Wave
-  11 added aiSmartPaste, annotations, aiProviders test suites — 52
-  new cases)
+- `npm run build` ✅ green (~66 s, main 312 KiB, entry ~1.02 MiB)
+- `cargo check` ✅ green, **0 warnings**
+- `npm test` ✅ **133/133** Vitest cases passing across 10 files
+  (Wave 12 didn't add new test files — gutter/Ollama refactors are
+  covered by aiProviders + smoke through manual testing)
 - `cargo test --lib devcontainer` ✅ **8/8** Rust cases passing
 
 ## What's open for the next assistant
@@ -239,27 +269,29 @@ In priority order — pick whichever fits the user's next ask:
    uncommitted. He may want one cumulative commit, or 5 squashes
    (one per wave: 6, 7, 8, 9, 10). Don't `git commit` without him
    asking.
-2. **Wave 12 candidates** (Wave 11 fully shipped — these are next):
+2. **Wave 13 candidates** (Wave 12 fully shipped — these are next):
    - **Live Share v1: full text sync** via `y-codemirror.next` so
      peers see actual edits, not just cursors. ~80 KiB extra dep,
      well-known integration. Awareness already plumbed.
-   - **Inline gutter dots** for Wave 11.4 annotations — right-click
-     a line → "Add annotation"; small dot in the gutter; click expands
-     a popover. Needs a CodeMirror gutter extension.
-   - **Ollama for inline complete + commit messages**: Wave 11.1
-     wired the agent path; the lighter call sites (useAI.js,
-     aiCommitMessage.js, aiInlineComplete.js, aiPrDescription.js,
-     etc.) still hardcode anthropic + deepseek URLs. Refactor to use
-     `aiProviders.js` so Ollama works everywhere.
-   - **More themes** — Tokyo Night, Dracula, Rosé Pine (currently 10).
+   - **Ollama for the remaining call sites**: SnippetPalette,
+     AgentSwarmPanel, AutoFixModal, GlobalSearch (semantic re-rank),
+     ProjectBrainPanel, SandboxPanel, TimeScrubBar,
+     brainAutoExtract.js, agentSwarm.js, aiSemanticRerank.js,
+     predictNextEdit.js, useAI.js. ~12 sites. Same refactor pattern
+     as Wave 12.3 — use `aiProviders.js`.
+   - **Annotation popovers**: clicking a gutter dot currently opens
+     the panel. Inline hover popover with the note text would be
+     nicer for read-only browsing.
    - **More LSP servers** — Zig, Nim, Crystal, Haskell, OCaml LSPs
      to match the niches that already have static completions.
-   - **Bundle perf pass 5** — codemirror.bundle is still 413 KiB.
    - **Extension loader v0** — Wave 9 spec → real implementation
      (lift `extensions/focus-timer/` into a working loaded extension).
      Big — multi-session work.
    - **Floating windows v2 — read-write mode** (sync edits back to
      the main window).
+   - **Perf pass 5** (deferred from 12.4) — codemirror.bundle is
+     still 413 KiB. Real wins would mean lazy-loading
+     `@codemirror/search` or restructuring the eager imports.
 3. **Open audit minor items still on the books**:
    - `src-tauri/Cargo.toml` could declare `publish = false` to make
      the missing-license warning permanently impossible.

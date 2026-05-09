@@ -30,6 +30,24 @@ export default function CommandPalette({ state, dispatch, onOpenFolder, onLock, 
     { label: 'Toggle AI Copilot', icon: Bot, action: () => { dispatch({ type: 'TOGGLE_PANEL', panel: 'showAIPanel' }); close(); } },
     { label: 'Smart Paste (translate clipboard with AI)', icon: Wand2, action: () => { dispatch({ type: 'SET_PANEL', panel: 'showSmartPaste', value: true }); close(); } },
     { label: 'Annotations (browse spatial notes)', icon: StickyNote, action: () => { dispatch({ type: 'SET_PANEL', panel: 'showAnnotationsPanel', value: true }); close(); } },
+    { label: 'Add annotation here', icon: StickyNote, action: () => {
+      const file = state.openFiles?.[state.activeFileIndex];
+      if (!file?.path) {
+        dispatch({ type: 'ADD_TOAST', toast: { type: 'warning', message: 'Open a file first', duration: 2000 } });
+        close();
+        return;
+      }
+      // Reuse the gutter-add channel — App.jsx already listens. We
+      // default to line 1 because the palette can't know the cursor
+      // position without a ref into Editor; the user can edit the
+      // line in the prompt if they want a different one. (Wave 12.1
+      // follow-up: thread cursor pos via a ref so this lands at the
+      // current line.)
+      window.dispatchEvent(new CustomEvent('lorica:addAnnotation', {
+        detail: { line: 1, source: 'palette' },
+      }));
+      close();
+    } },
     { label: 'Live Share (start / join collab session)', icon: Users, action: () => { dispatch({ type: 'SET_PANEL', panel: 'showCollab', value: true }); close(); } },
     { label: 'Git Worktrees', icon: GitBranch, action: () => { dispatch({ type: 'SET_PANEL', panel: 'showWorktrees', value: true }); close(); } },
     { label: 'Toggle Spotify', icon: Music, action: () => { dispatch({ type: 'TOGGLE_PANEL', panel: 'showSpotify' }); if (!state.showAIPanel) dispatch({ type: 'SET_PANEL', panel: 'showAIPanel', value: true }); close(); } },

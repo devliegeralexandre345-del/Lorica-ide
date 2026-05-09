@@ -8,10 +8,18 @@
 // no trailing period. Matches the repo's existing commit history.
 
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
+import {
+  getEndpoint,
+  getHeaders,
+  buildChatBody,
+  extractText,
+  isKeyless,
+} from './aiProviders';
 
-const ANTHROPIC_ENDPOINT = 'https://api.anthropic.com/v1/messages';
-const DEEPSEEK_ENDPOINT = 'https://api.deepseek.com/v1/chat/completions';
-
+// Fast / cheap model preset per provider — commit message generation
+// doesn't need the smartest tier, just the fastest. Ollama uses the
+// user-configured model (resolved upstream) since "fast" is a per-
+// install choice for local LLMs.
 const FAST_MODELS = {
   anthropic: 'claude-3-5-haiku-20241022',
   deepseek: 'deepseek-chat',
@@ -74,83 +82,50 @@ function cleanOutput(text) {
  *
  * @param {object}  args
  * @param {string}  args.diff      — output of `git diff --cached`
- * @param {string}  args.provider  — 'anthropic' | 'deepseek'
- * @param {string}  args.apiKey
+ * @param {string}  args.provider  — 'anthropic' | 'deepseek' | 'ollama'
+ * @param {string}  args.apiKey    — ignored when provider is 'ollama'
  * @param {string=} args.model     — override (optional)
+ * @param {string=} args.ollamaBaseUrl — override the localhost:11434 default
  * @param {AbortSignal=} args.signal
  * @returns {Promise<string>} the commit message (never throws for benign errors)
  */
 export async function generateCommitMessage({
-  diff, provider, apiKey, model, signal,
+  diff, provider, apiKey, model, ollamaBaseUrl, signal,
 }) {
-  if (!apiKey) throw new Error('API key missing — configure it in Settings.');
+  if (!isKeyless(provider) && !apiKey) {
+    throw new Error('API key missing — configure it in Settings.');
+  }
   if (!diff || !diff.trim()) return 'chore: empty commit';
 
   const chosenModel = model || FAST_MODELS[provider] || FAST_MODELS.anthropic;
   const userMsg = `Staged diff:\n\n${clipDiff(diff)}\n\nWrite the commit message now.`;
 
-  if (provider === 'anthropic') {
-    const body = {
-      model: chosenModel,
-      max_tokens: 400,
-      temperature: 0.3,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: userMsg }],
-    };
-    const r = await robustFetch(
-      ANTHROPIC_ENDPOINT,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify(body),
-        signal,
-      },
-      false, // Anthropic prefers tauri-plugin-http
-    );
-    if (!r.ok) {
-      const errText = await safeErrorText(r);
-      throw new Error(`Anthropic ${r.status}: ${errText}`);
-    }
-    const data = await r.json();
-    const raw = (data?.content || []).map((b) => b.text || '').join('');
-    return cleanOutput(raw);
-  }
-
-  // DeepSeek / OpenAI-shaped
-  const body = {
+  const endpoint = getEndpoint(provider, provider === 'ollama' ? ollamaBaseUrl : undefined);
+  const headers = getHeaders(provider, apiKey);
+  const body = buildChatBody({
+    provider,
     model: chosenModel,
-    max_tokens: 400,
+    system: SYSTEM_PROMPT,
+    messages: [{ role: 'user', content: userMsg }],
+    maxTokens: 400,
     temperature: 0.3,
-    messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
-      { role: 'user', content: userMsg },
-    ],
-  };
+  });
+
+  // Anthropic prefers Tauri's HTTP plugin (CORS surprises in some
+  // builds); DeepSeek + Ollama are CORS-friendly and faster via native
+  // fetch.
+  const preferNative = provider !== 'anthropic';
   const r = await robustFetch(
-    DEEPSEEK_ENDPOINT,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(body),
-      signal,
-    },
-    true, // DeepSeek is CORS-friendly
+    endpoint,
+    { method: 'POST', headers, body: JSON.stringify(body), signal },
+    preferNative,
   );
   if (!r.ok) {
     const errText = await safeErrorText(r);
-    throw new Error(`DeepSeek ${r.status}: ${errText}`);
+    throw new Error(`${provider} ${r.status}: ${errText}`);
   }
   const data = await r.json();
-  const raw = data?.choices?.[0]?.message?.content || '';
-  return cleanOutput(raw);
+  return cleanOutput(extractText(provider, data));
 }
 
 async function safeErrorText(response) {

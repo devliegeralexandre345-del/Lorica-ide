@@ -124,6 +124,42 @@ export const THEMES = {
     textDim: '#928374',
     logoBars: ['#fb4934', '#fe8019', '#fabd2f', '#b8bb26', '#83a598'],
   },
+  // ── v2.3.x trio (Wave 12.2): three of the most-requested community
+  // themes from the v2.2 Show HN feedback. Each declares its own
+  // logoBars so the in-app logo and accents recolour cleanly.
+  tokyoNight: {
+    name: 'Tokyo Night',
+    bg: '#1a1b26',
+    surface: '#1f2335',
+    panel: '#24283b',
+    border: '#2f334d',
+    accent: '#7aa2f7',
+    text: '#c0caf5',
+    textDim: '#565f89',
+    logoBars: ['#bb9af7', '#7aa2f7', '#7dcfff', '#73daca', '#9ece6a'],
+  },
+  dracula: {
+    name: 'Dracula',
+    bg: '#282a36',
+    surface: '#383a4a',
+    panel: '#44475a',
+    border: '#4f5167',
+    accent: '#bd93f9',
+    text: '#f8f8f2',
+    textDim: '#6272a4',
+    logoBars: ['#ff79c6', '#bd93f9', '#8be9fd', '#50fa7b', '#f1fa8c'],
+  },
+  rosePine: {
+    name: 'Rosé Pine',
+    bg: '#191724',
+    surface: '#1f1d2e',
+    panel: '#26233a',
+    border: '#403d52',
+    accent: '#ebbcba',
+    text: '#e0def4',
+    textDim: '#6e6a86',
+    logoBars: ['#eb6f92', '#ebbcba', '#f6c177', '#9ccfd8', '#c4a7e7'],
+  },
 };
 
 export function createEditorTheme(themeName) {

@@ -3,6 +3,70 @@
 All notable changes to Lorica IDE. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — Waves 6-12
+
+Wave 12 (2026-05-09 night) is the polish round that closes the
+Wave 11 loose ends — annotations get their inline gutter UX, the
+themes catalog grows from 10 to 13, and Ollama wires through the
+inline-completion / commit-message / PR-description paths so the
+"local mode" promise from Wave 11.1 is actually true everywhere a
+user expects it.
+
+### Added — Wave 12.1 (Annotations gutter)
+
+- **Inline coloured gutter dots** for every line that has a sticky
+  note. Multi-annotation lines stack up to 3 dots + a `+N` chip.
+- **Right-click any gutter line → add annotation** via
+  `AddAnnotationPrompt` (small inline modal with Ctrl/Cmd+Enter to
+  save). Pinned annotations get a thin ring so they stand out.
+- **Click a dot → focus the AnnotationsPanel** so the user can edit
+  the note's text + colour.
+- New extension: `src/extensions/annotationsGutter.js`. Loosely
+  coupled to the hook via window events
+  (`lorica:addAnnotation`, `lorica:focusAnnotation`).
+- New command: `Add annotation here` in the Command Palette.
+
+### Added — Wave 12.2 (3 new themes)
+
+Total themes 10 → **13**. Each declares a 5-stop `logoBars` palette
+so the in-app logo recolours.
+
+- **Tokyo Night** (`tokyoNight`) — purple/cyan tones, currently the
+  most-asked-for theme on community channels.
+- **Dracula** (`dracula`) — the classic. Pink/cyan/green logo bars.
+- **Rosé Pine** (`rosePine`) — warm pastel, most popular among
+  designer-leaning developers.
+
+### Added — Wave 12.3 (Ollama everywhere)
+
+Refactored the lighter AI call sites to route through
+`src/utils/aiProviders.js` so the local-LLM path works in more places:
+
+- **`aiCommitMessage.js`** — Ollama support for AI-generated commit
+  messages from staged diffs.
+- **`aiInlineComplete.js`** — Ollama support for inline ghost-text
+  completion. Editor.jsx now threads `aiOllamaUrl` + `aiOllamaModel`
+  props through; split-view editors get the same.
+- **`aiPrDescription.js`** — Ollama support for AI-generated PR
+  descriptions.
+
+GitPanel + PrDescriptionModal now pass `ollamaBaseUrl` + `model`
+through to the generators. `isKeyless(provider)` is the new gate that
+skips the API-key check for Ollama everywhere it's used.
+
+Still queued for Wave 13 (lower-priority sites): SnippetPalette,
+AgentSwarmPanel, AutoFixModal, GlobalSearch (semantic re-rank),
+ProjectBrainPanel, SandboxPanel, TimeScrubBar, plus a handful of
+utility modules (~12 sites total).
+
+### Bundle impact (Wave 12)
+
+- `main.bundle.js`: 303 → **312 KiB** (+9 KiB for annotations gutter
+  + Ollama threading + 3 new themes).
+- `vendors.bundle.js`: 186 KiB (unchanged).
+- `codemirror.bundle.js`: 413 KiB (unchanged).
+- Total entrypoint: ~1.02 MiB.
+
 ## [Unreleased] — Waves 6-11
 
 Wave 11 ("Futuristic IDE", 2026-05-09) lands the medium-tier features
