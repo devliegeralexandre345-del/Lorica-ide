@@ -91,6 +91,13 @@ export default function StatusBar({ state, activeFile, dispatch, updateInfo, cur
       </div>
 
       <div className="flex items-center gap-3">
+        {/* Extension chip slot — Wave 23. Each loaded extension that
+            uses ui.statusBar permission appends its chip into this
+            host node via extensionHost.mountStatusBarChip(). The DOM
+            children are managed entirely by extensions; React just
+            owns the host shell. */}
+        <div id="lorica-ext-statusbar-host" className="flex items-center gap-2" />
+
         {/* Focus/Pomodoro timer — opt-in via state.showFocusTimer */}
         {state.showFocusTimer && (
           <Suspense fallback={null}>

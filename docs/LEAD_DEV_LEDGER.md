@@ -69,6 +69,61 @@ _Append-only. Most recent at the top._
 
 ## Bilan log
 
+### 2026-05-09 (deep night) — Waves 23-27 third 5-wave push
+
+User asked for "60% of 5h" of continuous work. Delivered another 5
+waves on top of 22.
+
+| Wave | Result |
+|---|---|
+| **23. Extension runtime (phase 2)** | ✅ `extensionRuntime.js` + `extensionHost.js`. Extensions loaded via Blob URL + dynamic import. Sandboxed `ctx` per declared permission. App boots enabled set on mount/project-change. Status-bar chip slot in StatusBar. focus-timer ready to load. |
+| **24. Settings → Extensions tab** | ✅ `InstalledExtensionsPanel.jsx` lists every scanned manifest with enable/disable toggle, source badge, permission chips. Persists `lorica.extensions.enabled`. |
+| **25. Voice command parser** | ✅ 13 intents (open settings/terminal/search/git/copilot/annotations/collab/worktrees/cheatsheet, save, toggle zen, toggle minimap, smart paste). Bilingual EN+FR. Stop-word filter + min-3-char substring match. AgentCopilot wired. |
+| **26. Inline Markdown for replies** | ✅ Tiny home-grown renderer (~100 lines, 0 deps). Bold/italic/strike/code/link/newline. URL allow-list rejects `javascript:` / `data:`. Used in popover + panel. |
+| **27. Code-review mode** | ✅ Shared `Y.Array` of review notes. Hook flag + helpers. CollabPanel toggle + live feed (author + colour + file:line + text). |
+
+**Tests**: 153 → **183 / 14 files** (+30: voiceCommands 17 + inlineMarkdown 13).
+
+**Bundle final (post Wave 27):**
+
+| Chunk | Size | Δ vs Wave 22 |
+|---|---|---|
+| main.bundle.js | **326 KiB** | +6 KiB |
+| vendors.bundle.js | 186 KiB | unchanged |
+| codemirror.bundle.js | 413 KiB | unchanged |
+| Entrypoint total | **~1.04 MiB** | +6 KiB |
+
+**Decisions made (autonomous):**
+
+- **Extension sandboxing in v0 = API-shape only.** Worker isolation,
+  shadow-DOM, and `network.outbound` permission deferred to v0.1. The
+  v0 contract (no `window.lorica` access, no direct `localStorage`,
+  permissions gate the `ctx` surface) is enforced by code review,
+  not by hard isolation. EXTENSION_API.md already documents this.
+- **Bilingual voice commands.** The user speaks French. English keeps
+  the door open for international contributors. Stop-word filter +
+  min-substring-length is the cheap fix for short-token false
+  positives like "le".
+- **Inline Markdown is home-grown, not react-markdown.** Replies are
+  short + frequent; pulling react-markdown into the agent-copilot
+  chunk's deps doesn't pay for the use case. ~100 lines covers
+  bold/italic/code/link/strike + safe URLs.
+- **Code-review mode v0 = panel feed, not in-editor pins.** Pinning
+  to (file, line) as actual editor decorations is v2 — needs
+  per-peer-coloured gutter dots that don't conflict with the
+  Lorica-local annotation gutter.
+
+**Files touched (Waves 23-27, ~14 files):**
+
+- New: `src/utils/extensionRuntime.js`, `src/utils/extensionHost.js`,
+  `src/components/InstalledExtensionsPanel.jsx`,
+  `src/utils/voiceCommands.js`, `src/utils/inlineMarkdown.js`,
+  `tests/voiceCommands.test.js`, `tests/inlineMarkdown.test.js`.
+- Modified: `App.jsx`, `Settings.jsx`, `StatusBar.jsx`,
+  `AgentCopilot.jsx`, `AnnotationPopover.jsx`,
+  `AnnotationsPanel.jsx`, `CollabPanel.jsx`, `collab.js`,
+  `useCollabSession.js`.
+
 ### 2026-05-09 (latest) — Waves 18-22 second 5-wave push
 
 User said "continue, hn" — interpreted as "do another 5". Picked from

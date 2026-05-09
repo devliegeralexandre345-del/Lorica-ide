@@ -36,6 +36,10 @@ export function useCollabSession() {
       try { window.removeEventListener('lorica:cursorMoved', cursorListenerRef.current); } catch {}
       cursorListenerRef.current = null;
     }
+    if (reviewUnsubRef.current) {
+      try { reviewUnsubRef.current(); } catch {}
+      reviewUnsubRef.current = null;
+    }
     if (sessionRef.current) {
       try { sessionRef.current.leave(); } catch {}
       sessionRef.current = null;
@@ -48,6 +52,8 @@ export function useCollabSession() {
     setRoomId(null);
     setPeers([]);
     setError(null);
+    setReviewMode(false);
+    setReviewNotes([]);
   }, []);
 
   const start = useCallback(async ({ roomId: explicitId, displayName, signaling } = {}) => {
@@ -114,6 +120,13 @@ export function useCollabSession() {
   const [sharedFiles, setSharedFiles] = useState(new Set());
   const sharedTextsRef = useRef(new Map());
 
+  // Wave 27 — review-mode state. `reviewMode` flips when the user
+  // toggles the review-mode toggle in CollabPanel. `reviewNotes`
+  // mirrors the session's shared Y.Array.
+  const [reviewMode, setReviewMode] = useState(false);
+  const [reviewNotes, setReviewNotes] = useState([]);
+  const reviewUnsubRef = useRef(null);
+
   const shareFile = useCallback(async (filePath, initialContent) => {
     if (!sessionRef.current || !filePath) return null;
     let ytext = sharedTextsRef.current.get(filePath);
@@ -166,6 +179,30 @@ export function useCollabSession() {
   // Backwards-compatible single-file accessor for legacy callers.
   const sharedFile = sharedFiles.size > 0 ? Array.from(sharedFiles)[0] : null;
 
+  // ── Wave 27 — review-mode helpers ─────────────────────────────────
+  const enableReviewMode = useCallback(() => {
+    if (!sessionRef.current) return;
+    setReviewMode(true);
+    if (reviewUnsubRef.current) return;
+    reviewUnsubRef.current = sessionRef.current.onReviewNotesChange((notes) => {
+      setReviewNotes(notes);
+    });
+  }, []);
+
+  const disableReviewMode = useCallback(() => {
+    setReviewMode(false);
+    if (reviewUnsubRef.current) {
+      try { reviewUnsubRef.current(); } catch {}
+      reviewUnsubRef.current = null;
+    }
+    setReviewNotes([]);
+  }, []);
+
+  const postReviewNote = useCallback(({ file, line, text } = {}) => {
+    if (!sessionRef.current || !reviewMode) return null;
+    return sessionRef.current.appendReviewNote({ file, line, text });
+  }, [reviewMode]);
+
   // Final cleanup on unmount — guards against the user closing the IDE
   // mid-session without clicking Stop.
   useEffect(() => {
@@ -192,5 +229,11 @@ export function useCollabSession() {
     shareFile,
     unshareFile,
     getBindingFor,
+    // Wave 27 — code-review mode
+    reviewMode,
+    reviewNotes,
+    enableReviewMode,
+    disableReviewMode,
+    postReviewNote,
   };
 }

@@ -3,6 +3,65 @@
 All notable changes to Lorica IDE. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — Waves 6-27
+
+Waves 23-27 (2026-05-09 deep night) ship the extension runtime that
+makes the Wave 9 spec real, plus three quality-of-life additions:
+voice commands, inline Markdown in annotation replies, and a
+code-review mode on top of Live Share.
+
+### Added — Wave 23 (Extension runtime)
+
+- **`extensionRuntime.js`** loads a manifest's entry JS via
+  `cmd_extension_read_entry` + Blob URL + dynamic import. Hands the
+  extension a `ctx` object built from its declared permissions:
+  `ui.statusBar.register`, `ui.commandPalette.register/dispatch`,
+  `storage.local`, `storage.settings`.
+- **`extensionHost.js`** — host-side surface: status-bar chip slot,
+  command registry, namespaced localStorage buckets.
+- **`bootEnabledExtensions()`** — runs on App mount + project
+  change. Reads `lorica.extensions.enabled` from localStorage.
+
+### Added — Wave 24 (Settings → Extensions tab)
+
+- **`InstalledExtensionsPanel.jsx`** — lists every scanned manifest
+  with enable/disable toggle, version, source badge, permission
+  chips. Wired into Settings above Theme.
+
+### Added — Wave 25 (Voice command parser)
+
+- **`voiceCommands.js`** — maps transcripts to 13 IDE intents in
+  English + French. Stop-word filter + min-3-char substring match
+  prevent false positives (no more "le → toggle/leave").
+- **AgentCopilot integration**: dictation handler routes finals
+  through the parser; on a hit, executes + clears the input.
+
+### Added — Wave 26 (Inline Markdown in annotation replies)
+
+- **`inlineMarkdown.js`** — tiny renderer (~100 lines, zero deps)
+  for `**bold**`, `*italic*`, `~~strike~~`, `` `code` ``,
+  `[label](url)`, newlines as `<br>`. URL allow-list blocks
+  `javascript:` / `data:` for XSS safety in shared review notes.
+- Used by AnnotationPopover + AnnotationsPanel.
+
+### Added — Wave 27 (Code-review mode)
+
+- Shared **review-notes Y.Array** in the collab session.
+- **`useCollabSession`**: `reviewMode` + `enableReviewMode` +
+  `postReviewNote` + `reviewNotes` live feed mirror.
+- **CollabPanel** grows a review toggle + live feed (author +
+  colour dot + file:line + text) + "Post review note on active
+  file" quick action.
+
+### New tests
+
+- `voiceCommands.test.js` (17), `inlineMarkdown.test.js` (13).
+- Total: **183 across 14 files** (was 153 / 12).
+
+### Bundle impact
+
+- `main.bundle.js`: 320 → **326 KiB** (+6 KiB).
+
 ## [Unreleased] — Waves 6-22
 
 Waves 18-22 (2026-05-09 latest) close another 5-wave push: Live Share

@@ -181,6 +181,37 @@ export function createCollabSession({ roomId, displayName, signaling }) {
     return ytext;
   }
 
+  // ── Wave 27 — Code-review mode ─────────────────────────────────
+  //
+  // A shared Y.Array of review notes. Each entry: { id, author, color,
+  // file, line, text, at }. Peers append; everyone observes. Distinct
+  // from the per-file Y.Texts so review notes don't pollute the
+  // synced document content.
+  const reviewNotes = ydoc.getArray('review-notes');
+
+  function appendReviewNote(note) {
+    if (!note || typeof note !== 'object') return;
+    const safe = {
+      id: note.id || ('rn_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4)),
+      author: String(note.author || awareness.getLocalState()?.user?.name || 'anonymous'),
+      color: String(note.color || awareness.getLocalState()?.user?.color || '#fbbf24'),
+      file: String(note.file || ''),
+      line: typeof note.line === 'number' ? note.line : 1,
+      text: String(note.text || ''),
+      at: Date.now(),
+    };
+    reviewNotes.push([safe]);
+    return safe;
+  }
+
+  function onReviewNotesChange(cb) {
+    if (typeof cb !== 'function') return () => {};
+    const handler = () => cb(reviewNotes.toArray());
+    reviewNotes.observe(handler);
+    cb(reviewNotes.toArray());
+    return () => { reviewNotes.unobserve(handler); };
+  }
+
   return {
     ydoc,
     provider,
@@ -190,5 +221,8 @@ export function createCollabSession({ roomId, displayName, signaling }) {
     onPeersChange,
     leave,
     getSharedText,
+    // Wave 27 — review mode
+    appendReviewNote,
+    onReviewNotesChange,
   };
 }

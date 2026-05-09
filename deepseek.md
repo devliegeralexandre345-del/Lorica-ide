@@ -5,12 +5,13 @@ _every meaningful step. The point: if Claude runs out of context, the_
 _next assistant (DeepSeek, another Claude session, anyone) can pick up_
 _cold and stay productive without re-reading the whole repo._
 
-**Last updated**: 2026-05-09 by Claude (Opus 4.7) — **Waves 18-22 complete**.
-Live Share v2 multi-file, **OpenRouter as 4th provider** (100+ models),
-annotation **comment threads**, +20 tests, **extension loader phase 1**
-(manifest scanner with sandbox-permission validation + Rust unit tests).
-**153 JS tests + 12 Rust tests green**. Bundle: main 320 KiB, vendors
-186 KiB. User has lifted the no-new-deps
+**Last updated**: 2026-05-09 by Claude (Opus 4.7) — **Waves 23-27 complete**.
+**Extension runtime** (Wave 9 spec → real loaded extensions, focus-timer
+ready), Settings → Extensions tab, **voice commands** (parse French + EN
+intents → IDE actions), **inline Markdown** in annotation replies, and
+**code-review mode** (live shared review notes during a Live Share
+session). **183 JS tests + 12 Rust tests green**. Bundle: main 326 KiB,
+vendors 186 KiB. User has lifted the no-new-deps
 rule — keep adding what makes Lorica the perfect futuristic IDE.
 
 ---
@@ -151,6 +152,40 @@ tests/
   voiceInput + buildDockerRunCommand + devcontainer Rust parser
   (+13 tests). WAVE_TEST_GUIDE.md updated with scenarios for
   Waves 6-9. CHANGELOG + LEDGER updated.
+
+- **Waves 23-27 — third 5-wave push** (2026-05-09 deep night).
+  - **23. Extension runtime (phase 2)**: `extensionRuntime.js` loads
+    a manifest's entry JS via `cmd_extension_read_entry` + Blob URL +
+    dynamic import, then hands the extension a sandboxed `ctx` object
+    scoped to its declared permissions. `extensionHost.js` provides
+    the host-side surface: status-bar chip slot in StatusBar, command
+    registry, `lorica.ext.<id>.<key>` localStorage namespace,
+    `lorica.ext.<id>.settings.<key>` for `contributes.settings`.
+    `bootEnabledExtensions()` runs on App mount per project.
+  - **24. Settings → Extensions tab**: new
+    `InstalledExtensionsPanel.jsx` listing every scanned manifest
+    with enable/disable toggle, version, source badge (project /
+    user / builtin), permission chips, and root path. Persists the
+    enabled set to `lorica.extensions.enabled` localStorage.
+  - **25. Voice command parser**: `voiceCommands.js` maps transcripts
+    (English + French) to one of 13 IDE intents (open settings,
+    terminal, search, git, copilot, annotations, collab, worktrees;
+    save file, toggle zen, toggle minimap, smart paste, cheatsheet).
+    Stop-word filter + min-3-char substring match avoid the
+    "le → toggle/leave" false positives. AgentCopilot's dictation
+    handler routes the final transcript through this and clears the
+    input on a hit.
+  - **26. Inline Markdown for replies**: tiny home-grown renderer
+    (`inlineMarkdown.js`) supporting `**bold**`, `*italic*`,
+    `~~strike~~`, `` `code` ``, `[label](url)`, `\n`. URL allow-list
+    blocks `javascript:` / `data:` / any other scheme that's not
+    http(s) / mailto. Used by AnnotationPopover + AnnotationsPanel.
+  - **27. Code-review mode**: `collab.js` exposes `appendReviewNote`
+    + `onReviewNotesChange` over a session-shared `Y.Array`.
+    `useCollabSession` adds `enableReviewMode` / `disableReviewMode`
+    + `postReviewNote`. CollabPanel grows a review toggle and a live
+    feed of peer-posted notes (author, timestamp, file:line, text)
+    with a "Post review note on active file" quick action.
 
 - **Waves 18-22 — second 5-wave push** (2026-05-09 latest).
   - **18. Live Share v2 multi-file**: `useCollabSession` switched from
@@ -316,14 +351,14 @@ new:
 
 ## Status of the verification matrix (right now)
 
-- `npm run build` ✅ green (~75 s, main **320 KiB**, vendors 186 KiB,
-  entry ~1.03 MiB; +3 KiB for OpenRouter UI + multi-file collab + reply
-  UI + extension-loader bridge)
+- `npm run build` ✅ green (~73 s, main **326 KiB**, vendors 186 KiB,
+  entry ~1.03 MiB; +6 KiB for the extension runtime + voice parser +
+  Markdown renderer + review mode UI)
 - `cargo check` ✅ green, **0 warnings**
-- `npm test` ✅ **153/153** Vitest cases across 12 files (+20 from
-  Wave 21: aiProvidersOpenRouter + annotationsReplies)
-- `cargo test --lib extension_loader` ✅ **4/4** (manifest validation
-  + path-traversal block)
+- `npm test` ✅ **183/183** Vitest cases across 14 files (+30 from
+  Waves 21+25+26: aiProvidersOpenRouter, annotationsReplies,
+  voiceCommands, inlineMarkdown)
+- `cargo test --lib extension_loader` ✅ **4/4**
 - `cargo test --lib devcontainer` ✅ **8/8**
 - Lazy chunks: yjs-binding (~80 KiB, only on share)
 
@@ -335,25 +370,26 @@ In priority order — pick whichever fits the user's next ask:
    uncommitted. He may want one cumulative commit, or 5 squashes
    (one per wave: 6, 7, 8, 9, 10). Don't `git commit` without him
    asking.
-2. **Wave 23 candidates** (Waves 18-22 fully shipped — these are next):
-   - **Extension loader v0 phase 2 (the actual runtime)**: scan
-     manifests is done; now wire `ctx.statusBar.register`,
-     `ctx.commands.register`, `ctx.storage.local`, `ctx.storage.settings`.
-     Use `cmd_extension_read_entry` + Blob URL + dynamic import.
-     Test by loading the in-tree `extensions/focus-timer/`.
-   - **Settings → Extensions tab**: surface scanned manifests with
-     enable / disable toggles. Persist enabled set under
-     `lorica.extensions.enabled` in localStorage.
-   - **Annotation reply threads — Markdown rendering**: today the
-     reply text is plain-text. Wire to MarkdownMessage so `**bold**`
-     and `code` render inline.
-   - **Code-review mode**: a meta-feature that pairs annotations +
-     Live Share — let one peer leave inline review notes that the
-     other sees as soft-pinned annotations.
-   - **Voice command parser**: Wave 11.1 added dictation; the next
-     step is intent parsing ("open settings", "run tests") so voice
-     can drive commands, not just dictate text.
+2. **Wave 28 candidates** (Waves 23-27 fully shipped — these are next):
+   - **Extension runtime v0.1 (sandbox hardening)**: shadow DOM for
+     status-bar chips so extension CSS can't leak; Web Worker
+     execution for CPU-intensive extensions; `network.outbound`
+     permission with allow-list.
+   - **Code-review mode v2**: pin review notes to `(file, line)` and
+     render them as Lorica annotations on the receiving peer's
+     editor (today they're a panel-only feed).
+   - **Voice intents — extend catalog**: add "run tests", "format
+     this file", "switch to <theme>", "next/previous tab",
+     "split editor".
+   - **Status-bar host slot for the right-side**: today the slot is
+     in the right cluster but pre-FocusTimer. Some extensions might
+     want to register on the left side too.
+   - **Multi-language voice intents**: Spanish + German triggers
+     for international users.
    - **Perf pass 5** — codemirror.bundle is still 413 KiB.
+   - **The Editor still needs `aiOpenRouterKey` threading** — only
+     the agent + inline-complete paths got it; smaller utilities
+     should pull through `aiProviders.resolveProviderConfig(state)`.
 3. **Open audit minor items still on the books**:
    - `src-tauri/Cargo.toml` could declare `publish = false` to make
      the missing-license warning permanently impossible.

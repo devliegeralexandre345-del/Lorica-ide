@@ -15,6 +15,7 @@ import {
   X, StickyNote, Trash2, MapPin, Search, Pin, PinOff, MessageCircle, Send,
 } from 'lucide-react';
 import { ANNOTATION_COLORS } from '../utils/annotations';
+import { renderInlineMarkdown } from '../utils/inlineMarkdown';
 
 const COLOR_BAR = {
   amber:   'bg-amber-400',
@@ -205,7 +206,7 @@ export default function AnnotationsPanel({
                             <span className="ml-2">{new Date(r.updatedAt || r.createdAt).toLocaleTimeString()}</span>
                           </div>
                           <div className="text-[11px] text-lorica-text whitespace-pre-wrap leading-snug">
-                            {r.text}
+                            {renderInlineMarkdown(r.text)}
                           </div>
                         </div>
                         {typeof removeReply === 'function' && (

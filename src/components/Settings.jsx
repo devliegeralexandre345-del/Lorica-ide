@@ -15,6 +15,7 @@ import {
   isVoiceSupported,
 } from '../utils/voiceInput';
 import { listOllamaModels, listOpenRouterModels, PROVIDER_DEFAULT_MODELS } from '../utils/aiProviders';
+import InstalledExtensionsPanel from './InstalledExtensionsPanel';
 
 export default function Settings({ state, dispatch, actions }) {
   const [apiKey, setApiKey] = useState(state.aiApiKey);
@@ -684,6 +685,16 @@ export default function Settings({ state, dispatch, actions }) {
               </p>
             </div>
           )}
+
+          {/* Wave 24 — Installed user extensions (separate from the
+              LSP/MCP marketplace; these are runtime-loaded). */}
+          <div>
+            <InstalledExtensionsPanel
+              projectPath={state.projectPath}
+              builtinDir={null}
+              dispatch={dispatch}
+            />
+          </div>
 
           {/* Theme */}
           <div>

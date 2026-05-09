@@ -23,6 +23,7 @@ import {
   isVoiceSupported,
   isVoiceFeatureEnabled,
 } from '../utils/voiceInput';
+import { parseVoiceCommand, executeVoiceCommand } from '../utils/voiceCommands';
 
 // Memoized message row. Non-last messages are stable once the agent has
 // moved on — React.memo with a cheap equality check prevents thousands of
@@ -139,7 +140,7 @@ function readDocumentSelection() {
   }
 }
 
-export default function AgentCopilot({ state, dispatch, agent, activeFile, projectPrompts }) {
+export default function AgentCopilot({ state, dispatch, agent, activeFile, projectPrompts, actions }) {
   const [input, setInput] = useState('');
   const [showConfig, setShowConfig] = useState(false);
   const [slashOpen, setSlashOpen] = useState(false);
@@ -498,9 +499,24 @@ export default function AgentCopilot({ state, dispatch, agent, activeFile, proje
         // space separator so consecutive dictations don't run together.
         const base = dictationBaseRef.current || '';
         const sep = base && !base.endsWith(' ') ? ' ' : '';
-        setInput(base + sep + text);
+        const merged = base + sep + text;
+        setInput(merged);
         if (final) {
-          dictationBaseRef.current = base + sep + text;
+          dictationBaseRef.current = merged;
+          // Wave 25 — try to interpret the final transcript as a voice
+          // command. If it parses to a known intent with reasonable
+          // confidence, execute it AND clear the input so the user
+          // doesn't accidentally send the command text to the agent.
+          // Otherwise we leave the transcript in the input as before.
+          const parsed = parseVoiceCommand(text);
+          if (parsed && executeVoiceCommand(parsed, { dispatch, actions })) {
+            setInput('');
+            dictationBaseRef.current = '';
+            dispatch({
+              type: 'ADD_TOAST',
+              toast: { type: 'info', message: `Voice: ${parsed.intent.label}`, duration: 1800 },
+            });
+          }
         }
       },
       onError: (err) => {

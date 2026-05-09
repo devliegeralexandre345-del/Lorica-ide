@@ -28,6 +28,7 @@ import { useDevContainer } from './hooks/useDevContainer';
 import { useAnnotations } from './hooks/useAnnotations';
 import { normalizeFilePath as normalizeAnnotationPath } from './utils/annotations';
 import { useCollabSession } from './hooks/useCollabSession';
+import { bootEnabledExtensions } from './utils/extensionRuntime';
 import { loadIdentity } from './utils/agentIdentity';
 import { loadSemanticStore } from './utils/semanticTypes';
 
@@ -271,6 +272,30 @@ export default function App() {
     // Run only once on initial mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Wave 24 — boot every user-enabled extension. Runs once on first
+  // mount and again whenever the project changes (so project-local
+  // .lorica/extensions/ get picked up). Errors are surfaced as toasts;
+  // we never throw to keep boot resilient if a single extension is
+  // broken.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await bootEnabledExtensions({ projectPath: state.projectPath });
+        if (cancelled) return;
+        if (r.errors?.length) {
+          for (const msg of r.errors.slice(0, 3)) {
+            dispatch({
+              type: 'ADD_TOAST',
+              toast: { type: 'warning', message: `Extension: ${msg}`, duration: 4500 },
+            });
+          }
+        }
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [state.projectPath, dispatch]);
 
   // First non-empty project tree → mark as "project ready". Session
   // restore re-uses the same mark (we only stamp the first time the
@@ -783,7 +808,7 @@ Suggest the best resolution and explain why. Output ONLY the replacement code in
             <div style={{ width: aiPanelWidth }} className="flex-shrink-0 border-l border-lorica-border bg-lorica-surface overflow-hidden flex flex-col">
               <ErrorBoundary name="Agent Copilot" compact>
                 <Suspense fallback={LazyFallback}>
-                  <AgentCopilot state={state} dispatch={dispatch} agent={agent} activeFile={activeFile} projectPrompts={projectPrompts} />
+                  <AgentCopilot state={state} dispatch={dispatch} agent={agent} activeFile={activeFile} projectPrompts={projectPrompts} actions={actions} />
                 </Suspense>
               </ErrorBoundary>
               {state.showSpotify && (

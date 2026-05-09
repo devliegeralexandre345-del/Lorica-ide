@@ -11,6 +11,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import { StickyNote, ChevronRight, Pin } from 'lucide-react';
+import { renderInlineMarkdown } from '../utils/inlineMarkdown';
 
 const COLOR_BG = {
   amber:   { bg: 'bg-amber-400/10',   border: 'border-amber-400/40',   dot: 'bg-amber-400'   },
@@ -106,7 +107,9 @@ export default function AnnotationPopover({ peek, onClose, onOpenPanel }) {
                 <span className="text-[9px] text-lorica-textDim">{fmtAge(a.updatedAt || a.createdAt)}</span>
               </div>
               <div className="text-[11px] text-lorica-text whitespace-pre-wrap font-sans leading-snug">
-                {a.text || <span className="italic text-lorica-textDim">(empty note)</span>}
+                {a.text
+                  ? renderInlineMarkdown(a.text)
+                  : <span className="italic text-lorica-textDim">(empty note)</span>}
               </div>
               {/* Wave 20 — show reply count, with the latest 2 replies
                   as a preview. Full thread requires the panel for
@@ -116,7 +119,9 @@ export default function AnnotationPopover({ peek, onClose, onOpenPanel }) {
                   {a.replies.slice(-2).map((r) => (
                     <div key={r.id} className="text-[10px] text-lorica-textDim">
                       <span className="italic mr-1">{r.author || 'anon'}:</span>
-                      <span className="text-lorica-text">{r.text}</span>
+                      <span className="text-lorica-text">
+                        {renderInlineMarkdown(r.text)}
+                      </span>
                     </div>
                   ))}
                   {a.replies.length > 2 && (

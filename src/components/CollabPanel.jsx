@@ -8,7 +8,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   X, Users, Wifi, WifiOff, Copy, Play, Square, Link2, AlertTriangle, Check,
-  Share2, FileText,
+  Share2, FileText, MessageSquare, MapPin,
 } from 'lucide-react';
 import { generateRoomId } from '../utils/collab';
 
@@ -226,6 +226,73 @@ export default function CollabPanel({ state, dispatch, collab, activeFile }) {
                   cursor as a coloured caret in their editor. Other open files stay
                   private to your machine.
                 </p>
+              </div>
+
+              {/* Wave 27 — code-review mode. When enabled, peers can
+                  drop review notes that everyone in the session sees
+                  in a shared feed. Independent of the per-file Y.Texts
+                  so the live document stays clean. */}
+              <div className="mt-3 pt-3 border-t border-lorica-border/40 space-y-2">
+                <div className="flex items-center gap-2">
+                  <div className="text-[10px] uppercase tracking-widest text-lorica-textDim font-semibold flex-1">
+                    Review mode
+                  </div>
+                  <button
+                    onClick={() => collab.reviewMode ? collab.disableReviewMode() : collab.enableReviewMode()}
+                    className={`relative w-9 h-4 rounded-full transition-colors ${collab.reviewMode ? 'bg-violet-400' : 'bg-lorica-border'}`}
+                  >
+                    <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${collab.reviewMode ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                  </button>
+                </div>
+                {collab.reviewMode ? (
+                  <div className="space-y-2">
+                    <p className="text-[10px] text-lorica-textDim">
+                      Drop a review note at the active cursor — everyone in the session sees it live.
+                    </p>
+                    <button
+                      onClick={() => {
+                        const f = activeFile;
+                        if (!f?.path) {
+                          dispatch({ type: 'ADD_TOAST', toast: { type: 'warning', message: 'Open a file first', duration: 1800 } });
+                          return;
+                        }
+                        const text = window.prompt(`Review note on ${f.name || f.path}:`);
+                        if (!text || !text.trim()) return;
+                        const note = collab.postReviewNote({ file: f.path, line: 1, text: text.trim() });
+                        if (note) {
+                          dispatch({ type: 'ADD_TOAST', toast: { type: 'success', message: 'Review note posted', duration: 1800 } });
+                        }
+                      }}
+                      className="flex items-center gap-1 px-2 py-1 rounded bg-violet-400/15 border border-violet-400/40 text-[10px] text-violet-200 hover:bg-violet-400/25"
+                    >
+                      <MessageSquare size={10} />
+                      Post review note on active file
+                    </button>
+                    {collab.reviewNotes?.length > 0 && (
+                      <div className="space-y-1 max-h-48 overflow-y-auto">
+                        {collab.reviewNotes.slice().reverse().slice(0, 30).map((n) => (
+                          <div key={n.id} className="px-2 py-1 rounded bg-lorica-bg/40 border border-lorica-border text-[10px]">
+                            <div className="flex items-center gap-1.5 mb-0.5">
+                              <span className="w-1.5 h-1.5 rounded-full" style={{ background: n.color }} />
+                              <span className="font-semibold text-lorica-text">{n.author}</span>
+                              <span className="text-lorica-textDim text-[9px] ml-1">{new Date(n.at).toLocaleTimeString()}</span>
+                              <div className="flex-1" />
+                              <span className="text-lorica-textDim text-[9px] font-mono truncate max-w-[180px]" title={n.file}>
+                                <MapPin size={8} className="inline mr-0.5" />
+                                {(n.file || '').split(/[\\/]/).pop()}:{n.line}
+                              </span>
+                            </div>
+                            <div className="text-lorica-text">{n.text}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-lorica-textDim">
+                    Off. Toggle on to leave inline notes peers see live in the panel.
+                  </p>
+                )}
               </div>
             </div>
           )}
