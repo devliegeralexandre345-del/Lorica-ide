@@ -69,6 +69,51 @@ _Append-only. Most recent at the top._
 
 ## Bilan log
 
+### 2026-05-09 (absolute deepest) — Waves 38-42 sixth 5-wave push
+
+User asked for sustained 60% of 5h. Sixth batch.
+
+| Wave | Result |
+|---|---|
+| **38. AI Code Explain** | ✅ `aiCodeExplain.js` + `AICodeExplainModal`. Auto-runs on open against the editor selection (or file head). Renders via existing MarkdownMessage. Lazy chunk: 9.8 KiB. |
+| **39. Annotation Markdown export** | ✅ Pure `exportAnnotationsToMarkdown` helper. Grouped by file, sorted by line, threaded replies. AnnotationsPanel "Export .md" button via Blob URL download. |
+| **40. Recent rooms** | ✅ `useCollabSession` persists 8 most-recent room ids to localStorage with displayName + lastSeen. CollabPanel "Recent rooms" list with one-click rejoin + forget per row. |
+| **41. AI query expansion** | ✅ `aiQueryExpand.js` — natural-language → 2-4 search phrases via active provider. Falls back to original on parse failure. Wired into GlobalSearch's semantic flow (toggle) as Wave 43+ follow-up. |
+| **42. Tests** | ✅ annotationsExport.test.js (10) + aiQueryExpand.test.js (8). Total **242 / 18 files**. |
+
+**Bundle final (post Wave 42):**
+
+| Chunk | Size | Δ vs Wave 37 |
+|---|---|---|
+| main.bundle.js | **321 KiB** | +2 KiB |
+| code-explain lazy | 9.8 KiB | new |
+| Total entrypoint | ~1.02 MiB | +2 KiB |
+
+**Decisions:**
+
+- **AI Code Explain auto-runs on open.** Asking the user to click
+  "explain" once they're already in a modal labelled "Explain code"
+  is a redundant step — first transcript should LAND, not ASK.
+- **Recent rooms skipped for explicit-signaling sessions.** A user
+  who passed a custom signaling list is on a deliberately-ephemeral
+  setup (LAN demo, one-shot pairing); persisting that room id would
+  contradict the "throwaway" intent.
+- **AI query expansion ships as a utility but no UI toggle yet.**
+  GlobalSearch already does cosine + LLM rerank; adding query expansion
+  is a 3rd LLM hop. We want the user to opt in once we measure the
+  latency on real queries — Wave 43 wires the toggle.
+
+**Files touched (Waves 38-42, ~10 files):**
+
+- New: `src/utils/aiCodeExplain.js`,
+  `src/components/AICodeExplainModal.jsx`,
+  `src/utils/aiQueryExpand.js`,
+  `tests/annotationsExport.test.js`,
+  `tests/aiQueryExpand.test.js`.
+- Modified: `App.jsx`, `appReducer.js`, `CommandPalette.jsx`,
+  `annotations.js`, `AnnotationsPanel.jsx`,
+  `useCollabSession.js`, `CollabPanel.jsx`.
+
 ### 2026-05-09 (deepest night) — Waves 33-37 fifth 5-wave push
 
 User asked for "60% of 5h" of sustained work. Fifth batch.

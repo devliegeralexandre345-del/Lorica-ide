@@ -157,3 +157,65 @@ export function ensureReplies(a) {
   if (Array.isArray(a.replies)) return a;
   return { ...a, replies: [] };
 }
+
+// Wave 39 — render the full annotation set as a Markdown report.
+// Used by the "Export annotations" command + a panel-side download
+// button. Output is a single .md file grouping notes by file and,
+// within each file, sorted by line.
+//
+// Format:
+//   # Annotations report — <project name>
+//   _Generated 2026-05-09T22:00 by Lorica IDE_
+//
+//   ## src/foo.js
+//   ### Line 42 — `amber` · @author
+//   <body text, indent-preserving>
+//   - 2026-05-09 09:30 @bob: reply text
+//
+// Pure function — no clipboard / file write here, the caller does that.
+export function exportAnnotationsToMarkdown(annotations, opts = {}) {
+  const { projectName = 'project', generatedAt = new Date() } = opts;
+  const list = (annotations || []).filter((a) => a && a.file);
+  if (list.length === 0) {
+    return `# Annotations report — ${projectName}\n\n_No annotations._\n`;
+  }
+  // Group by file → sort each group by line.
+  const byFile = new Map();
+  for (const a of list) {
+    if (!byFile.has(a.file)) byFile.set(a.file, []);
+    byFile.get(a.file).push(a);
+  }
+  const lines = [
+    `# Annotations report — ${projectName}`,
+    `_Generated ${generatedAt.toISOString()} by Lorica IDE — ${list.length} note${list.length === 1 ? '' : 's'}._`,
+    '',
+  ];
+  const files = Array.from(byFile.keys()).sort();
+  for (const file of files) {
+    lines.push(`## ${file}`);
+    lines.push('');
+    const group = byFile.get(file).slice().sort((a, b) => a.line - b.line);
+    for (const a of group) {
+      const tag = a.author ? ` · @${a.author}` : '';
+      const pinned = a.pinned ? ' · 📌' : '';
+      const remote = a._remote ? ' · (live-share)' : '';
+      lines.push(`### Line ${a.line} — \`${a.color || 'amber'}\`${tag}${pinned}${remote}`);
+      lines.push('');
+      // Indent body so any internal Markdown stays inside the heading
+      // section but doesn't collide with our list bullets below.
+      const body = (a.text || '').trim();
+      if (body) {
+        lines.push(body);
+        lines.push('');
+      }
+      const replies = Array.isArray(a.replies) ? a.replies : [];
+      for (const r of replies) {
+        const ts = new Date(r.updatedAt || r.createdAt || Date.now()).toISOString().slice(0, 16).replace('T', ' ');
+        const replyTag = r.author ? `@${r.author}` : 'anonymous';
+        lines.push(`- _${ts}_ ${replyTag}: ${(r.text || '').trim()}`);
+      }
+      if (replies.length) lines.push('');
+    }
+  }
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n');
+}

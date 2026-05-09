@@ -56,6 +56,32 @@ export function useCollabSession() {
     setReviewNotes([]);
   }, []);
 
+  // Wave 40 — recent rooms persistence. The room id is the shared
+  // secret; storing it locally (the user already trusted it once)
+  // saves them digging through Slack DMs to re-join. Capped at 8.
+  const RECENT_KEY = 'lorica.collab.recentRooms';
+  const RECENT_MAX = 8;
+  const readRecent = () => {
+    try {
+      const raw = localStorage.getItem(RECENT_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch { return []; }
+  };
+  const pushRecent = (entry) => {
+    const list = readRecent().filter((e) => e?.roomId !== entry.roomId);
+    list.unshift(entry);
+    while (list.length > RECENT_MAX) list.pop();
+    try { localStorage.setItem(RECENT_KEY, JSON.stringify(list)); } catch {}
+    setRecentRooms(list);
+  };
+  const forgetRecent = (roomId) => {
+    const list = readRecent().filter((e) => e?.roomId !== roomId);
+    try { localStorage.setItem(RECENT_KEY, JSON.stringify(list)); } catch {}
+    setRecentRooms(list);
+  };
+  const [recentRooms, setRecentRooms] = useState(readRecent);
+
   const start = useCallback(async ({ roomId: explicitId, displayName, signaling } = {}) => {
     // Clean up any in-flight session before starting a new one.
     if (sessionRef.current) stop();
@@ -93,6 +119,18 @@ export function useCollabSession() {
       setRoomId(id);
       setActive(true);
       setError(null);
+      // Wave 40 — record this session in the recent-rooms list. We
+      // skip when the user explicitly opted into a "throwaway" room
+      // (signaling override is the proxy: a custom signaling list
+      // means an air-gapped LAN session that probably shouldn't
+      // accumulate history).
+      if (!Array.isArray(signaling) || signaling.length === 0) {
+        pushRecent({
+          roomId: id,
+          displayName: displayName || 'Anonymous',
+          lastSeen: Date.now(),
+        });
+      }
       return id;
     } catch (e) {
       setError(String(e?.message || e));
@@ -244,5 +282,8 @@ export function useCollabSession() {
     disableReviewMode,
     postReviewNote,
     postReviewReply,
+    // Wave 40 — recent rooms history
+    recentRooms,
+    forgetRecent,
   };
 }

@@ -12,9 +12,9 @@
 
 import React, { useState, useMemo } from 'react';
 import {
-  X, StickyNote, Trash2, MapPin, Search, Pin, PinOff, MessageCircle, Send,
+  X, StickyNote, Trash2, MapPin, Search, Pin, PinOff, MessageCircle, Send, Download,
 } from 'lucide-react';
-import { ANNOTATION_COLORS } from '../utils/annotations';
+import { ANNOTATION_COLORS, exportAnnotationsToMarkdown } from '../utils/annotations';
 import { renderInlineMarkdown } from '../utils/inlineMarkdown';
 
 const COLOR_BAR = {
@@ -62,6 +62,31 @@ export default function AnnotationsPanel({
   };
   const close = () => dispatch({ type: 'SET_PANEL', panel: 'showAnnotationsPanel', value: false });
 
+  // Wave 39 — export the whole project's annotations as a single
+  // markdown blob. We download via a Blob URL rather than pushing
+  // through window.lorica.fs so the user picks the destination via
+  // their browser save dialog.
+  const downloadMarkdown = () => {
+    const projectName = (state.projectPath || 'project').split(/[\\/]/).pop() || 'project';
+    const md = exportAnnotationsToMarkdown(annotations, {
+      projectName,
+      generatedAt: new Date(),
+    });
+    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `lorica-annotations-${projectName}-${new Date().toISOString().slice(0, 10)}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    dispatch({
+      type: 'ADD_TOAST',
+      toast: { type: 'success', message: 'Annotations exported as Markdown', duration: 2000 },
+    });
+  };
+
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
     return (annotations || [])
@@ -96,6 +121,15 @@ export default function AnnotationsPanel({
           <div className="text-sm font-semibold text-lorica-text">Annotations</div>
           <div className="text-[10px] text-lorica-textDim">Spatial notes anchored to lines · stored under <code>.lorica/annotations.json</code></div>
           <div className="flex-1" />
+          <button
+            onClick={downloadMarkdown}
+            disabled={(annotations || []).length === 0}
+            title="Download every annotation as a single .md report"
+            className="flex items-center gap-1 px-2 py-1 rounded text-[10px] text-lorica-textDim hover:text-lorica-accent disabled:opacity-30"
+          >
+            <Download size={11} />
+            Export .md
+          </button>
           <button onClick={close} className="p-1.5 rounded text-lorica-textDim hover:text-lorica-text hover:bg-lorica-border/40">
             <X size={14} />
           </button>

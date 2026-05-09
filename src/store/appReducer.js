@@ -263,6 +263,9 @@ export const initialState = {
   // AI Theme Generator — Wave 33. Free-text → JSON theme via the
   // active AI provider, saved to localStorage's custom-themes bucket.
   showThemeGenerator: false,
+  // AI Code Explain — Wave 38. Ask the AI to explain the active
+  // selection (or first 200 lines of the file) in 4–10 line markdown.
+  showCodeExplain: false,
 
   // Keyboard cheatsheet
   showKeyboardCheatsheet: false,

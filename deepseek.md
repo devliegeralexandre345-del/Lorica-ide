@@ -5,13 +5,12 @@ _every meaningful step. The point: if Claude runs out of context, the_
 _next assistant (DeepSeek, another Claude session, anyone) can pick up_
 _cold and stay productive without re-reading the whole repo._
 
-**Last updated**: 2026-05-09 by Claude (Opus 4.7) — **Waves 33-37 complete**.
-**AI theme generator** (free-text → JSON theme via the active provider),
-**voice command preview chip** (live intent hint while dictating),
-**code-review v3 with replies** on every review note, **left-side
-status-bar host slot** for extensions, +15 tests for the theme
-generator pure helpers. **229 JS tests + 12 Rust tests green**.
-Bundle: main 319 KiB (essentially flat), vendors 186 KiB. User has lifted the no-new-deps
+**Last updated**: 2026-05-09 by Claude (Opus 4.7) — **Waves 38-42 complete**.
+**AI Code Explain** (selection → 4-10 line markdown explanation),
+**Annotation Markdown export** (whole project → downloadable .md),
+**Recent collab rooms** persisted with one-click reconnect, **AI query
+expansion** for semantic search, +21 tests across 2 new files.
+**242 JS tests + 12 Rust tests green**. Bundle: main 321 KiB. User has lifted the no-new-deps
 rule — keep adding what makes Lorica the perfect futuristic IDE.
 
 ---
@@ -152,6 +151,29 @@ tests/
   voiceInput + buildDockerRunCommand + devcontainer Rust parser
   (+13 tests). WAVE_TEST_GUIDE.md updated with scenarios for
   Waves 6-9. CHANGELOG + LEDGER updated.
+
+- **Waves 38-42 — sixth 5-wave push** (2026-05-09 absolute deepest night).
+  - **38. AI Code Explain**: `aiCodeExplain.js` + `AICodeExplainModal`.
+    Modal asks the AI to explain the active selection (or first 200
+    lines). Renders the markdown via the existing `MarkdownMessage`.
+    Auto-runs on open. Command palette: "Explain selection (AI)".
+    Lazy chunk: `code-explain` (9.8 KiB).
+  - **39. Annotation Markdown export**: pure
+    `exportAnnotationsToMarkdown` helper grouped by file → sorted by
+    line, with author/pinned/remote tags + threaded replies. Panel
+    grows a "Export .md" button that downloads via Blob URL.
+  - **40. Recent collab sessions persisted**: useCollabSession keeps
+    the last 8 room ids in `lorica.collab.recentRooms` (id +
+    displayName + lastSeen). CollabPanel shows a "Recent rooms"
+    list with one-click rejoin + per-row forget. Skips persistence
+    for explicit-signaling sessions (treated as throwaway).
+  - **41. AI query expansion**: `aiQueryExpand.js` takes a natural-
+    language question → 2-4 short semantic-search-friendly phrases.
+    Falls back to the original query on parse failure. Wired into
+    GlobalSearch's semantic flow as a future toggle (utility shipped,
+    integration is a small Wave 43+ wire-up).
+  - **42. Tests**: `tests/annotationsExport.test.js` (10 cases) +
+    `tests/aiQueryExpand.test.js` (8 cases). Total: **242 / 18**.
 
 - **Waves 33-37 — fifth 5-wave push** (2026-05-09 deepest night).
   - **33. AI theme generator**: `aiThemeGenerator.js` + `ThemeGeneratorModal.jsx`.
@@ -399,11 +421,11 @@ new:
 
 ## Status of the verification matrix (right now)
 
-- `npm run build` ✅ green (~56 s, main **319 KiB** flat, vendors
+- `npm run build` ✅ green (~51 s, main **321 KiB** (+2 KiB), vendors
   186 KiB, entry ~1.02 MiB)
 - `cargo check` ✅ green, **0 warnings**
-- `npm test` ✅ **229/229** Vitest cases across 16 files (+15 from
-  Wave 37's theme-generator coverage)
+- `npm test` ✅ **242/242** Vitest cases across 18 files (+13 from
+  Wave 42's annotation-export + query-expand tests)
 - `cargo test --lib extension_loader` ✅ **4/4**
 - `cargo test --lib devcontainer` ✅ **8/8**
 - Lazy chunks: `yjs-binding` (~80 KiB, only on share),

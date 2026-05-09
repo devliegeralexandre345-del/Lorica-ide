@@ -98,6 +98,7 @@ const SwarmPanel        = lazy(() => import(/* webpackChunkName: "swarm-dev"   *
 const WorktreesPanel    = lazy(() => import(/* webpackChunkName: "worktrees"   */ './components/WorktreesPanel'));
 const SmartPasteModal   = lazy(() => import(/* webpackChunkName: "smart-paste" */ './components/SmartPasteModal'));
 const ThemeGeneratorModal = lazy(() => import(/* webpackChunkName: "theme-gen" */ './components/ThemeGeneratorModal'));
+const AICodeExplainModal  = lazy(() => import(/* webpackChunkName: "code-explain" */ './components/AICodeExplainModal'));
 const AnnotationsPanel  = lazy(() => import(/* webpackChunkName: "annotations" */ './components/AnnotationsPanel'));
 const CollabPanel       = lazy(() => import(/* webpackChunkName: "collab"      */ './components/CollabPanel'));
 const SemanticTypesPanel = lazy(() => import(/* webpackChunkName: "sem-types"  */ './components/SemanticTypesPanel'));
@@ -957,6 +958,9 @@ Suggest the best resolution and explain why. Output ONLY the replacement code in
         )}
         {state.showThemeGenerator && (
           <ThemeGeneratorModal state={state} dispatch={dispatch} />
+        )}
+        {state.showCodeExplain && (
+          <AICodeExplainModal state={state} dispatch={dispatch} activeFile={activeFile} />
         )}
         {state.showSmartPaste && (
           <SmartPasteModal

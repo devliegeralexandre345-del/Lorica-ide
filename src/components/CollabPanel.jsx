@@ -117,30 +117,71 @@ export default function CollabPanel({ state, dispatch, collab, activeFile }) {
           </div>
 
           {!collab.active ? (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleStart}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-cyan-400/15 border border-cyan-400/40 text-[11px] text-cyan-200 hover:bg-cyan-400/25"
-              >
-                <Play size={11} />
-                Start a new session
-              </button>
-              <span className="text-[10px] text-lorica-textDim">or</span>
-              <input
-                value={joinId}
-                onChange={(e) => setJoinId(e.target.value)}
-                placeholder="Paste a room id to join"
-                onKeyDown={(e) => { if (e.key === 'Enter') handleJoin(); }}
-                className="flex-1 bg-lorica-bg border border-lorica-border rounded-lg px-3 py-2 text-[11px] text-lorica-text font-mono outline-none focus:border-lorica-accent"
-              />
-              <button
-                onClick={handleJoin}
-                disabled={!joinId.trim()}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-lorica-accent/15 border border-lorica-accent/40 text-[11px] text-lorica-accent hover:bg-lorica-accent/25 disabled:opacity-40"
-              >
-                <Link2 size={11} />
-                Join
-              </button>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleStart}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-cyan-400/15 border border-cyan-400/40 text-[11px] text-cyan-200 hover:bg-cyan-400/25"
+                >
+                  <Play size={11} />
+                  Start a new session
+                </button>
+                <span className="text-[10px] text-lorica-textDim">or</span>
+                <input
+                  value={joinId}
+                  onChange={(e) => setJoinId(e.target.value)}
+                  placeholder="Paste a room id to join"
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleJoin(); }}
+                  className="flex-1 bg-lorica-bg border border-lorica-border rounded-lg px-3 py-2 text-[11px] text-lorica-text font-mono outline-none focus:border-lorica-accent"
+                />
+                <button
+                  onClick={handleJoin}
+                  disabled={!joinId.trim()}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-lorica-accent/15 border border-lorica-accent/40 text-[11px] text-lorica-accent hover:bg-lorica-accent/25 disabled:opacity-40"
+                >
+                  <Link2 size={11} />
+                  Join
+                </button>
+              </div>
+              {/* Wave 40 — re-join a recent room with one click. */}
+              {collab.recentRooms?.length > 0 && (
+                <div className="space-y-1">
+                  <div className="text-[10px] uppercase tracking-widest text-lorica-textDim font-semibold pt-1">
+                    Recent rooms
+                  </div>
+                  <div className="space-y-1 max-h-32 overflow-y-auto">
+                    {collab.recentRooms.map((r) => (
+                      <div key={r.roomId} className="flex items-center gap-2 px-2 py-1 rounded bg-lorica-bg/40 border border-lorica-border text-[10px]">
+                        <button
+                          onClick={() => {
+                            const name = (displayName.trim() || r.displayName || 'Anonymous');
+                            collab.start({ roomId: r.roomId, displayName: name });
+                            dispatch({
+                              type: 'ADD_TOAST',
+                              toast: { type: 'info', message: `Reconnecting to ${r.roomId.slice(0, 18)}…`, duration: 2000 },
+                            });
+                          }}
+                          className="flex-1 min-w-0 flex items-center gap-1.5 text-left hover:text-lorica-accent"
+                          title={`Last seen ${new Date(r.lastSeen).toLocaleString()}`}
+                        >
+                          <Link2 size={10} />
+                          <span className="font-mono truncate">{r.roomId}</span>
+                          {r.displayName && (
+                            <span className="text-lorica-textDim">— {r.displayName}</span>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => collab.forgetRecent(r.roomId)}
+                          title="Remove from history"
+                          className="text-lorica-textDim hover:text-red-300"
+                        >
+                          <X size={9} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <div className="space-y-2">
