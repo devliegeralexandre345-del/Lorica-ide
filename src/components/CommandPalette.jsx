@@ -29,6 +29,7 @@ export default function CommandPalette({ state, dispatch, onOpenFolder, onLock, 
     { label: 'Toggle Terminal', icon: Terminal, action: () => { dispatch({ type: 'TOGGLE_PANEL', panel: 'showTerminal' }); close(); } },
     { label: 'Toggle AI Copilot', icon: Bot, action: () => { dispatch({ type: 'TOGGLE_PANEL', panel: 'showAIPanel' }); close(); } },
     { label: 'Smart Paste (translate clipboard with AI)', icon: Wand2, action: () => { dispatch({ type: 'SET_PANEL', panel: 'showSmartPaste', value: true }); close(); } },
+    { label: 'AI Theme Generator (describe a vibe → get a theme)', icon: Wand2, action: () => { dispatch({ type: 'SET_PANEL', panel: 'showThemeGenerator', value: true }); close(); } },
     { label: 'Annotations (browse spatial notes)', icon: StickyNote, action: () => { dispatch({ type: 'SET_PANEL', panel: 'showAnnotationsPanel', value: true }); close(); } },
     { label: state.showAnnotations === false ? 'Show annotation gutter dots' : 'Hide annotation gutter dots', icon: StickyNote, action: () => {
       dispatch({ type: 'SET_PANEL', panel: 'showAnnotations', value: state.showAnnotations === false });

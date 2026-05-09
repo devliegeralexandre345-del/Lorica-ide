@@ -260,6 +260,9 @@ export const initialState = {
   // Yjs + y-webrtc (peer-to-peer, no Lorica server). Session state lives
   // in useCollabSession; this flag just gates the panel.
   showCollab: false,
+  // AI Theme Generator — Wave 33. Free-text → JSON theme via the
+  // active AI provider, saved to localStorage's custom-themes bucket.
+  showThemeGenerator: false,
 
   // Keyboard cheatsheet
   showKeyboardCheatsheet: false,

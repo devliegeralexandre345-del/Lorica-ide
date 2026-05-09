@@ -69,6 +69,52 @@ _Append-only. Most recent at the top._
 
 ## Bilan log
 
+### 2026-05-09 (deepest night) — Waves 33-37 fifth 5-wave push
+
+User asked for "60% of 5h" of sustained work. Fifth batch.
+
+| Wave | Result |
+|---|---|
+| **33. AI theme generator** | ✅ `aiThemeGenerator.js` (pure validators) + `ThemeGeneratorModal.jsx` (UI). Free-text → JSON theme via active provider. Strict hex/logoBars validation. Saved to `lorica.themes.custom`, merged into `THEMES` at boot. |
+| **34. Voice preview chip** | ✅ Live "Voice intent: …" hint above the AgentCopilot input while dictating. Refreshes on interim transcripts. |
+| **35. Code-review v3 replies** | ✅ `appendReviewReply` + `postReviewReply` + Y.Map of per-note reply arrays. CollabPanel ReviewNoteFeed renders threaded replies with collapsed composer. |
+| **36. Status-bar left slot** | ✅ `lorica-ext-statusbar-host-left` div. Extensions pass `{ side: 'left' }` to mount on the left cluster. |
+| **37. Tests** | ✅ aiThemeGenerator.test.js (15 cases). Total **229 / 16 files**. |
+
+**Bundle final (post Wave 37):**
+
+| Chunk | Size | Δ vs Wave 32 |
+|---|---|---|
+| main.bundle.js | **319 KiB** | flat |
+| theme-gen lazy | 8.7 KiB | new |
+| Total entrypoint | ~1.02 MiB | unchanged |
+
+**Decisions:**
+
+- **Y.Map for replies, not Y.Array push on the parent note.** The
+  Y.Array.push(...) primitive replaces the entire entry, so peers
+  would re-render the WHOLE review-notes feed for every reply.
+  Storing replies as `reviewReplies` Y.Map[id] = [...] scopes mutations.
+- **Theme generator validates strictly.** Loose validation would let
+  a chatty model output `'rgb(255,0,0)'` instead of `'#ff0000'` and
+  break the CSS-variable pipeline. Reject any non-`/^#[0-9a-f]{6}$/`
+  upfront.
+- **`loadAndMergeCustomThemes()` is called at App.jsx module-eval
+  time** so the THEMES dict is populated before the first render.
+  Side-effect-at-import is normally an anti-pattern, but here it's
+  the cleanest way to keep the existing `Object.entries(THEMES)`
+  callers (Settings dropdown, switcher) from needing changes.
+
+**Files touched (Waves 33-37, ~10 files):**
+
+- New: `src/utils/aiThemeGenerator.js`,
+  `src/components/ThemeGeneratorModal.jsx`,
+  `tests/aiThemeGenerator.test.js`.
+- Modified: `App.jsx`, `appReducer.js`, `themes.js`,
+  `CommandPalette.jsx`, `AgentCopilot.jsx`, `CollabPanel.jsx`,
+  `collab.js`, `useCollabSession.js`, `StatusBar.jsx`,
+  `extensionHost.js`, `extensionRuntime.js`.
+
 ### 2026-05-09 (latest) — Waves 28-32 fourth 5-wave push
 
 User asked to keep going. Fourth 5-wave batch.

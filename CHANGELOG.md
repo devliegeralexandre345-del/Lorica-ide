@@ -3,6 +3,56 @@
 All notable changes to Lorica IDE. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — Waves 6-37
+
+Waves 33-37 (2026-05-09 deepest night) add an AI theme generator,
+live voice preview, threaded review notes, a left-side status-bar
+slot for extensions, and 15 more tests.
+
+### Added — Wave 33 (AI theme generator)
+
+- **`aiThemeGenerator.js`** + **`ThemeGeneratorModal.jsx`**: free-text
+  → JSON theme via the active AI provider. Strict hex validation +
+  5-step `logoBars`. Saves to `lorica.themes.custom`, merged into
+  `THEMES` at boot via `loadAndMergeCustomThemes()`. Lazy chunk:
+  `theme-gen` (8.7 KiB).
+- Command palette: "AI Theme Generator (describe a vibe → get a theme)".
+
+### Added — Wave 34 (Voice preview chip)
+
+- Live "Voice intent: <label>" hint above the AgentCopilot input
+  while dictating. Refreshed on every interim transcript so the user
+  sees what's about to fire BEFORE they stop speaking.
+
+### Added — Wave 35 (Code-review v3 replies)
+
+- **`appendReviewReply(noteId, {text})`** in `collab.js`. Replies
+  live in a Y.Map keyed by note id (so adding a reply doesn't
+  rewrite the entire review-notes Y.Array — that would be a
+  collab-breaking O(n) sync per reply).
+- CollabPanel `ReviewNoteFeed` sub-component renders threaded
+  replies with a per-note collapsed composer (Enter to send, Esc to
+  close).
+
+### Added — Wave 36 (Left-side status-bar slot)
+
+- New `lorica-ext-statusbar-host-left` div in StatusBar's left cluster.
+- Extensions pass `{ side: 'left' }` to `ctx.statusBar.register` to
+  mount alongside the secure / vault chips instead of git / search.
+
+### Tests — Wave 37
+
+- `tests/aiThemeGenerator.test.js` — 15 cases pinning hex validation,
+  JSON parse defensiveness (fences, prose-wrapped, garbage), and slug
+  collision handling.
+- Total: **229 across 16 files** (was 214 / 15).
+
+### Bundle impact
+
+- `main.bundle.js`: 319 KiB (effectively flat — voice preview +
+  review v3 + slot + theme gen modal all came in under 0.5 KiB
+  thanks to lazy ThemeGeneratorModal).
+
 ## [Unreleased] — Waves 6-32
 
 Waves 28-32 (2026-05-09 latest) — voice catalog doubled, code-review

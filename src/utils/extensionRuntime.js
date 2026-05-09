@@ -44,8 +44,9 @@ function buildContext(manifest) {
   // ─ ui.statusBar ────────────────────────────────────────────────
   if (perms.has('ui.statusBar')) {
     ctx.statusBar = {
-      register({ render }) {
-        const host = mountStatusBarChip(manifest.id);
+      register({ render, side } = {}) {
+        // Wave 36 — `side: 'left' | 'right'` (default 'right').
+        const host = mountStatusBarChip(manifest.id, { side });
         const teardown = typeof render === 'function' ? render(host) : null;
         return new Disposable(() => {
           try { if (typeof teardown === 'function') teardown(); } catch {}

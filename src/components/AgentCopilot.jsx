@@ -164,6 +164,10 @@ export default function AgentCopilot({ state, dispatch, agent, activeFile, proje
   const dictationStopRef = useRef(null);
   const dictationBaseRef = useRef('');
   const voiceCapable = isVoiceSupported() && isVoiceFeatureEnabled();
+  // Wave 34 — live preview of the parsed voice intent. Updated on
+  // every interim transcript so the user sees what's about to fire
+  // BEFORE they stop speaking. Cleared when dictation ends.
+  const [voicePreview, setVoicePreview] = useState(null);
 
   // Flatten the project file tree once per update — used by the mention picker
   // for fuzzy path search. Folders and files both land in the same list so a
@@ -495,32 +499,31 @@ export default function AgentCopilot({ state, dispatch, agent, activeFile, proje
     setDictating(true);
     dictationStopRef.current = startDictation({
       onTranscript: (text, { final }) => {
-        // Append the transcript to whatever the user already had, with a
-        // space separator so consecutive dictations don't run together.
         const base = dictationBaseRef.current || '';
         const sep = base && !base.endsWith(' ') ? ' ' : '';
         const merged = base + sep + text;
         setInput(merged);
+        // Wave 34 — refresh the preview chip on EVERY transcript
+        // event (interim + final) so the user sees a live "Voice:
+        // <intent>" hint while they're still speaking.
+        const partialParse = parseVoiceCommand(text);
+        setVoicePreview(partialParse?.intent?.label || null);
         if (final) {
           dictationBaseRef.current = merged;
-          // Wave 25 — try to interpret the final transcript as a voice
-          // command. If it parses to a known intent with reasonable
-          // confidence, execute it AND clear the input so the user
-          // doesn't accidentally send the command text to the agent.
-          // Otherwise we leave the transcript in the input as before.
-          const parsed = parseVoiceCommand(text);
-          if (parsed && executeVoiceCommand(parsed, { dispatch, actions })) {
+          if (partialParse && executeVoiceCommand(partialParse, { dispatch, actions })) {
             setInput('');
             dictationBaseRef.current = '';
+            setVoicePreview(null);
             dispatch({
               type: 'ADD_TOAST',
-              toast: { type: 'info', message: `Voice: ${parsed.intent.label}`, duration: 1800 },
+              toast: { type: 'info', message: `Voice: ${partialParse.intent.label}`, duration: 1800 },
             });
           }
         }
       },
       onError: (err) => {
         setDictating(false);
+        setVoicePreview(null);
         const msg = err === 'not-allowed'
           ? 'Microphone permission denied'
           : err === 'no-speech'
@@ -534,6 +537,7 @@ export default function AgentCopilot({ state, dispatch, agent, activeFile, proje
       },
       onEnd: () => {
         setDictating(false);
+        setVoicePreview(null);
       },
     });
   }, [dictating, input, dispatch]);
@@ -888,6 +892,17 @@ export default function AgentCopilot({ state, dispatch, agent, activeFile, proje
             </div>
           )}
 
+          {/* Wave 34 — live voice preview chip. Floats above the
+              input row while the user dictates and the parser has a
+              candidate intent. Goes away on stop / error / no-match. */}
+          {dictating && voicePreview && (
+            <div className="mb-1 flex items-center gap-1.5 px-2 py-1 rounded-md bg-red-400/10 border border-red-400/30 text-[10px] text-red-200 animate-fadeIn">
+              <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
+              <span className="text-lorica-textDim">Voice intent:</span>
+              <span className="font-semibold">{voicePreview}</span>
+              <span className="text-lorica-textDim">— stop speaking to fire</span>
+            </div>
+          )}
           <div className="flex items-center gap-2 bg-lorica-bg rounded-lg border border-lorica-border px-3 py-1.5 focus-within:border-lorica-accent/50 transition-colors">
             <input
               ref={inputRef}

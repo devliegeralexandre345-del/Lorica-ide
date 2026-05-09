@@ -25,16 +25,24 @@
 // includes the manifest.id. This indirection lets us mount/unmount
 // per-extension chips without touching the rest of the StatusBar.
 
-export function mountStatusBarChip(extId) {
-  const root = document.getElementById('lorica-ext-statusbar-host');
+// Wave 36 — extensions can pick which side of the status bar they
+// want to live on. `{ side: 'left' }` mounts on the left cluster
+// (next to the secure / vault chips); the default is the right.
+function statusBarRoot(side) {
+  const id = side === 'left'
+    ? 'lorica-ext-statusbar-host-left'
+    : 'lorica-ext-statusbar-host';
+  return document.getElementById(id);
+}
+
+export function mountStatusBarChip(extId, opts = {}) {
+  const side = opts?.side === 'left' ? 'left' : 'right';
+  const root = statusBarRoot(side);
   if (!root) {
-    // Host slot isn't in the DOM yet (StatusBar may not have rendered
-    // when the extension activates). Create a detached node and adopt
-    // it later — cheap, safe, and avoids a race where activate fails
-    // because of timing.
     const detached = document.createElement('div');
     detached.dataset.extId = extId;
     detached.dataset.detached = 'true';
+    detached.dataset.side = side;
     return detached;
   }
   let host = document.getElementById(`lorica-ext-${extId}`);
@@ -43,6 +51,7 @@ export function mountStatusBarChip(extId) {
   host.id = `lorica-ext-${extId}`;
   host.className = 'lorica-ext-chip';
   host.dataset.extId = extId;
+  host.dataset.side = side;
   root.appendChild(host);
   return host;
 }

@@ -203,6 +203,14 @@ export function useCollabSession() {
     return sessionRef.current.appendReviewNote({ file, line, text });
   }, [reviewMode]);
 
+  // Wave 35 — append a reply to an existing review note. Both the
+  // note and the reply live inside the session's Y.Doc, so peers see
+  // it land in real time via the `onReviewNotesChange` listener.
+  const postReviewReply = useCallback((noteId, { text } = {}) => {
+    if (!sessionRef.current || !reviewMode || !noteId) return null;
+    return sessionRef.current.appendReviewReply(noteId, { text });
+  }, [reviewMode]);
+
   // Final cleanup on unmount — guards against the user closing the IDE
   // mid-session without clicking Stop.
   useEffect(() => {
@@ -229,11 +237,12 @@ export function useCollabSession() {
     shareFile,
     unshareFile,
     getBindingFor,
-    // Wave 27 — code-review mode
+    // Wave 27/35 — code-review mode
     reviewMode,
     reviewNotes,
     enableReviewMode,
     disableReviewMode,
     postReviewNote,
+    postReviewReply,
   };
 }

@@ -199,17 +199,54 @@ export function createCollabSession({ roomId, displayName, signaling }) {
       line: typeof note.line === 'number' ? note.line : 1,
       text: String(note.text || ''),
       at: Date.now(),
+      // Wave 35 — replies live as a Y.Array INSIDE the note's slot.
+      // We store a placeholder array on the JS-side snapshot so peers
+      // joining late see the right shape; the actual mutable list is
+      // an entry in the `review-replies` Y.Map keyed by note id.
+      replies: [],
     };
     reviewNotes.push([safe]);
     return safe;
   }
 
+  // Wave 35 — replies stored as a plain Y.Map of arrays so adding a
+  // reply doesn't rewrite the entire review-notes array (Y.Array push
+  // would otherwise be the only mutation primitive).
+  const reviewReplies = ydoc.getMap('review-replies');
+
+  function appendReviewReply(noteId, reply) {
+    if (!noteId || !reply || typeof reply !== 'object') return null;
+    const safe = {
+      id: reply.id || ('rr_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4)),
+      author: String(reply.author || awareness.getLocalState()?.user?.name || 'anonymous'),
+      color: String(reply.color || awareness.getLocalState()?.user?.color || '#fbbf24'),
+      text: String(reply.text || ''),
+      at: Date.now(),
+    };
+    const cur = reviewReplies.get(noteId);
+    const next = Array.isArray(cur) ? [...cur, safe] : [safe];
+    reviewReplies.set(noteId, next);
+    return safe;
+  }
+
+  // Snapshot the Y.Array + the per-note replies into a plain JS list.
+  function snapshotReviewNotes() {
+    return reviewNotes.toArray().map((n) => ({
+      ...n,
+      replies: reviewReplies.get(n.id) || [],
+    }));
+  }
+
   function onReviewNotesChange(cb) {
     if (typeof cb !== 'function') return () => {};
-    const handler = () => cb(reviewNotes.toArray());
+    const handler = () => cb(snapshotReviewNotes());
     reviewNotes.observe(handler);
-    cb(reviewNotes.toArray());
-    return () => { reviewNotes.unobserve(handler); };
+    reviewReplies.observe(handler);
+    cb(snapshotReviewNotes());
+    return () => {
+      reviewNotes.unobserve(handler);
+      reviewReplies.unobserve(handler);
+    };
   }
 
   return {
@@ -224,5 +261,7 @@ export function createCollabSession({ roomId, displayName, signaling }) {
     // Wave 27 — review mode
     appendReviewNote,
     onReviewNotesChange,
+    // Wave 35 — review-note replies
+    appendReviewReply,
   };
 }

@@ -162,6 +162,28 @@ export const THEMES = {
   },
 };
 
+// Wave 33 — merge user-generated custom themes into the THEMES map.
+// Called once from App.jsx at boot so theme switchers, Settings, and
+// `createEditorTheme()` pick them up alongside the built-ins.
+export function loadAndMergeCustomThemes() {
+  try {
+    const raw = localStorage.getItem('lorica.themes.custom');
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return;
+    for (const [key, value] of Object.entries(parsed)) {
+      if (!value || typeof value !== 'object' || !value.name) continue;
+      // Don't let custom themes shadow a built-in by ID.
+      if (THEMES[key]) continue;
+      THEMES[key] = value;
+    }
+  } catch {
+    // Corrupt JSON / privacy mode / quota — ignore. The user keeps the
+    // built-in themes; the custom ones just won't appear until the
+    // store is healthy again.
+  }
+}
+
 export function createEditorTheme(themeName) {
   const t = THEMES[themeName] || THEMES.midnight;
   

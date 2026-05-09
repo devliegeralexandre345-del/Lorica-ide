@@ -8,7 +8,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   X, Users, Wifi, WifiOff, Copy, Play, Square, Link2, AlertTriangle, Check,
-  Share2, FileText, MessageSquare, MapPin,
+  Share2, FileText, MessageSquare, MapPin, Send, CornerDownRight,
 } from 'lucide-react';
 import { generateRoomId } from '../utils/collab';
 
@@ -269,23 +269,7 @@ export default function CollabPanel({ state, dispatch, collab, activeFile }) {
                       Post review note on active file
                     </button>
                     {collab.reviewNotes?.length > 0 && (
-                      <div className="space-y-1 max-h-48 overflow-y-auto">
-                        {collab.reviewNotes.slice().reverse().slice(0, 30).map((n) => (
-                          <div key={n.id} className="px-2 py-1 rounded bg-lorica-bg/40 border border-lorica-border text-[10px]">
-                            <div className="flex items-center gap-1.5 mb-0.5">
-                              <span className="w-1.5 h-1.5 rounded-full" style={{ background: n.color }} />
-                              <span className="font-semibold text-lorica-text">{n.author}</span>
-                              <span className="text-lorica-textDim text-[9px] ml-1">{new Date(n.at).toLocaleTimeString()}</span>
-                              <div className="flex-1" />
-                              <span className="text-lorica-textDim text-[9px] font-mono truncate max-w-[180px]" title={n.file}>
-                                <MapPin size={8} className="inline mr-0.5" />
-                                {(n.file || '').split(/[\\/]/).pop()}:{n.line}
-                              </span>
-                            </div>
-                            <div className="text-lorica-text">{n.text}</div>
-                          </div>
-                        ))}
-                      </div>
+                      <ReviewNoteFeed notes={collab.reviewNotes} postReviewReply={collab.postReviewReply} />
                     )}
                   </div>
                 ) : (
@@ -332,6 +316,92 @@ export default function CollabPanel({ state, dispatch, collab, activeFile }) {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// Wave 35 — review-note feed with per-note reply input. Pulled out of
+// the main render so the input state stays scoped (one open
+// composer per note id rather than a shared draft).
+function ReviewNoteFeed({ notes, postReviewReply }) {
+  const [replyDrafts, setReplyDrafts] = React.useState({});
+  const [openId, setOpenId] = React.useState(null);
+
+  const setDraft = (id, text) => setReplyDrafts((cur) => ({ ...cur, [id]: text }));
+  const submit = (id) => {
+    const text = (replyDrafts[id] || '').trim();
+    if (!text || typeof postReviewReply !== 'function') return;
+    postReviewReply(id, { text });
+    setReplyDrafts((cur) => ({ ...cur, [id]: '' }));
+  };
+
+  return (
+    <div className="space-y-1 max-h-72 overflow-y-auto">
+      {notes.slice().reverse().slice(0, 30).map((n) => {
+        const replyOpen = openId === n.id;
+        return (
+          <div key={n.id} className="px-2 py-1 rounded bg-lorica-bg/40 border border-lorica-border text-[10px]">
+            <div className="flex items-center gap-1.5 mb-0.5">
+              <span className="w-1.5 h-1.5 rounded-full" style={{ background: n.color }} />
+              <span className="font-semibold text-lorica-text">{n.author}</span>
+              <span className="text-lorica-textDim text-[9px] ml-1">{new Date(n.at).toLocaleTimeString()}</span>
+              <div className="flex-1" />
+              <span className="text-lorica-textDim text-[9px] font-mono truncate max-w-[180px]" title={n.file}>
+                <MapPin size={8} className="inline mr-0.5" />
+                {(n.file || '').split(/[\\/]/).pop()}:{n.line}
+              </span>
+            </div>
+            <div className="text-lorica-text">{n.text}</div>
+
+            {/* Existing replies */}
+            {Array.isArray(n.replies) && n.replies.length > 0 && (
+              <div className="mt-1.5 ml-2 pl-2 border-l border-lorica-border/50 space-y-0.5">
+                {n.replies.map((r) => (
+                  <div key={r.id} className="text-[10px]">
+                    <CornerDownRight size={8} className="inline mr-1 text-lorica-textDim" />
+                    <span className="font-semibold text-lorica-text" style={{ color: r.color }}>{r.author}</span>
+                    <span className="text-lorica-textDim mx-1">·</span>
+                    <span className="text-lorica-text">{r.text}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Reply composer — collapsed by default to keep the
+                feed dense; clicking "reply" expands one row at a time. */}
+            <div className="mt-1 flex items-center gap-1">
+              <button
+                onClick={() => setOpenId(replyOpen ? null : n.id)}
+                className="text-[9px] text-lorica-textDim hover:text-lorica-accent"
+              >
+                {replyOpen ? 'cancel' : 'reply'}
+              </button>
+            </div>
+            {replyOpen && (
+              <div className="mt-1 flex items-center gap-1.5">
+                <input
+                  autoFocus
+                  value={replyDrafts[n.id] || ''}
+                  onChange={(e) => setDraft(n.id, e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(n.id); setOpenId(null); }
+                    if (e.key === 'Escape') setOpenId(null);
+                  }}
+                  placeholder="reply…"
+                  className="flex-1 bg-lorica-bg/60 border border-lorica-border rounded px-2 py-0.5 text-[10px] text-lorica-text outline-none focus:border-lorica-accent"
+                />
+                <button
+                  onClick={() => { submit(n.id); setOpenId(null); }}
+                  disabled={!(replyDrafts[n.id] || '').trim()}
+                  className="p-1 rounded text-lorica-textDim hover:text-lorica-accent disabled:opacity-30"
+                >
+                  <Send size={9} />
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

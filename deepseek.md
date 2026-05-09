@@ -5,14 +5,13 @@ _every meaningful step. The point: if Claude runs out of context, the_
 _next assistant (DeepSeek, another Claude session, anyone) can pick up_
 _cold and stay productive without re-reading the whole repo._
 
-**Last updated**: 2026-05-09 by Claude (Opus 4.7) — **Waves 28-32 complete**.
-Voice catalog **doubled** (28 intents, 4 languages — EN/FR/ES/DE),
-**code-review v2** (peer review notes pinned in-editor as gutter dots),
-**inline rewrite** quick-prompts doubled (6→12 presets), **lazy-loaded**
-annotation overlays (perf pass 5 — main bundle 326→**319 KiB** via two
-new lazy chunks), +31 tests with accent-stripping in voice tokeniser.
-**214 JS tests + 12 Rust tests green**. Bundle: main 319 KiB, vendors
-186 KiB. User has lifted the no-new-deps
+**Last updated**: 2026-05-09 by Claude (Opus 4.7) — **Waves 33-37 complete**.
+**AI theme generator** (free-text → JSON theme via the active provider),
+**voice command preview chip** (live intent hint while dictating),
+**code-review v3 with replies** on every review note, **left-side
+status-bar host slot** for extensions, +15 tests for the theme
+generator pure helpers. **229 JS tests + 12 Rust tests green**.
+Bundle: main 319 KiB (essentially flat), vendors 186 KiB. User has lifted the no-new-deps
 rule — keep adding what makes Lorica the perfect futuristic IDE.
 
 ---
@@ -153,6 +152,27 @@ tests/
   voiceInput + buildDockerRunCommand + devcontainer Rust parser
   (+13 tests). WAVE_TEST_GUIDE.md updated with scenarios for
   Waves 6-9. CHANGELOG + LEDGER updated.
+
+- **Waves 33-37 — fifth 5-wave push** (2026-05-09 deepest night).
+  - **33. AI theme generator**: `aiThemeGenerator.js` + `ThemeGeneratorModal.jsx`.
+    Free-text → JSON theme via the active AI provider. Strict hex
+    validation rejects malformed model output. Generated themes save
+    to `lorica.themes.custom` and merge into `THEMES` at boot via
+    `loadAndMergeCustomThemes()`.
+  - **34. Voice preview chip**: live "Voice intent: <label>" hint
+    above the agent input while dictating, refreshed on every
+    interim transcript. Clears on stop / error / no-match.
+  - **35. Code-review v3 (replies)**: each review note gets a Y.Map-
+    backed reply array. New `appendReviewReply` + `postReviewReply`
+    surface. CollabPanel renders a per-note reply composer (cancel /
+    Enter / Esc) with collapsed-by-default thread display.
+  - **36. Left-side status-bar host slot**: a new
+    `lorica-ext-statusbar-host-left` div in the left cluster.
+    Extensions pass `{ side: 'left' }` to `ctx.statusBar.register`
+    to mount there instead of the right.
+  - **37. Theme generator tests**: `tests/aiThemeGenerator.test.js`
+    with 15 cases pinning hex validation, parse defensiveness, slug
+    collision handling. Total: **229 / 16 files**.
 
 - **Waves 28-32 — fourth 5-wave push** (2026-05-09 latest deep night).
   - **28. Voice intents v2**: catalog 13 → 28 intents. Added
@@ -379,12 +399,11 @@ new:
 
 ## Status of the verification matrix (right now)
 
-- `npm run build` ✅ green (~75 s, main **319 KiB**, vendors 186 KiB,
-  entry ~1.02 MiB; main went DOWN 7 KiB this batch thanks to lazy
-  annotation overlays in Wave 31)
+- `npm run build` ✅ green (~56 s, main **319 KiB** flat, vendors
+  186 KiB, entry ~1.02 MiB)
 - `cargo check` ✅ green, **0 warnings**
-- `npm test` ✅ **214/214** Vitest cases across 15 files (+31 from
-  Wave 28's extended catalog + multilingual coverage)
+- `npm test` ✅ **229/229** Vitest cases across 16 files (+15 from
+  Wave 37's theme-generator coverage)
 - `cargo test --lib extension_loader` ✅ **4/4**
 - `cargo test --lib devcontainer` ✅ **8/8**
 - Lazy chunks: `yjs-binding` (~80 KiB, only on share),

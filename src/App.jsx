@@ -1,6 +1,12 @@
 import React, { useReducer, useEffect, useCallback, useRef, useMemo, Suspense, lazy } from 'react';
 import { appReducer, initialState } from './store/appReducer';
-import { THEMES } from './utils/themes';
+import { THEMES, loadAndMergeCustomThemes } from './utils/themes';
+
+// Wave 33 — merge any AI-generated themes saved to localStorage into
+// the built-in THEMES map at module-eval time so the rest of the app
+// (theme switcher, Settings dropdown, createEditorTheme) sees them
+// from the very first render.
+loadAndMergeCustomThemes();
 import { useFileSystem } from './hooks/useFileSystem';
 import { useFileWatcher } from './hooks/useFileWatcher';
 import { useLSP } from './hooks/useLSP';
@@ -91,6 +97,7 @@ const SandboxPanel      = lazy(() => import(/* webpackChunkName: "sandbox"     *
 const SwarmPanel        = lazy(() => import(/* webpackChunkName: "swarm-dev"   */ './components/SwarmPanel'));
 const WorktreesPanel    = lazy(() => import(/* webpackChunkName: "worktrees"   */ './components/WorktreesPanel'));
 const SmartPasteModal   = lazy(() => import(/* webpackChunkName: "smart-paste" */ './components/SmartPasteModal'));
+const ThemeGeneratorModal = lazy(() => import(/* webpackChunkName: "theme-gen" */ './components/ThemeGeneratorModal'));
 const AnnotationsPanel  = lazy(() => import(/* webpackChunkName: "annotations" */ './components/AnnotationsPanel'));
 const CollabPanel       = lazy(() => import(/* webpackChunkName: "collab"      */ './components/CollabPanel'));
 const SemanticTypesPanel = lazy(() => import(/* webpackChunkName: "sem-types"  */ './components/SemanticTypesPanel'));
@@ -947,6 +954,9 @@ Suggest the best resolution and explain why. Output ONLY the replacement code in
             dispatch={dispatch}
             onSwitchProject={fs.openProject}
           />
+        )}
+        {state.showThemeGenerator && (
+          <ThemeGeneratorModal state={state} dispatch={dispatch} />
         )}
         {state.showSmartPaste && (
           <SmartPasteModal

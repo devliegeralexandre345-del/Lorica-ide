@@ -69,6 +69,12 @@ export default function StatusBar({ state, activeFile, dispatch, updateInfo, cur
         )}
 
         <span className="text-lorica-textDim">{state.statusMessage}</span>
+
+        {/* Wave 36 — left-side extension chip slot. Sits next to the
+            secure / vault / status-message cluster so extensions can
+            place chips alongside the always-visible system widgets
+            instead of being lumped with git/search on the right. */}
+        <div id="lorica-ext-statusbar-host-left" className="flex items-center gap-2" />
       </div>
 
       {/* CENTER: Version & Update button */}
