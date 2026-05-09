@@ -49,6 +49,7 @@ import ImagePreview, { isImageFile } from './components/ImagePreview';
 import FilePreview, { hasPreview } from './components/FilePreview';
 import AmbientHUD from './components/AmbientHUD';
 import AddAnnotationPrompt from './components/AddAnnotationPrompt';
+import AnnotationPopover from './components/AnnotationPopover';
 
 // Lazy: Terminal pulls in the entire xterm bundle (~283 KiB) — splitting
 // it off the entrypoint is the single biggest first-paint win available
@@ -207,6 +208,14 @@ export default function App() {
   // clicks the annotations gutter (Wave 12.1). Shape:
   // `{ line, file }` while open, `null` when closed.
   const [addAnnotationAt, setAddAnnotationAt] = React.useState(null);
+  // Inline annotation popover state (Wave 15). Populated when the user
+  // clicks a gutter dot — null otherwise. Shape: { id, line, annotations,
+  // anchor: {x, y} }.
+  const [annotationPeek, setAnnotationPeek] = React.useState(null);
+  // Wave 17 — resolved Yjs/CodeMirror binding for the active file when
+  // it's the currently-shared file in a Live Share session. Resolved
+  // async (the binding lib is lazy-loaded), so we cache it in state.
+  const [activeCollabBinding, setActiveCollabBinding] = React.useState(null);
 
   // Refs for timers and stale closure avoidance
   const stateRef = useRef(state);
@@ -233,11 +242,23 @@ export default function App() {
       // Highlighting itself is panel-side polish for a follow-up.
       dispatch({ type: 'SET_PANEL', panel: 'showAnnotationsPanel', value: true });
     };
+    const onPeek = (ev) => {
+      const d = ev?.detail;
+      if (!d) return;
+      setAnnotationPeek({
+        id: d.id,
+        line: d.line,
+        annotations: d.annotations || [],
+        anchor: d.anchor || { x: 100, y: 100 },
+      });
+    };
     window.addEventListener('lorica:addAnnotation', onAdd);
     window.addEventListener('lorica:focusAnnotation', onFocus);
+    window.addEventListener('lorica:peekAnnotation', onPeek);
     return () => {
       window.removeEventListener('lorica:addAnnotation', onAdd);
       window.removeEventListener('lorica:focusAnnotation', onFocus);
+      window.removeEventListener('lorica:peekAnnotation', onPeek);
     };
   }, [dispatch]);
 
@@ -418,6 +439,35 @@ export default function App() {
   const activeFile = state.openFiles[state.activeFileIndex] || null;
   const splitFile = (state.splitMode && state.splitFileIndex >= 0) ? (state.openFiles[state.splitFileIndex] || null) : null;
   const isZen = state.zenMode;
+
+  // Wave 17 — resolve the Live Share binding asynchronously when the
+  // active file is the one being shared. The binding library is lazy-
+  // loaded (~80 KiB chunk), so we cache the result in state and pass
+  // it down as a prop. Effect cleans up when the file changes or the
+  // sharedFile changes so we never apply a stale binding.
+  useEffect(() => {
+    let cancelled = false;
+    if (!collab.active || !collab.sharedFile || !activeFile?.path) {
+      setActiveCollabBinding(null);
+      return undefined;
+    }
+    if (collab.sharedFile !== activeFile.path) {
+      setActiveCollabBinding(null);
+      return undefined;
+    }
+    (async () => {
+      try {
+        const ext = await collab.getBindingFor(activeFile.path, activeFile.content || '');
+        if (!cancelled) setActiveCollabBinding(ext);
+      } catch (e) {
+        // Silent: a binding failure leaves the editor in plain mode,
+        // which is acceptable degradation. Surfacing as a toast would
+        // spam the user every time they switch files during a session.
+        if (!cancelled) setActiveCollabBinding(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [collab, activeFile?.path, activeFile?.content]);
 
   // =============================================
   // Merge-conflict resolution — invoked by the inline buttons rendered
@@ -611,9 +661,10 @@ Suggest the best resolution and explain why. Output ONLY the replacement code in
                         projectPath={state.projectPath}
                         bookmarks={state.bookmarks?.[activeFile?.path] || null}
                         semanticMarks={state.semanticTypes?.[activeFile?.path]?.mismatches || null}
-                        annotations={annotationsApi.byFile[
+                        annotations={state.showAnnotations === false ? [] : (annotationsApi.byFile[
                           normalizeAnnotationPath(activeFile?.path || '', state.projectPath)
-                        ] || []}
+                        ] || [])}
+                        collabBinding={activeCollabBinding}
                         lspRequestCompletion={lsp.requestCompletion}
                         lspDiagnostics={lsp.diagnostics}
                         onConflictResolve={handleConflictResolve}
@@ -659,9 +710,9 @@ Suggest the best resolution and explain why. Output ONLY the replacement code in
                             projectPath={state.projectPath}
                             bookmarks={state.bookmarks?.[splitFile?.path] || null}
                             semanticMarks={state.semanticTypes?.[splitFile?.path]?.mismatches || null}
-                            annotations={annotationsApi.byFile[
+                            annotations={state.showAnnotations === false ? [] : (annotationsApi.byFile[
                               normalizeAnnotationPath(splitFile?.path || '', state.projectPath)
-                            ] || []}
+                            ] || [])}
                             lspRequestCompletion={lsp.requestCompletion}
                             lspDiagnostics={splitFile?.path === activeFile?.path ? lsp.diagnostics : []}
                             onConflictResolve={handleConflictResolve}
@@ -873,6 +924,16 @@ Suggest the best resolution and explain why. Output ONLY the replacement code in
                 type: 'ADD_TOAST',
                 toast: { type: 'success', message: 'Annotation added', duration: 1800 },
               });
+            }}
+          />
+        )}
+        {annotationPeek && (
+          <AnnotationPopover
+            peek={annotationPeek}
+            onClose={() => setAnnotationPeek(null)}
+            onOpenPanel={() => {
+              setAnnotationPeek(null);
+              dispatch({ type: 'SET_PANEL', panel: 'showAnnotationsPanel', value: true });
             }}
           />
         )}

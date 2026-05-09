@@ -46,7 +46,11 @@ export default function GlobalSearch({ state, dispatch, onFileOpen }) {
   const rerankAbortRef = useRef(null);
 
   const provider = state.aiProvider || 'anthropic';
-  const aiApiKey = provider === 'anthropic' ? state.aiApiKey : state.aiDeepseekKey;
+  const aiApiKey = provider === 'anthropic'
+    ? state.aiApiKey
+    : provider === 'deepseek'
+    ? state.aiDeepseekKey
+    : null; // Ollama keyless
   const canRerank = !!aiApiKey;
 
   useEffect(() => { inputRef.current?.focus(); }, []);
@@ -157,6 +161,8 @@ export default function GlobalSearch({ state, dispatch, onFileOpen }) {
         hits: rawHits,
         provider,
         apiKey: aiApiKey,
+        ollamaBaseUrl: state.aiOllamaUrl,
+        model: provider === 'ollama' ? state.aiOllamaModel : undefined,
         signal: ctrl.signal,
         maxReturn: 10,
       });

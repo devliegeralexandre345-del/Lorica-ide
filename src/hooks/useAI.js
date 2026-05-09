@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import { hasAIConsentOrPrompt } from '../utils/aiConsent';
+import { getEndpoint, getHeaders, buildChatBody, extractText, isKeyless } from '../utils/aiProviders';
 
 // Language context limits (character counts)
 const LANG_CONTEXT_LIMITS = {
@@ -109,70 +110,48 @@ If code context is provided, reference it specifically in your answers.`;
       }
       messages.push({ role: 'user', content });
 
-      let response;
-      let data;
-      
-      if (state.aiProvider === 'anthropic') {
-        // Anthropic API call
-        response = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': state.aiApiKey,
-            'anthropic-version': '2023-06-01',
-            'anthropic-dangerous-direct-browser-access': 'true',
-          },
-          body: JSON.stringify({
-            model: 'claude-sonnet-4-20250514',
-            max_tokens: 2048,
-            system: systemPrompt,
-            messages,
-          }),
+      // Unified provider call via aiProviders.js — anthropic, deepseek,
+      // and ollama all flow through the same code path now.
+      const provider = state.aiProvider;
+      const apiKey = provider === 'anthropic'
+        ? state.aiApiKey
+        : provider === 'deepseek'
+        ? state.aiDeepseekKey
+        : null;
+      if (!isKeyless(provider) && !apiKey) {
+        dispatch({
+          type: 'ADD_AI_MESSAGE',
+          message: { role: 'assistant', content: `⚠️ Configure ta clé ${provider} dans les Paramètres.` },
         });
-        data = await response.json();
-
-        if (data.content && data.content[0]) {
-          dispatch({
-            type: 'ADD_AI_MESSAGE',
-            message: { role: 'assistant', content: data.content[0].text },
-          });
-        } else if (data.error) {
-          dispatch({
-            type: 'ADD_AI_MESSAGE',
-            message: { role: 'assistant', content: `❌ Error: ${data.error.message}` },
-          });
-        }
-      } else if (state.aiProvider === 'deepseek') {
-        // DeepSeek API (OpenAI compatible)
-        // Convert messages format: Anthropic uses system in body, DeepSeek expects system as a message
-        const deepseekMessages = [
-          { role: 'system', content: systemPrompt },
-          ...messages
-        ];
-        
-        response = await fetch('https://api.deepseek.com/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${state.aiDeepseekKey}`,
-          },
-          body: JSON.stringify({
-            model: 'deepseek-chat',
-            max_tokens: 4096,
-            messages: deepseekMessages,
-          }),
+        return;
+      }
+      const endpoint = getEndpoint(provider, provider === 'ollama' ? state.aiOllamaUrl : undefined);
+      const headers = getHeaders(provider, apiKey);
+      const body = buildChatBody({
+        provider,
+        model: provider === 'ollama' ? state.aiOllamaModel : undefined,
+        system: systemPrompt,
+        messages,
+        maxTokens: provider === 'anthropic' ? 2048 : 4096,
+      });
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        const errMsg = data?.error?.message || data?.message || `HTTP ${response.status}`;
+        dispatch({
+          type: 'ADD_AI_MESSAGE',
+          message: { role: 'assistant', content: `❌ Error: ${errMsg}` },
         });
-        data = await response.json();
-
-        if (data.choices && data.choices[0]) {
+      } else {
+        const text = extractText(provider, data);
+        if (text) {
           dispatch({
             type: 'ADD_AI_MESSAGE',
-            message: { role: 'assistant', content: data.choices[0].message.content },
-          });
-        } else if (data.error) {
-          dispatch({
-            type: 'ADD_AI_MESSAGE',
-            message: { role: 'assistant', content: `❌ Error: ${data.error.message}` },
+            message: { role: 'assistant', content: text },
           });
         }
       }
@@ -184,7 +163,7 @@ If code context is provided, reference it specifically in your answers.`;
     } finally {
       dispatch({ type: 'SET_AI_LOADING', value: false });
     }
-  }, [state.aiApiKey, state.aiDeepseekKey, state.aiProvider, state.aiMessages, dispatch]);
+  }, [state.aiApiKey, state.aiDeepseekKey, state.aiOllamaUrl, state.aiOllamaModel, state.aiProvider, state.aiMessages, dispatch]);
 
   const quickAction = useCallback(async (action, code, fileName, language) => {
     const prompts = {

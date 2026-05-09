@@ -13,14 +13,14 @@
 // signaling URLs are public Yjs defaults — replace via Settings if
 // you want to run your own.
 //
-// v0 scope (this session):
-//   • Awareness only: each peer publishes their name, active file,
-//     cursor row/col. Peers see each other in a panel + as cursor
-//     decorations in the editor.
-//   • NO automatic content sync (Y.Text bound to CodeMirror) — that
-//     requires y-codemirror.next which we deliberately don't install
-//     yet. Adding shared editing without a UX for diverging documents
-//     would lose the user's work. Documented as v1 follow-up.
+// v1 scope (Wave 17):
+//   • Awareness — each peer publishes their name, active file,
+//     cursor row/col (rendered as a panel row + a coloured caret).
+//   • Full text sync via Y.Text bound to CodeMirror with
+//     y-codemirror.next. Edits made by any peer propagate to all
+//     others; concurrent edits merge cleanly (CRDT). Bind one file at
+//     a time: the user picks a file to "share" and we expose its
+//     Y.Text to the editor; other files stay private.
 //
 // Room id: `lorica-<pseudo-uuid>`. Users either create a session
 // (random id, copy invite) or join one (paste id). The id is the
@@ -148,5 +148,47 @@ export function createCollabSession({ roomId, displayName, signaling }) {
     try { ydoc.destroy(); } catch {}
   }
 
-  return { ydoc, provider, awareness, setLocalState, snapshotPeers, onPeersChange, leave };
+  // ── Wave 17 — shared text binding ──────────────────────────────────
+  //
+  // Expose a Y.Text keyed by a stable id (typically a file path) so the
+  // editor can bind to it and edits propagate to all peers. The Y.Doc
+  // already enforces last-writer-wins per character offset under
+  // concurrent edits — y-codemirror.next handles the CodeMirror side.
+  //
+  // We seed the Y.Text with the local file's contents the FIRST time
+  // someone in the session asks for that key. Subsequent peers join an
+  // already-populated Y.Text and don't re-seed (prevents the duplicate-
+  // content bug where two peers both insert the file body).
+  //
+  // A small `Y.Map` named `_meta` tracks which keys have been seeded so
+  // the seed-once decision is itself a CRDT (no race between two peers
+  // seeding simultaneously).
+  const meta = ydoc.getMap('_meta');
+
+  function getSharedText(key, initialContent) {
+    const ytext = ydoc.getText(`file:${key}`);
+    // Seed only if no peer has done it yet AND we have a non-empty
+    // initial value to seed with. Without the meta gate, two peers
+    // joining at the same time would each insert the file body and
+    // we'd end up with double content.
+    if (typeof initialContent === 'string' && !meta.get(key)) {
+      // Mark first to short-circuit a concurrent seed attempt.
+      meta.set(key, { seededAt: Date.now() });
+      if (ytext.length === 0 && initialContent.length > 0) {
+        ytext.insert(0, initialContent);
+      }
+    }
+    return ytext;
+  }
+
+  return {
+    ydoc,
+    provider,
+    awareness,
+    setLocalState,
+    snapshotPeers,
+    onPeersChange,
+    leave,
+    getSharedText,
+  };
 }

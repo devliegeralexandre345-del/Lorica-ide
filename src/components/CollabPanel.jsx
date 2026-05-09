@@ -8,6 +8,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   X, Users, Wifi, WifiOff, Copy, Play, Square, Link2, AlertTriangle, Check,
+  Share2, FileText,
 } from 'lucide-react';
 import { generateRoomId } from '../utils/collab';
 
@@ -79,8 +80,8 @@ export default function CollabPanel({ state, dispatch, collab, activeFile }) {
       <div className="w-full max-w-2xl max-h-[85vh] lorica-glass rounded-2xl shadow-[0_0_60px_rgba(34,211,238,0.18)] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-3 px-5 py-3 border-b border-lorica-border shrink-0">
           <Users size={15} className="text-cyan-400" />
-          <div className="text-sm font-semibold text-lorica-text">Live Share (alpha)</div>
-          <div className="text-[10px] text-lorica-textDim">Peer-to-peer presence — awareness only in v0, full edit sync in v1.</div>
+          <div className="text-sm font-semibold text-lorica-text">Live Share</div>
+          <div className="text-[10px] text-lorica-textDim">Peer-to-peer · cursors + full text sync (Wave 17, v1).</div>
           <div className="flex-1" />
           {collab.active ? (
             <span className="flex items-center gap-1 text-[10px] text-emerald-300">
@@ -175,6 +176,46 @@ export default function CollabPanel({ state, dispatch, collab, activeFile }) {
                 runs over public Yjs servers; the editor traffic is peer-to-peer
                 WebRTC, not via Lorica.
               </p>
+
+              {/* Wave 17 — pick ONE file to share live. The active file
+                  the user opens in the main editor when they hit Share
+                  becomes the synced doc. Other files stay private. */}
+              <div className="mt-3 pt-3 border-t border-lorica-border/40 space-y-2">
+                <div className="text-[10px] uppercase tracking-widest text-lorica-textDim font-semibold">Shared file</div>
+                {collab.sharedFile ? (
+                  <div className="flex items-center gap-2 px-2 py-1.5 rounded bg-emerald-400/10 border border-emerald-400/30 text-[11px]">
+                    <FileText size={11} className="text-emerald-300" />
+                    <span className="font-mono text-lorica-text truncate flex-1">{collab.sharedFile}</span>
+                    <button
+                      onClick={collab.unshareFile}
+                      className="text-[10px] text-emerald-200 hover:text-emerald-100"
+                    >
+                      Unshare
+                    </button>
+                  </div>
+                ) : activeFile?.path ? (
+                  <button
+                    onClick={() => {
+                      collab.shareFile(activeFile.path, activeFile.content || '');
+                      dispatch({
+                        type: 'ADD_TOAST',
+                        toast: { type: 'success', message: `Sharing ${activeFile.name || activeFile.path} live`, duration: 2500 },
+                      });
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-cyan-400/15 border border-cyan-400/40 text-[11px] text-cyan-200 hover:bg-cyan-400/25"
+                  >
+                    <Share2 size={11} />
+                    Share active file ({activeFile.name || activeFile.path.split(/[\\/]/).pop()})
+                  </button>
+                ) : (
+                  <div className="text-[10px] text-lorica-textDim italic">Open a file to share it.</div>
+                )}
+                <p className="text-[10px] text-lorica-textDim">
+                  Edits in the shared file sync to all peers in real time via CRDT
+                  (Yjs). Peers join the existing content — no overwrite. Other open
+                  files stay private to your machine.
+                </p>
+              </div>
             </div>
           )}
         </div>

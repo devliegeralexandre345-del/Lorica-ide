@@ -104,6 +104,55 @@ export function useCollabSession() {
     });
   }, []);
 
+  // ── Wave 17 — shared file binding ──────────────────────────────────
+  //
+  // The user picks ONE file to share at a time (the "shared file"
+  // pattern, like VS Code Live Share). When `sharedFile` is set, the
+  // Editor — for that file only — gets a yCollab extension that binds
+  // its content to the session's Y.Text. Other files stay private.
+  //
+  // We track the sharedFile path in component state so the panel can
+  // render a "Currently sharing: foo.js" indicator.
+  const [sharedFile, setSharedFile] = useState(null);
+  // Cached Y.Text per file (so re-binding the same file picks up the
+  // existing CRDT state instead of re-seeding).
+  const sharedTextsRef = useRef(new Map());
+
+  const shareFile = useCallback(async (filePath, initialContent) => {
+    if (!sessionRef.current || !filePath) return null;
+    const cached = sharedTextsRef.current.get(filePath);
+    if (cached) {
+      setSharedFile(filePath);
+      return cached;
+    }
+    const ytext = sessionRef.current.getSharedText(filePath, initialContent);
+    sharedTextsRef.current.set(filePath, ytext);
+    setSharedFile(filePath);
+    return ytext;
+  }, []);
+
+  const unshareFile = useCallback(() => {
+    setSharedFile(null);
+  }, []);
+
+  // Editor.jsx asks for the binding extension at build time. Returns
+  // null when no session is live or this file isn't the shared file.
+  const getBindingFor = useCallback(async (filePath, initialContent) => {
+    if (!sessionRef.current || !filePath || filePath !== sharedFile) return null;
+    let ytext = sharedTextsRef.current.get(filePath);
+    if (!ytext) {
+      ytext = sessionRef.current.getSharedText(filePath, initialContent);
+      sharedTextsRef.current.set(filePath, ytext);
+    }
+    const { buildYjsBinding } = await import(
+      /* webpackChunkName: "yjs-binding-loader" */ '../extensions/yjsBinding'
+    );
+    return buildYjsBinding({
+      ytext,
+      awareness: sessionRef.current.awareness,
+    });
+  }, [sharedFile]);
+
   // Final cleanup on unmount — guards against the user closing the IDE
   // mid-session without clicking Stop.
   useEffect(() => {
@@ -123,5 +172,10 @@ export function useCollabSession() {
     start,
     stop,
     publishCursor,
+    // Wave 17 — text sync surface
+    sharedFile,
+    shareFile,
+    unshareFile,
+    getBindingFor,
   };
 }

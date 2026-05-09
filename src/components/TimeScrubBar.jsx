@@ -15,8 +15,8 @@ import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { Clock, ChevronLeft, ChevronRight, X, GitFork, Eye, Sparkles, Loader2 } from 'lucide-react';
 import { readSnapshotHistory } from '../hooks/useTimeScrub';
 
-const ANTHROPIC = 'https://api.anthropic.com/v1/messages';
-const DEEPSEEK  = 'https://api.deepseek.com/v1/chat/completions';
+// URL constants come from aiProviders.js — keeps endpoints centralised.
+import { getEndpoint, getHeaders, buildChatBody, extractText, isKeyless } from '../utils/aiProviders';
 const MODELS = { anthropic: 'claude-3-5-haiku-20241022', deepseek: 'deepseek-chat' };
 
 // Minimal LCS-based line-diff — good enough for a side-by-side viewer
@@ -44,8 +44,8 @@ function diffLines(aLines, bLines) {
 }
 
 // Ask LLM to pick the right snapshot index given a free-text intent.
-async function pickSnapshotByIntent({ intent, snapshots, provider, apiKey }) {
-  if (!apiKey) return null;
+async function pickSnapshotByIntent({ intent, snapshots, provider, apiKey, ollamaBaseUrl, model }) {
+  if (!isKeyless(provider) && !apiKey) return null;
   const samples = snapshots.slice(0, 40).map((s, i) => ({
     idx: i,
     ago: Math.round((Date.now() - s.t) / 60000) + 'm',
@@ -54,28 +54,24 @@ async function pickSnapshotByIntent({ intent, snapshots, provider, apiKey }) {
   }));
   const system = 'Pick the snapshot that best matches the user\'s intent to rewind to. Return STRICT JSON: {"idx": <0-indexed snapshot idx or -1 for "stay present">, "why": "<one sentence>"}';
   const msg = `Intent: ${intent}\n\nSnapshots (newest first):\n${samples.map((s) => `[${s.idx}] ${s.ago} ago · reason=${s.reason} · ${s.head}`).join('\n')}`;
-  const model = MODELS[provider] || MODELS.anthropic;
+  const chosenModel = model || MODELS[provider] || MODELS.anthropic;
   try {
-    const r = provider === 'anthropic'
-      ? await tauriFetch(ANTHROPIC, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-          body: JSON.stringify({ model, max_tokens: 300, system, messages: [{ role: 'user', content: msg }] }),
-        })
-      : await fetch(DEEPSEEK, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify({ model, max_tokens: 300, messages: [{ role: 'system', content: system }, { role: 'user', content: msg }] }),
-        });
+    const endpoint = getEndpoint(provider, provider === 'ollama' ? ollamaBaseUrl : undefined);
+    const headers = getHeaders(provider, apiKey);
+    const body = buildChatBody({
+      provider, model: chosenModel,
+      system, messages: [{ role: 'user', content: msg }],
+      maxTokens: 300,
+    });
+    const fetchFn = provider === 'anthropic' ? tauriFetch : fetch;
+    const r = await fetchFn(endpoint, { method: 'POST', headers, body: JSON.stringify(body) });
     if (!r.ok) return null;
     const data = await r.json();
-    const text = provider === 'anthropic'
-      ? (data?.content || []).map((b) => b.text || '').join('')
-      : (data?.choices?.[0]?.message?.content || '');
-    const t = text.replace(/^\s*```(?:json)?\s*/i, '').replace(/```\s*$/i, '');
-    const s = t.indexOf('{'), e = t.lastIndexOf('}');
+    let text = extractText(provider, data);
+    text = text.replace(/^\s*```(?:json)?\s*/i, '').replace(/```\s*$/i, '');
+    const s = text.indexOf('{'), e = text.lastIndexOf('}');
     if (s < 0 || e < 0) return null;
-    return JSON.parse(t.slice(s, e + 1));
+    return JSON.parse(text.slice(s, e + 1));
   } catch { return null; }
 }
 
@@ -97,7 +93,11 @@ export default function TimeScrubBar({ state, dispatch }) {
   const [intentAnswer, setIntentAnswer] = useState(null);
   const liveContentRef = useRef(null); // saved live buffer while scrubbing
   const provider = state.aiProvider || 'anthropic';
-  const apiKey = provider === 'anthropic' ? state.aiApiKey : state.aiDeepseekKey;
+  const apiKey = provider === 'anthropic'
+    ? state.aiApiKey
+    : provider === 'deepseek'
+    ? state.aiDeepseekKey
+    : null;
 
   // Reload history when active file changes or when the panel is toggled on.
   useEffect(() => {
@@ -190,7 +190,11 @@ export default function TimeScrubBar({ state, dispatch }) {
     if (!intent.trim() || !history.length || !apiKey) return;
     setIntentBusy(true);
     setIntentAnswer(null);
-    const pick = await pickSnapshotByIntent({ intent, snapshots: history, provider, apiKey });
+    const pick = await pickSnapshotByIntent({
+      intent, snapshots: history, provider, apiKey,
+      ollamaBaseUrl: state.aiOllamaUrl,
+      model: provider === 'ollama' ? state.aiOllamaModel : undefined,
+    });
     setIntentBusy(false);
     if (!pick || typeof pick.idx !== 'number') return;
     setIntentAnswer(pick);

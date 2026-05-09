@@ -703,6 +703,84 @@ fn get_registry() -> Vec<Extension> {
         },
 
         // ----------------------------------------------------------------
+        // Wave 14 — Niche-language LSPs. Match the 5 niche-language
+        // static completions added in Wave 5 (zig, nim, crystal,
+        // haskell, ocaml). Each entry's `binary` matches the executable
+        // name exposed by `get_lsp_server()` in lsp.rs so the auto-detect
+        // in `find_binary` can locate an installed instance after install.
+        Extension {
+            id: "lsp-zig".into(),
+            name: "Zig — Language Server (zls)".into(),
+            description: "Zig Language Server — autocomplete + diagnostics + go-to-def for .zig files.".into(),
+            version: "latest".into(),
+            category: "language".into(),
+            languages: vec!["zig".into()],
+            installed: false,
+            // zls ships pre-built binaries; the simplest cross-platform
+            // install we can automate is `zig build` from source. Mark
+            // as `None` and rely on the install_note for a manual hint
+            // — much like sourcekit-lsp.
+            install_cmd: None,
+            install_note: Some("Download the prebuilt zls release for your OS from https://github.com/zigtools/zls/releases and add it to PATH (Lorica auto-detects).".into()),
+            binary: Some(if cfg!(target_os = "windows") { "zls.exe".into() } else { "zls".into() }),
+        },
+        Extension {
+            id: "lsp-nim".into(),
+            name: "Nim — Language Server".into(),
+            description: "Nim Language Server (nimlangserver) — completions and diagnostics for .nim files.".into(),
+            version: "latest".into(),
+            category: "language".into(),
+            languages: vec!["nim".into()],
+            installed: false,
+            install_cmd: Some("nimble install nimlangserver".into()),
+            install_note: Some("Requires Nim 1.6+. After install, Lorica auto-detects `nimlangserver` on PATH.".into()),
+            binary: Some(if cfg!(target_os = "windows") { "nimlangserver.exe".into() } else { "nimlangserver".into() }),
+        },
+        Extension {
+            id: "lsp-crystal".into(),
+            name: "Crystal — Language Server (crystalline)".into(),
+            description: "Crystalline LSP — autocomplete + go-to-def + format for .cr files.".into(),
+            version: "latest".into(),
+            category: "language".into(),
+            languages: vec!["crystal".into()],
+            installed: false,
+            install_cmd: None,
+            install_note: Some("Download the prebuilt crystalline binary for your OS from https://github.com/elbywan/crystalline/releases and put it on PATH (Lorica auto-detects).".into()),
+            binary: Some(if cfg!(target_os = "windows") { "crystalline.exe".into() } else { "crystalline".into() }),
+        },
+        Extension {
+            id: "lsp-haskell".into(),
+            name: "Haskell — Language Server (HLS)".into(),
+            description: "haskell-language-server (HLS) — full LSP for .hs files. Installs via ghcup.".into(),
+            version: "latest".into(),
+            category: "language".into(),
+            languages: vec!["haskell".into()],
+            installed: false,
+            // ghcup is the canonical install path; we don't try to wrap
+            // ghcup itself (it's interactive on first run). Document the
+            // command and let the user run it.
+            install_cmd: None,
+            install_note: Some("Install via ghcup: `ghcup install hls`. See https://www.haskell.org/ghcup/ for the bootstrap.".into()),
+            binary: Some(if cfg!(target_os = "windows") {
+                "haskell-language-server-wrapper.exe".into()
+            } else {
+                "haskell-language-server-wrapper".into()
+            }),
+        },
+        Extension {
+            id: "lsp-ocaml".into(),
+            name: "OCaml — Language Server (ocamllsp)".into(),
+            description: "ocaml-lsp-server — completions, type info, and refactors for .ml/.mli files.".into(),
+            version: "latest".into(),
+            category: "language".into(),
+            languages: vec!["ocaml".into()],
+            installed: false,
+            install_cmd: Some("opam install ocaml-lsp-server".into()),
+            install_note: Some("Requires an opam switch. Lorica auto-detects `ocamllsp` on PATH after install.".into()),
+            binary: Some(if cfg!(target_os = "windows") { "ocamllsp.exe".into() } else { "ocamllsp".into() }),
+        },
+
+        // ----------------------------------------------------------------
         // MCP server marketplace (Wave 8 / V2.3 medium-tier).
         //
         // Surfaces a small curated catalog of well-known Model Context

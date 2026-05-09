@@ -17,12 +17,13 @@ import {
   Wand2, X, Loader2, Play, Check, AlertTriangle, RefreshCw, Terminal as TermIcon,
   History, CheckCircle2, XCircle,
 } from 'lucide-react';
+import { getEndpoint, getHeaders, buildChatBody, extractText } from '../utils/aiProviders';
 
-const ANTHROPIC_ENDPOINT = 'https://api.anthropic.com/v1/messages';
-const DEEPSEEK_ENDPOINT  = 'https://api.deepseek.com/v1/chat/completions';
 // Escalation ladder — we start with the fast model; if it can't propose a
 // confident fix (low confidence or parse fails), we escalate to the
 // strong model. Opus is only used for the retry-after-failure path.
+// Ollama uses whatever the user picked — escalation is a no-op there
+// since there's only one local model selected at a time.
 const MODEL_LADDER = {
   anthropic: ['claude-3-5-haiku-20241022', 'claude-sonnet-4-20250514', 'claude-opus-4-20250514'],
   deepseek:  ['deepseek-chat', 'deepseek-reasoner', 'deepseek-reasoner'],
@@ -122,7 +123,11 @@ export default function AutoFixModal({ state, dispatch }) {
   const abortRef = useRef(null);
 
   const provider = state.aiProvider || 'anthropic';
-  const apiKey = provider === 'anthropic' ? state.aiApiKey : state.aiDeepseekKey;
+  const apiKey = provider === 'anthropic'
+    ? state.aiApiKey
+    : provider === 'deepseek'
+    ? state.aiDeepseekKey
+    : null;
 
   const close = () => {
     abortRef.current?.abort();
@@ -174,50 +179,27 @@ export default function AutoFixModal({ state, dispatch }) {
     ].join('\n');
 
     try {
-      const ladder = MODEL_LADDER[provider] || MODEL_LADDER.anthropic;
+      // Ollama doesn't have a ladder — escalation is a no-op. For
+      // Anthropic / DeepSeek, the ladder picks haiku → sonnet → opus.
+      const ladder = MODEL_LADDER[provider] || (provider === 'ollama'
+        ? [state.aiOllamaModel || 'llama3.1:8b']
+        : MODEL_LADDER.anthropic);
       const model = ladder[Math.min(tier, ladder.length - 1)];
-      let text = '';
-      if (provider === 'anthropic') {
-        const body = {
-          model, max_tokens: 2500, temperature: 0.1,
-          system: SYSTEM_PROMPT,
-          messages: [{ role: 'user', content: userMsg }],
-        };
-        const r = await robustFetch(ANTHROPIC_ENDPOINT, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01',
-            'anthropic-dangerous-direct-browser-access': 'true',
-          },
-          body: JSON.stringify(body),
-          signal: abortRef.current.signal,
-        }, false);
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const data = await r.json();
-        text = (data?.content || []).map((b) => b.text || '').join('');
-      } else {
-        const body = {
-          model, max_tokens: 2500, temperature: 0.1,
-          messages: [
-            { role: 'system', content: SYSTEM_PROMPT },
-            { role: 'user', content: userMsg },
-          ],
-        };
-        const r = await robustFetch(DEEPSEEK_ENDPOINT, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify(body),
-          signal: abortRef.current.signal,
-        }, true);
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const data = await r.json();
-        text = data?.choices?.[0]?.message?.content || '';
-      }
+      const endpoint = getEndpoint(provider, provider === 'ollama' ? state.aiOllamaUrl : undefined);
+      const headers = getHeaders(provider, apiKey);
+      const body = buildChatBody({
+        provider, model,
+        system: SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: userMsg }],
+        maxTokens: 2500, temperature: 0.1,
+      });
+      const r = await robustFetch(endpoint, {
+        method: 'POST', headers, body: JSON.stringify(body),
+        signal: abortRef.current.signal,
+      }, provider !== 'anthropic');
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json();
+      const text = extractText(provider, data);
       const parsed = parseFix(text);
       if (!parsed) throw new Error('Model returned unparseable output');
       setFix(parsed);

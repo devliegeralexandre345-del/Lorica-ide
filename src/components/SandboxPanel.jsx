@@ -28,8 +28,8 @@ import {
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { runSandbox, runPythonSandbox, instrumentProbes, isPyodideCached } from '../utils/sandbox';
 
-const ANTHROPIC = 'https://api.anthropic.com/v1/messages';
-const DEEPSEEK  = 'https://api.deepseek.com/v1/chat/completions';
+// Endpoints come from aiProviders.js — keeps the URL list centralised.
+import { getEndpoint, getHeaders, buildChatBody, extractText, isKeyless } from '../utils/aiProviders';
 const MODELS = { anthropic: 'claude-3-5-haiku-20241022', deepseek: 'deepseek-chat' };
 
 function fixturesPath(projectPath) {
@@ -74,9 +74,9 @@ function deriveFnId(code) {
   return m ? m[1] : null;
 }
 
-async function askAIForInputs({ code, provider, apiKey }) {
-  if (!apiKey) return null;
-  const model = MODELS[provider] || MODELS.anthropic;
+async function askAIForInputs({ code, provider, apiKey, ollamaBaseUrl, model }) {
+  if (!isKeyless(provider) && !apiKey) return null;
+  const chosenModel = model || MODELS[provider] || MODELS.anthropic;
   const sys = [
     'You generate sample inputs for a JavaScript function.',
     'Return STRICT JSON: an array of 3 distinct argument arrays that exercise edge cases.',
@@ -85,29 +85,20 @@ async function askAIForInputs({ code, provider, apiKey }) {
   ].join('\n');
   const msg = 'Generate 3 sample input arrays for this function:\n\n```js\n' + code + '\n```';
   try {
-    let text;
-    if (provider === 'anthropic') {
-      const r = await tauriFetch(ANTHROPIC, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({ model, max_tokens: 600, system: sys, messages: [{ role: 'user', content: msg }] }),
-      });
-      const data = await r.json();
-      text = (data?.content || []).map((b) => b.text || '').join('');
-    } else {
-      const r = await fetch(DEEPSEEK, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ model, max_tokens: 600, messages: [{ role: 'system', content: sys }, { role: 'user', content: msg }] }),
-      });
-      const data = await r.json();
-      text = data?.choices?.[0]?.message?.content || '';
-    }
+    const endpoint = getEndpoint(provider, provider === 'ollama' ? ollamaBaseUrl : undefined);
+    const headers = getHeaders(provider, apiKey);
+    const body = buildChatBody({
+      provider, model: chosenModel,
+      system: sys,
+      messages: [{ role: 'user', content: msg }],
+      maxTokens: 600,
+    });
+    const fetchFn = provider === 'anthropic' ? tauriFetch : fetch;
+    const r = await fetchFn(endpoint, {
+      method: 'POST', headers, body: JSON.stringify(body),
+    });
+    const data = await r.json();
+    let text = extractText(provider, data);
     text = text.replace(/^\s*```(?:json)?\s*/i, '').replace(/```\s*$/i, '');
     const s = text.indexOf('['); const e = text.lastIndexOf(']');
     if (s < 0 || e < 0) return null;
@@ -130,7 +121,11 @@ export default function SandboxPanel({ state, dispatch }) {
   const codeRef = useRef(null);
 
   const provider = state.aiProvider || 'anthropic';
-  const apiKey = provider === 'anthropic' ? state.aiApiKey : state.aiDeepseekKey;
+  const apiKey = provider === 'anthropic'
+    ? state.aiApiKey
+    : provider === 'deepseek'
+    ? state.aiDeepseekKey
+    : null;
   const close = () => dispatch({ type: 'SET_PANEL', panel: 'showSandbox', value: false });
 
   // Seed the code area with the active file's selection or full content.
@@ -199,7 +194,11 @@ export default function SandboxPanel({ state, dispatch }) {
   const generateInputs = async () => {
     if (!apiKey) return;
     setRunning(true);
-    const samples = await askAIForInputs({ code, provider, apiKey });
+    const samples = await askAIForInputs({
+      code, provider, apiKey,
+      ollamaBaseUrl: state.aiOllamaUrl,
+      model: provider === 'ollama' ? state.aiOllamaModel : undefined,
+    });
     setRunning(false);
     if (!samples || samples.length === 0) {
       dispatch({ type: 'ADD_TOAST', toast: { type: 'warning', message: 'AI input generation failed', duration: 2500 } });

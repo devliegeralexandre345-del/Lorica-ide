@@ -77,6 +77,8 @@ export default function SwarmPanel({ state, dispatch }) {
         featureRequest: feature.trim(),
         projectTreeSummary: summarizeTree(state.fileTree),
         provider, apiKey,
+        ollamaBaseUrl: state.aiOllamaUrl,
+        model: provider === 'ollama' ? state.aiOllamaModel : undefined,
         signal: abortRef.current.signal,
       });
       setTasks(subtasks);
@@ -134,6 +136,8 @@ export default function SwarmPanel({ state, dispatch }) {
           const res = await executeTask({
             task: t, projectContext,
             provider, apiKey,
+            ollamaBaseUrl: state.aiOllamaUrl,
+            model: provider === 'ollama' ? state.aiOllamaModel : undefined,
             signal: abortRef.current.signal,
           });
           patchTask(t.id, {

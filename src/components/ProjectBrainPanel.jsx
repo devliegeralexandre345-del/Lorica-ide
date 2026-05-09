@@ -106,8 +106,13 @@ export default function ProjectBrainPanel({ state, dispatch, brainRefresh }) {
   // writes to the brain.
   const doExtract = async () => {
     const provider = state.aiProvider || 'anthropic';
-    const apiKey = provider === 'anthropic' ? state.aiApiKey : state.aiDeepseekKey;
-    if (!apiKey) {
+    const apiKey = provider === 'anthropic'
+      ? state.aiApiKey
+      : provider === 'deepseek'
+      ? state.aiDeepseekKey
+      : null;
+    const keyOk = provider === 'ollama' ? true : !!apiKey;
+    if (!keyOk) {
       dispatch({ type: 'ADD_TOAST', toast: { type: 'warning', message: 'Configure an API key first', duration: 2500 } });
       return;
     }
@@ -120,6 +125,8 @@ export default function ProjectBrainPanel({ state, dispatch, brainRefresh }) {
       const draft = await autoExtractBrainEntry({
         messages: state.agentMessages,
         provider, apiKey,
+        ollamaBaseUrl: state.aiOllamaUrl,
+        model: provider === 'ollama' ? state.aiOllamaModel : undefined,
       });
       if (!draft) throw new Error('empty extraction');
       setEditing(draft);

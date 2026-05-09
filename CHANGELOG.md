@@ -3,6 +3,100 @@
 All notable changes to Lorica IDE. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — Waves 6-17
+
+Waves 13-17 (2026-05-09 late night) close the v2.3.x roadmap loop:
+Ollama works for **every** AI surface, the niche-language LSPs catch
+up to the static completions (17 → 22 servers), annotations get an
+inline read popover, floating windows go read-write, and Live Share
+v1 ships with full real-time text sync via Yjs CRDT.
+
+### Added — Wave 13 (Ollama everywhere v2)
+
+Refactored all remaining call sites to route through `aiProviders.js`:
+
+- **`aiSemanticRerank.js`** — semantic search re-rank with Ollama.
+- **`predictNextEdit.js`** — next-edit predictions with Ollama.
+- **`brainAutoExtract.js`** — Project Brain entry extraction.
+- **`agentSwarm.js`** — Multi-Agent Swarm review (Bug Hunter,
+  Security, Perf, Architect roles).
+- **`swarmOrchestrator.js`** — Swarm Development decompose + execute.
+- **`useAI.js`** — the legacy AI panel chat.
+
+UI components plumbed: AgentSwarmPanel, SwarmPanel, SnippetPalette,
+AutoFixModal, GlobalSearch, ProjectBrainPanel, SandboxPanel,
+TimeScrubBar — all now pass `ollamaBaseUrl` + `model` through and
+use `isKeyless()` to gate the API-key check.
+
+**Net effect**: Lorica is now usable end-to-end without an internet
+connection (assuming Ollama is running locally).
+
+### Added — Wave 14 (5 niche-language LSPs)
+
+Total LSP servers **17 → 22**:
+
+- **`zls`** (Zig) — install via `zig build` from source or grab a
+  prebuilt release.
+- **`nimlangserver`** (Nim) — `nimble install nimlangserver`.
+- **`crystalline`** (Crystal) — prebuilt binary from upstream.
+- **`haskell-language-server`** (Haskell) — `ghcup install hls`.
+- **`ocamllsp`** (OCaml) — `opam install ocaml-lsp-server`.
+
+Both `lsp.rs::get_lsp_server` and the Extensions panel registry
+include them. `LANGUAGE_BY_EXT` extended for `.zig/.nim/.cr/.hs/.lhs/.ml/.mli`.
+
+### Added — Wave 15 (Annotation popovers)
+
+- **Inline read popover** when the user clicks a gutter dot. Up to
+  4 notes per line with author, age, color, and pinned state. An
+  "edit" link jumps to the full panel. Shift-click skips straight to
+  the panel.
+- **Toggle visibility command**: "Show/Hide annotation gutter dots"
+  in the Command Palette. Wires to `state.showAnnotations` (was a
+  dormant flag, now functional).
+
+### Added — Wave 16 (Floating windows v2 — read-write)
+
+- **Editable floating windows**. Ctrl/Cmd+S writes back to disk; the
+  main window's file watcher picks the change up and refreshes the
+  buffer. No in-memory bidirectional sync — the disk is the source of
+  truth (avoids the "two editors fight" failure mode).
+- **Lock toggle**: the v1 read-only mode is preserved as a one-click
+  setting for users who just want a reference window.
+- **Diverging-doc safeguard**: refuses to silently overwrite unsaved
+  edits when an `fs:change` arrives while the floating window is
+  dirty. Surfaces a warning instead.
+- **Beforeunload guard**: warns before closing the window with
+  unsaved edits.
+
+### Added — Wave 17 (Live Share v1 — full text sync)
+
+- **`y-codemirror.next`** binding lazy-loaded (~80 KiB chunk fetched
+  only when the user actually shares a file). Editor binds to a Y.Text
+  via the awareness-aware `yCollab` extension.
+- **"Share active file" button** in CollabPanel. Picks ONE file at a
+  time; other open files stay private to the local machine.
+- **Seed-once invariant**: a `_meta` Y.Map gates the initial-content
+  insert so two peers joining simultaneously don't both seed the
+  document (prevents the duplicate-content footgun).
+- **Editor.jsx** accepts a new `collabBinding` prop; rebuilds when the
+  prop changes. App resolves the binding asynchronously when the
+  active file matches the shared file.
+
+### New dependencies
+
+- `y-codemirror.next ^0.3.5` — Yjs binding for CodeMirror 6. Lazy-
+  loaded, never enters the entrypoint.
+
+### Bundle impact (Waves 13-17)
+
+- `main.bundle.js`: 312 → **317 KiB** (+5 KiB for popover + collab
+  binding wiring).
+- `vendors.bundle.js`: 186 KiB (unchanged — yjs-binding is async).
+- `codemirror.bundle.js`: 413 KiB (unchanged).
+- New lazy chunks: `yjs-binding`, `yjs-binding-loader` (~80 KiB
+  combined, only fetched when sharing).
+
 ## [Unreleased] — Waves 6-12
 
 Wave 12 (2026-05-09 night) is the polish round that closes the

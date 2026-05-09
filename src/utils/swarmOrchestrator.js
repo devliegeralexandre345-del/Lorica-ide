@@ -18,9 +18,8 @@
 //     has A in its `dependsOn`.
 
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
+import { getEndpoint, getHeaders, buildChatBody, extractText, isKeyless } from './aiProviders';
 
-const ANTHROPIC = 'https://api.anthropic.com/v1/messages';
-const DEEPSEEK  = 'https://api.deepseek.com/v1/chat/completions';
 const FAST = { anthropic: 'claude-3-5-haiku-20241022', deepseek: 'deepseek-chat' };
 const STRONG = { anthropic: 'claude-sonnet-4-20250514', deepseek: 'deepseek-chat' };
 
@@ -55,8 +54,11 @@ function parse(text, startChar, endChar) {
   try { return JSON.parse(t.slice(s, e + 1)); } catch { return null; }
 }
 
-export async function decomposeFeature({ featureRequest, projectTreeSummary, provider, apiKey, signal }) {
-  const model = FAST[provider] || FAST.anthropic;
+export async function decomposeFeature({
+  featureRequest, projectTreeSummary, provider, apiKey, ollamaBaseUrl, model, signal,
+}) {
+  if (!isKeyless(provider) && !apiKey) throw new Error('Missing API key');
+  const chosenModel = model || FAST[provider] || FAST.anthropic;
   const userMsg = [
     `Feature request: ${featureRequest}`,
     '',
@@ -65,37 +67,22 @@ export async function decomposeFeature({ featureRequest, projectTreeSummary, pro
     '',
     'Return the JSON array now.',
   ].join('\n');
-  const body = provider === 'anthropic' ? {
-    model, max_tokens: 1800, temperature: 0.2,
+  const endpoint = getEndpoint(provider, provider === 'ollama' ? ollamaBaseUrl : undefined);
+  const headers = getHeaders(provider, apiKey);
+  const body = buildChatBody({
+    provider, model: chosenModel,
     system: DECOMPOSE_SYSTEM,
     messages: [{ role: 'user', content: userMsg }],
-  } : {
-    model, max_tokens: 1800, temperature: 0.2,
-    messages: [{ role: 'system', content: DECOMPOSE_SYSTEM }, { role: 'user', content: userMsg }],
-  };
+    maxTokens: 1800, temperature: 0.2,
+  });
   const r = await robustFetch(
-    provider === 'anthropic' ? ANTHROPIC : DEEPSEEK,
-    {
-      method: 'POST',
-      headers: provider === 'anthropic' ? {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      } : {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(body),
-      signal,
-    },
+    endpoint,
+    { method: 'POST', headers, body: JSON.stringify(body), signal },
     provider !== 'anthropic',
   );
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   const data = await r.json();
-  const text = provider === 'anthropic'
-    ? (data?.content || []).map((b) => b.text || '').join('')
-    : (data?.choices?.[0]?.message?.content || '');
+  const text = extractText(provider, data);
   const arr = parse(text, '[', ']');
   if (!Array.isArray(arr)) return [];
   return arr.map((t, i) => ({
@@ -132,8 +119,11 @@ const EXECUTE_SYSTEM = [
   '  • If a file in your task doesn\'t exist, use "create".',
 ].join('\n');
 
-export async function executeTask({ task, projectContext, provider, apiKey, signal }) {
-  const model = STRONG[provider] || STRONG.anthropic;
+export async function executeTask({
+  task, projectContext, provider, apiKey, ollamaBaseUrl, model, signal,
+}) {
+  if (!isKeyless(provider) && !apiKey) throw new Error('Missing API key');
+  const chosenModel = model || STRONG[provider] || STRONG.anthropic;
   const userMsg = [
     `Task: ${task.title}`,
     `Description: ${task.description}`,
@@ -144,38 +134,22 @@ export async function executeTask({ task, projectContext, provider, apiKey, sign
     '',
     'Return the JSON now.',
   ].join('\n');
-  const body = provider === 'anthropic' ? {
-    model, max_tokens: 4000, temperature: 0.2,
+  const endpoint = getEndpoint(provider, provider === 'ollama' ? ollamaBaseUrl : undefined);
+  const headers = getHeaders(provider, apiKey);
+  const body = buildChatBody({
+    provider, model: chosenModel,
     system: EXECUTE_SYSTEM,
     messages: [{ role: 'user', content: userMsg }],
-  } : {
-    model, max_tokens: 4000, temperature: 0.2,
-    messages: [{ role: 'system', content: EXECUTE_SYSTEM }, { role: 'user', content: userMsg }],
-  };
+    maxTokens: 4000, temperature: 0.2,
+  });
   const r = await robustFetch(
-    provider === 'anthropic' ? ANTHROPIC : DEEPSEEK,
-    {
-      method: 'POST',
-      headers: provider === 'anthropic' ? {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      } : {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(body),
-      signal,
-    },
+    endpoint,
+    { method: 'POST', headers, body: JSON.stringify(body), signal },
     provider !== 'anthropic',
   );
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   const data = await r.json();
-  const text = provider === 'anthropic'
-    ? (data?.content || []).map((b) => b.text || '').join('')
-    : (data?.choices?.[0]?.message?.content || '');
-  const parsed = parse(text, '{', '}');
+  const parsed = parse(extractText(provider, data), '{', '}');
   if (!parsed || !Array.isArray(parsed.changes)) return { notes: 'Parse failed', changes: [] };
   return parsed;
 }

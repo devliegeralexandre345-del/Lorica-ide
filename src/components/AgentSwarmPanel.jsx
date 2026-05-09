@@ -61,7 +61,12 @@ export default function AgentSwarmPanel({ state, dispatch, activeFile }) {
   }, [state.projectPath]);
 
   const provider = state.aiProvider || 'anthropic';
-  const apiKey = provider === 'anthropic' ? state.aiApiKey : state.aiDeepseekKey;
+  const apiKey = provider === 'anthropic'
+    ? state.aiApiKey
+    : provider === 'deepseek'
+    ? state.aiDeepseekKey
+    : null;
+  const keyOk = provider === 'ollama' ? true : !!apiKey;
 
   const close = () => {
     abortRef.current?.abort();
@@ -70,7 +75,7 @@ export default function AgentSwarmPanel({ state, dispatch, activeFile }) {
 
   const run = async () => {
     if (!activeFile) return;
-    if (!apiKey) {
+    if (!keyOk) {
       dispatch({ type: 'ADD_TOAST', toast: { type: 'warning', message: 'Configure an API key first (Settings)', duration: 4000 } });
       return;
     }
@@ -83,6 +88,8 @@ export default function AgentSwarmPanel({ state, dispatch, activeFile }) {
         file: activeFile,
         provider,
         apiKey,
+        ollamaBaseUrl: state.aiOllamaUrl,
+        model: provider === 'ollama' ? state.aiOllamaModel : undefined,
         roles, // pass merged built-in + custom list
         signal: abortRef.current.signal,
         onRoleUpdate: (role, rs) => {

@@ -42,6 +42,14 @@ const LANGUAGE_BY_EXT = {
   dart: 'dart',
   kt: 'kotlin', kts: 'kotlin',
   swift: 'swift',
+  // Wave 14 — niche-language LSPs (zls, nimlangserver, crystalline,
+  // haskell-language-server, ocaml-lsp-server). Match the static
+  // completions that already exist for these languages.
+  zig: 'zig',
+  nim: 'nim',
+  cr: 'crystal',
+  hs: 'haskell', lhs: 'haskell',
+  ml: 'ocaml', mli: 'ocaml',
 };
 
 /** File path → sanitized file URI (LSP servers accept `file://` URIs). */

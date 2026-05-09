@@ -228,6 +228,30 @@ pub fn get_lsp_server(language: &str) -> Option<(String, Vec<String>)> {
             "sourcekit-lsp".to_string(),
             vec![],
         )),
+        // ── Wave 14: 5 niche-language LSPs to match the static
+        // completions added in Wave 5. All five are sub-1MB binaries
+        // installed via the user's package manager — see lsp_install_hint
+        // for per-LSP instructions.
+        "zig" => Some((
+            "zls".to_string(),
+            vec![],
+        )),
+        "nim" => Some((
+            "nimlangserver".to_string(),
+            vec![],
+        )),
+        "crystal" => Some((
+            "crystalline".to_string(),
+            vec![],
+        )),
+        "haskell" => Some((
+            "haskell-language-server-wrapper".to_string(),
+            vec!["--lsp".to_string()],
+        )),
+        "ocaml" => Some((
+            "ocamllsp".to_string(),
+            vec![],
+        )),
         _ => None,
     }
 }
@@ -274,6 +298,18 @@ pub fn lsp_install_hint(language: &str) -> String {
             "Install kotlin-language-server (fwcd): https://github.com/fwcd/kotlin-language-server (or use Lorica's Extensions panel). Requires JDK 11+.".to_string(),
         "swift" =>
             "Install the Swift toolchain from https://www.swift.org/install/ — sourcekit-lsp ships with it.".to_string(),
+        // Wave 14 — niche-language LSPs. Each ships as a single binary
+        // (no toolchain bootstrap) so the install hint is simple.
+        "zig" =>
+            "Install zls: `zig fetch --save https://github.com/zigtools/zls/archive/master.tar.gz` then `zig build -Doptimize=ReleaseSafe`. Or grab a release binary from https://github.com/zigtools/zls/releases.".to_string(),
+        "nim" =>
+            "Install nimlangserver: `nimble install nimlangserver` (Nim 1.6+ required).".to_string(),
+        "crystal" =>
+            "Install crystalline: download the latest binary from https://github.com/elbywan/crystalline/releases and put it on PATH.".to_string(),
+        "haskell" =>
+            "Install haskell-language-server via ghcup: `ghcup install hls` (https://www.haskell.org/ghcup/).".to_string(),
+        "ocaml" =>
+            "Install ocaml-lsp-server: `opam install ocaml-lsp-server` (requires opam + a switch).".to_string(),
         _ => "No LSP server is registered for this language.".to_string(),
     }
 }

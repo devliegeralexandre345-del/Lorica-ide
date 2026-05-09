@@ -30,6 +30,10 @@ export default function CommandPalette({ state, dispatch, onOpenFolder, onLock, 
     { label: 'Toggle AI Copilot', icon: Bot, action: () => { dispatch({ type: 'TOGGLE_PANEL', panel: 'showAIPanel' }); close(); } },
     { label: 'Smart Paste (translate clipboard with AI)', icon: Wand2, action: () => { dispatch({ type: 'SET_PANEL', panel: 'showSmartPaste', value: true }); close(); } },
     { label: 'Annotations (browse spatial notes)', icon: StickyNote, action: () => { dispatch({ type: 'SET_PANEL', panel: 'showAnnotationsPanel', value: true }); close(); } },
+    { label: state.showAnnotations === false ? 'Show annotation gutter dots' : 'Hide annotation gutter dots', icon: StickyNote, action: () => {
+      dispatch({ type: 'SET_PANEL', panel: 'showAnnotations', value: state.showAnnotations === false });
+      close();
+    } },
     { label: 'Add annotation here', icon: StickyNote, action: () => {
       const file = state.openFiles?.[state.activeFileIndex];
       if (!file?.path) {

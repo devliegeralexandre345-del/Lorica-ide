@@ -14,9 +14,7 @@
 // to surface the failure to the user.
 
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
-
-const ANTHROPIC_ENDPOINT = 'https://api.anthropic.com/v1/messages';
-const DEEPSEEK_ENDPOINT = 'https://api.deepseek.com/v1/chat/completions';
+import { getEndpoint, getHeaders, buildChatBody, extractText, isKeyless } from './aiProviders';
 
 const FAST_MODELS = {
   anthropic: 'claude-3-5-haiku-20241022',
@@ -126,7 +124,7 @@ function parseRankedJson(raw) {
  * }>}
  */
 export async function rerankSemanticHits({
-  query, hits, provider, apiKey, model, signal, maxReturn = 10,
+  query, hits, provider, apiKey, model, ollamaBaseUrl, signal, maxReturn = 10,
 }) {
   const fallback = (reason) => ({
     ranked: (hits || []).slice(0, maxReturn),
@@ -134,7 +132,7 @@ export async function rerankSemanticHits({
     fallbackReason: reason,
   });
 
-  if (!apiKey) return fallback('missing API key');
+  if (!isKeyless(provider) && !apiKey) return fallback('missing API key');
   if (!Array.isArray(hits) || hits.length === 0) {
     return { ranked: [], usedFallback: false };
   }
@@ -146,59 +144,22 @@ export async function rerankSemanticHits({
 
   let raw = '';
   try {
-    if (provider === 'anthropic') {
-      const body = {
-        model: chosenModel,
-        max_tokens: 1400,
-        temperature: 0.1,
-        system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: userMsg }],
-      };
-      const r = await robustFetch(
-        ANTHROPIC_ENDPOINT,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01',
-            'anthropic-dangerous-direct-browser-access': 'true',
-          },
-          body: JSON.stringify(body),
-          signal,
-        },
-        false,
-      );
-      if (!r.ok) return fallback(`Anthropic ${r.status}: ${await safeErrorText(r)}`);
-      const data = await r.json();
-      raw = (data?.content || []).map((b) => b.text || '').join('');
-    } else {
-      const body = {
-        model: chosenModel,
-        max_tokens: 1400,
-        temperature: 0.1,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: userMsg },
-        ],
-      };
-      const r = await robustFetch(
-        DEEPSEEK_ENDPOINT,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify(body),
-          signal,
-        },
-        true,
-      );
-      if (!r.ok) return fallback(`DeepSeek ${r.status}: ${await safeErrorText(r)}`);
-      const data = await r.json();
-      raw = data?.choices?.[0]?.message?.content || '';
-    }
+    const endpoint = getEndpoint(provider, provider === 'ollama' ? ollamaBaseUrl : undefined);
+    const headers = getHeaders(provider, apiKey);
+    const body = buildChatBody({
+      provider, model: chosenModel,
+      system: SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: userMsg }],
+      maxTokens: 1400, temperature: 0.1,
+    });
+    const r = await robustFetch(
+      endpoint,
+      { method: 'POST', headers, body: JSON.stringify(body), signal },
+      provider !== 'anthropic',
+    );
+    if (!r.ok) return fallback(`${provider} ${r.status}: ${await safeErrorText(r)}`);
+    const data = await r.json();
+    raw = extractText(provider, data);
   } catch (err) {
     if (err?.name === 'AbortError') throw err;
     return fallback(`network error: ${err.message || err}`);

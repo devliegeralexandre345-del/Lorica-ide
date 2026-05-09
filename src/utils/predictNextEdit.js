@@ -15,9 +15,7 @@
 // inline-edit flow.
 
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
-
-const ANTHROPIC_ENDPOINT = 'https://api.anthropic.com/v1/messages';
-const DEEPSEEK_ENDPOINT  = 'https://api.deepseek.com/v1/chat/completions';
+import { getEndpoint, getHeaders, buildChatBody, extractText, isKeyless } from './aiProviders';
 
 const FAST_MODELS = {
   anthropic: 'claude-3-5-haiku-20241022',
@@ -153,56 +151,29 @@ function parseSuggestions(text) {
  */
 export async function predictNextEdits({
   filePath, oldText, newText, candidatePaths,
-  provider, apiKey, signal,
+  provider, apiKey, ollamaBaseUrl, model, signal,
 }) {
-  if (!apiKey) return [];
-  const model = FAST_MODELS[provider] || FAST_MODELS.anthropic;
+  if (!isKeyless(provider) && !apiKey) return [];
+  const chosenModel = model || FAST_MODELS[provider] || FAST_MODELS.anthropic;
   const userMsg = buildUserMessage({ filePath, oldText, newText, candidatePaths });
 
   try {
-    if (provider === 'anthropic') {
-      const body = {
-        model, max_tokens: 600, temperature: 0.15,
-        system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: userMsg }],
-      };
-      const r = await robustFetch(ANTHROPIC_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify(body),
-        signal,
-      }, false);
-      if (!r.ok) return [];
-      const data = await r.json();
-      const text = (data?.content || []).map((b) => b.text || '').join('');
-      return parseSuggestions(text);
-    } else {
-      const body = {
-        model, max_tokens: 600, temperature: 0.15,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user',   content: userMsg },
-        ],
-      };
-      const r = await robustFetch(DEEPSEEK_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify(body),
-        signal,
-      }, true);
-      if (!r.ok) return [];
-      const data = await r.json();
-      const text = data?.choices?.[0]?.message?.content || '';
-      return parseSuggestions(text);
-    }
+    const endpoint = getEndpoint(provider, provider === 'ollama' ? ollamaBaseUrl : undefined);
+    const headers = getHeaders(provider, apiKey);
+    const body = buildChatBody({
+      provider, model: chosenModel,
+      system: SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: userMsg }],
+      maxTokens: 600, temperature: 0.15,
+    });
+    const r = await robustFetch(
+      endpoint,
+      { method: 'POST', headers, body: JSON.stringify(body), signal },
+      provider !== 'anthropic',
+    );
+    if (!r.ok) return [];
+    const data = await r.json();
+    return parseSuggestions(extractText(provider, data));
   } catch {
     return [];
   }

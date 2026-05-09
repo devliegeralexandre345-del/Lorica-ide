@@ -25,9 +25,7 @@
 // is what users actually want.
 
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
-
-const ANTHROPIC_ENDPOINT = 'https://api.anthropic.com/v1/messages';
-const DEEPSEEK_ENDPOINT  = 'https://api.deepseek.com/v1/chat/completions';
+import { getEndpoint, getHeaders, buildChatBody, extractText, isKeyless } from './aiProviders';
 
 const MODELS = {
   anthropic: 'claude-3-5-haiku-20241022',
@@ -193,54 +191,27 @@ function parseFindings(text) {
   }
 }
 
-// ── Run ONE role call (Anthropic or DeepSeek). Returns { findings, error } ──
-async function runRoleCall({ role, file, provider, apiKey, signal }) {
-  const model = MODELS[provider] || MODELS.anthropic;
+// ── Run ONE role call. Routes through aiProviders for any provider. ──
+async function runRoleCall({ role, file, provider, apiKey, ollamaBaseUrl, model, signal }) {
+  const chosenModel = model || MODELS[provider] || MODELS.anthropic;
   const userMsg = buildUserMessage({ file, role });
   try {
-    if (provider === 'anthropic') {
-      const body = {
-        model, max_tokens: 1500, temperature: 0.1,
-        system: role.system + '\n\n' + OUTPUT_CONTRACT,
-        messages: [{ role: 'user', content: userMsg }],
-      };
-      const r = await robustFetch(ANTHROPIC_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify(body),
-        signal,
-      }, false);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const data = await r.json();
-      const text = (data?.content || []).map((b) => b.text || '').join('');
-      return { findings: parseFindings(text) };
-    } else {
-      const body = {
-        model, max_tokens: 1500, temperature: 0.1,
-        messages: [
-          { role: 'system', content: role.system + '\n\n' + OUTPUT_CONTRACT },
-          { role: 'user',   content: userMsg },
-        ],
-      };
-      const r = await robustFetch(DEEPSEEK_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify(body),
-        signal,
-      }, true);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const data = await r.json();
-      const text = data?.choices?.[0]?.message?.content || '';
-      return { findings: parseFindings(text) };
-    }
+    const endpoint = getEndpoint(provider, provider === 'ollama' ? ollamaBaseUrl : undefined);
+    const headers = getHeaders(provider, apiKey);
+    const body = buildChatBody({
+      provider, model: chosenModel,
+      system: role.system + '\n\n' + OUTPUT_CONTRACT,
+      messages: [{ role: 'user', content: userMsg }],
+      maxTokens: 1500, temperature: 0.1,
+    });
+    const r = await robustFetch(
+      endpoint,
+      { method: 'POST', headers, body: JSON.stringify(body), signal },
+      provider !== 'anthropic',
+    );
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    return { findings: parseFindings(extractText(provider, data)) };
   } catch (e) {
     return { findings: [], error: e.message };
   }
@@ -256,12 +227,17 @@ async function runRoleCall({ role, file, provider, apiKey, signal }) {
  * `onRoleUpdate(role, state)` fires as each role finishes so the UI can
  * progressively fill in results rather than wait for the slowest one.
  */
-export async function runSwarm({ file, provider, apiKey, signal, onRoleUpdate, roles: rolesOverride }) {
+export async function runSwarm({
+  file, provider, apiKey, ollamaBaseUrl, model, signal, onRoleUpdate, roles: rolesOverride,
+}) {
   const startedAt = Date.now();
   const list = (Array.isArray(rolesOverride) && rolesOverride.length) ? rolesOverride : SWARM_ROLES;
+  if (!isKeyless(provider) && !apiKey) {
+    return { roles: [], totalFindings: 0, startedAt, finishedAt: Date.now(), error: 'API key missing' };
+  }
   const promises = list.map(async (role) => {
     onRoleUpdate?.(role, { status: 'running' });
-    const res = await runRoleCall({ role, file, provider, apiKey, signal });
+    const res = await runRoleCall({ role, file, provider, apiKey, ollamaBaseUrl, model, signal });
     const state = {
       status: res.error ? 'error' : 'done',
       findings: res.findings || [],

@@ -7,9 +7,7 @@
 // the editor form.
 
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
-
-const ANTHROPIC_ENDPOINT = 'https://api.anthropic.com/v1/messages';
-const DEEPSEEK_ENDPOINT  = 'https://api.deepseek.com/v1/chat/completions';
+import { getEndpoint, getHeaders, buildChatBody, extractText, isKeyless } from './aiProviders';
 
 const MODELS = {
   anthropic: 'claude-3-5-haiku-20241022',
@@ -81,56 +79,28 @@ async function robustFetch(url, opts, preferNative) {
   try { return await tauriFetch(url, init); } catch { return fetch(url, init); }
 }
 
-export async function autoExtractBrainEntry({ messages, provider, apiKey, signal }) {
-  const model = MODELS[provider] || MODELS.anthropic;
+export async function autoExtractBrainEntry({
+  messages, provider, apiKey, ollamaBaseUrl, model, signal,
+}) {
+  if (!isKeyless(provider) && !apiKey) throw new Error('Missing API key');
+  const chosenModel = model || MODELS[provider] || MODELS.anthropic;
   const transcript = transcriptFromMessages(messages || []);
   if (!transcript) return null;
 
-  try {
-    if (provider === 'anthropic') {
-      const body = {
-        model, max_tokens: 1500, temperature: 0.2,
-        system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: transcript }],
-      };
-      const r = await robustFetch(ANTHROPIC_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify(body),
-        signal,
-      }, false);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const data = await r.json();
-      const text = (data?.content || []).map((b) => b.text || '').join('');
-      return parseDraft(text);
-    } else {
-      const body = {
-        model, max_tokens: 1500, temperature: 0.2,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user',   content: transcript },
-        ],
-      };
-      const r = await robustFetch(DEEPSEEK_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify(body),
-        signal,
-      }, true);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const data = await r.json();
-      const text = data?.choices?.[0]?.message?.content || '';
-      return parseDraft(text);
-    }
-  } catch (e) {
-    throw e;
-  }
+  const endpoint = getEndpoint(provider, provider === 'ollama' ? ollamaBaseUrl : undefined);
+  const headers = getHeaders(provider, apiKey);
+  const body = buildChatBody({
+    provider, model: chosenModel,
+    system: SYSTEM_PROMPT,
+    messages: [{ role: 'user', content: transcript }],
+    maxTokens: 1500, temperature: 0.2,
+  });
+  const r = await robustFetch(
+    endpoint,
+    { method: 'POST', headers, body: JSON.stringify(body), signal },
+    provider !== 'anthropic',
+  );
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const data = await r.json();
+  return parseDraft(extractText(provider, data));
 }

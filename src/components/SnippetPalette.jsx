@@ -10,48 +10,31 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Code2, Search, X, Sparkles, Loader2 } from 'lucide-react';
 import { getSnippetsForExtension } from '../utils/snippets';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
+import { getEndpoint, getHeaders, buildChatBody, extractText } from '../utils/aiProviders';
 
-const ANTHROPIC = 'https://api.anthropic.com/v1/messages';
-const DEEPSEEK  = 'https://api.deepseek.com/v1/chat/completions';
 const MODELS = { anthropic: 'claude-3-5-haiku-20241022', deepseek: 'deepseek-chat' };
 
-async function genSnippet({ prompt, language, provider, apiKey, signal }) {
-  const model = MODELS[provider] || MODELS.anthropic;
+async function genSnippet({ prompt, language, provider, apiKey, ollamaBaseUrl, model, signal }) {
+  const chosenModel = model || MODELS[provider] || MODELS.anthropic;
   const sys = `You write a single code snippet for a developer's IDE. Output ONLY the raw code — no fences, no commentary, no explanations. Language: ${language || 'auto-detect'}. Keep it short (under 20 lines). Idiomatic for the language.`;
   const userMsg = `Snippet request: ${prompt}`;
-  try {
-    let text = '';
-    if (provider === 'anthropic') {
-      const r = await tauriFetch(ANTHROPIC, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({ model, max_tokens: 500, system: sys, messages: [{ role: 'user', content: userMsg }] }),
-        signal,
-      });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const data = await r.json();
-      text = (data?.content || []).map((b) => b.text || '').join('');
-    } else {
-      const r = await fetch(DEEPSEEK, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ model, max_tokens: 500, messages: [{ role: 'system', content: sys }, { role: 'user', content: userMsg }] }),
-        signal,
-      });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const data = await r.json();
-      text = data?.choices?.[0]?.message?.content || '';
-    }
-    // Strip any code fences the model slipped in.
-    return text.replace(/^\s*```[\w+-]*\n?/, '').replace(/```\s*$/, '').trim();
-  } catch (e) {
-    throw e;
-  }
+  const endpoint = getEndpoint(provider, provider === 'ollama' ? ollamaBaseUrl : undefined);
+  const headers = getHeaders(provider, apiKey);
+  const body = buildChatBody({
+    provider, model: chosenModel,
+    system: sys,
+    messages: [{ role: 'user', content: userMsg }],
+    maxTokens: 500,
+  });
+  // Anthropic via Tauri (CORS-hostile in some builds), others via native fetch.
+  const fetchFn = provider === 'anthropic' ? tauriFetch : fetch;
+  const r = await fetchFn(endpoint, {
+    method: 'POST', headers, body: JSON.stringify(body), signal,
+  });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const data = await r.json();
+  const text = extractText(provider, data);
+  return text.replace(/^\s*```[\w+-]*\n?/, '').replace(/```\s*$/, '').trim();
 }
 
 export default function SnippetPalette({ activeFile, dispatch, onInsert, state }) {
@@ -70,7 +53,12 @@ export default function SnippetPalette({ activeFile, dispatch, onInsert, state }
 
   const ext = activeFile?.extension || '';
   const provider = state?.aiProvider || 'anthropic';
-  const apiKey = provider === 'anthropic' ? state?.aiApiKey : state?.aiDeepseekKey;
+  const apiKey = provider === 'anthropic'
+    ? state?.aiApiKey
+    : provider === 'deepseek'
+    ? state?.aiDeepseekKey
+    : null;
+  const keyOk = provider === 'ollama' ? true : !!apiKey;
 
   const allSnippets = useMemo(() => {
     const snippets = getSnippetsForExtension(ext);
@@ -102,12 +90,20 @@ export default function SnippetPalette({ activeFile, dispatch, onInsert, state }
   };
 
   const runAiGen = async () => {
-    if (!aiPrompt.trim() || !apiKey) return;
+    if (!aiPrompt.trim() || !keyOk) return;
     abortRef.current?.abort();
     abortRef.current = new AbortController();
     setAiBusy(true); setAiError(''); setAiResult('');
     try {
-      const text = await genSnippet({ prompt: aiPrompt, language: ext, provider, apiKey, signal: abortRef.current.signal });
+      const text = await genSnippet({
+        prompt: aiPrompt,
+        language: ext,
+        provider,
+        apiKey,
+        ollamaBaseUrl: state?.aiOllamaUrl,
+        model: provider === 'ollama' ? state?.aiOllamaModel : undefined,
+        signal: abortRef.current.signal,
+      });
       setAiResult(text || '(empty response)');
     } catch (e) {
       if (e.name !== 'AbortError') setAiError(e.message || String(e));

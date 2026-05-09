@@ -233,6 +233,12 @@ const Editor = React.memo(function Editor({
   // Spatial annotations for the active file (Wave 12.1). Slim shape:
   // [{id, line, color, pinned, text}]. Empty array == no dots rendered.
   annotations = null,
+  // Wave 17 — Live Share text sync. When a collab session is live AND
+  // this file is the shared file, App passes in the resolved
+  // y-codemirror.next extension here. Changes to this prop trigger an
+  // editor rebuild (the binding hijacks the doc state, so it must be
+  // baked into the EditorState at construction).
+  collabBinding = null,
   // LSP completion fetcher: takes (file, line, character) and returns
   // LSP CompletionItems or null. Passed in from App via useLSP hook so
   // completion queries route to the right language server session.
@@ -761,8 +767,20 @@ const Editor = React.memo(function Editor({
         } catch (_) {}
       }
 
+      // Wave 17 — bake the Live Share binding into the EditorState if
+      // present. y-codemirror.next's yCollab extension takes over doc
+      // ownership: edits flow through Y.Text and are mirrored to peers.
+      // We seed the local doc only when the binding is null; with the
+      // binding, the Y.Text already has the authoritative content.
+      if (collabBinding) {
+        extensions.push(collabBinding);
+      }
+
       viewRef.current = new EditorView({
-        state: EditorState.create({ doc: file.content || '', extensions }),
+        state: EditorState.create({
+          doc: collabBinding ? '' : (file.content || ''),
+          extensions,
+        }),
         parent: containerRef.current,
       });
       filePathRef.current = file.path;
@@ -771,7 +789,7 @@ const Editor = React.memo(function Editor({
 
     setup();
     return () => { if (viewRef.current) { viewRef.current.destroy(); viewRef.current = null; setReady(false); } };
-  }, [file.path, theme, showMinimap]);
+  }, [file.path, theme, showMinimap, collabBinding]);
 
   useEffect(() => {
     if (viewRef.current && filePathRef.current === file.path) {

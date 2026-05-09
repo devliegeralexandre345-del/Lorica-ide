@@ -69,6 +69,63 @@ _Append-only. Most recent at the top._
 
 ## Bilan log
 
+### 2026-05-09 (late night) — Waves 13-17 five-wave push
+
+User asked for "5 waves". Picked from the deepseek.md "Wave 13
+candidates" list, executed them sequentially, no agents.
+
+| Wave | Result |
+|---|---|
+| **13. Ollama everywhere v2** | ✅ Refactored 12 lighter AI call sites through `aiProviders.js`. `aiSemanticRerank`, `predictNextEdit`, `brainAutoExtract`, `agentSwarm`, `swarmOrchestrator`, `useAI` rewritten. UI threading: AgentSwarmPanel, SwarmPanel, SnippetPalette, AutoFixModal, GlobalSearch, ProjectBrainPanel, SandboxPanel, TimeScrubBar — all now plumb `ollamaBaseUrl` + `model` and gate via `isKeyless()`. **Lorica is now end-to-end Ollama-capable** — agent loop, inline complete, commit messages, PR descriptions, smart paste, swarm review, swarm dev, snippet gen, auto-fix, semantic re-rank, brain extraction, time-scrub intent. |
+| **14. 5 LSPs** | ✅ zls, nimlangserver, crystalline, haskell-language-server-wrapper, ocamllsp. Wired in both `lsp.rs::get_lsp_server`, `lsp.rs::lsp_install_hint`, `extensions.rs` registry, and `useLSP.js` LANGUAGE_BY_EXT. Total LSPs **17 → 22**. |
+| **15. Annotation popovers** | ✅ New `AnnotationPopover.jsx` — inline read view with 4-note cap and "edit" link to the panel. Click vs shift-click split (peek vs jump). Annotations gutter extension now emits `lorica:peekAnnotation`. App listener routes to popover state. New "Show/Hide annotation gutter dots" command — wires the previously-dormant `showAnnotations` flag. |
+| **16. Floating windows v2** | ✅ FloatingViewer now editable. Ctrl+S → disk write; main window's file watcher picks up the change. Lock toggle preserves v1 read-only mode. Diverging-doc safeguard refuses to silently overwrite unsaved edits when an `fs:change` arrives. Beforeunload guard. Used a Compartment to swap editable state without rebuilding the editor. |
+| **17. Live Share v1 (text sync)** | ✅ `y-codemirror.next` lazy-loaded (~80 KiB chunk). `collab.js` exposes `getSharedText(key, initialContent)` with seed-once gate via a `_meta` Y.Map (prevents duplicate-content footgun). `useCollabSession` exposes `shareFile`/`unshareFile`/`getBindingFor`. CollabPanel grows a "Share active file" button. Editor.jsx accepts a `collabBinding` prop and rebuilds when it changes. |
+
+**New deps (justified):**
+
+- `y-codemirror.next ^0.3.5` — official Yjs binding for CodeMirror 6.
+  Lazy-loaded.
+
+**Bundle final (post Wave 17):**
+
+| Chunk | Size | Δ vs Wave 12 |
+|---|---|---|
+| main.bundle.js | **317 KiB** | +5 KiB |
+| vendors.bundle.js | 186 KiB | unchanged |
+| codemirror.bundle.js | 413 KiB | unchanged |
+| Entrypoint total | **~1.03 MiB** | +5 KiB |
+| `yjs-binding` lazy | ~80 KiB | new (only fetched on first share) |
+
+**Decisions made (autonomous):**
+
+- **Floating windows v2 syncs via disk, not in-memory.** Two editors
+  fighting over state was the failure mode I wanted to avoid; routing
+  through Tauri's existing fs:change watcher is robust + simple.
+- **Live Share shares ONE file at a time.** Multi-file sharing is a
+  natural follow-up but adds complexity around per-file Y.Text
+  lifecycle. v1 ships the simple model.
+- **Seed-once via `_meta` Y.Map.** Without this gate, two peers
+  joining at the same time both insert the file body. Cost: one extra
+  Y.Map per session.
+- **Editor rebuild on `collabBinding` change.** y-codemirror.next's
+  binding takes over doc state, so we can't add it via
+  reconfigure — the EditorState has to be reconstructed. Acceptable
+  since binding changes are rare (start session / share file).
+
+**Files touched (Waves 13-17, ~22 files):**
+
+- New: `src/components/AnnotationPopover.jsx`,
+  `src/extensions/yjsBinding.js`.
+- Modified: `App.jsx`, `Editor.jsx`, `FloatingViewer.jsx`,
+  `useLSP.js`, `useCollabSession.js`, `lsp.rs`, `extensions.rs`,
+  `aiSemanticRerank.js`, `predictNextEdit.js`, `brainAutoExtract.js`,
+  `agentSwarm.js`, `swarmOrchestrator.js`, `useAI.js`, `collab.js`,
+  `annotationsGutter.js`, `CollabPanel.jsx`, `CommandPalette.jsx`,
+  `AgentSwarmPanel.jsx`, `SwarmPanel.jsx`, `SnippetPalette.jsx`,
+  `AutoFixModal.jsx`, `GlobalSearch.jsx`, `ProjectBrainPanel.jsx`,
+  `SandboxPanel.jsx`, `TimeScrubBar.jsx`.
+
 ### 2026-05-09 (night) — Wave 12 polish round 2 complete
 
 User pushed Wave 6-11 mega commit (`83d71a1`), then asked to keep

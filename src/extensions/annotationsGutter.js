@@ -109,15 +109,25 @@ export function annotationsGutter() {
       },
       initialSpacer: () => new AnnotationMarker([{ id: 'spacer', color: 'amber', text: '', pinned: false }]),
       domEventHandlers: {
-        // Left click on an existing dot → ask the host to focus that
-        // annotation (open the panel scrolled to the row, highlight,
-        // etc.). Click on an empty gutter line → ask the host to add
-        // a new annotation at that line.
+        // Left click on an existing dot → emit a `lorica:peekAnnotation`
+        // event that the host renders as an inline popover (Wave 15).
+        // Shift-click jumps straight to the panel for full edit. Empty
+        // gutter line → add intent.
         click: (view, line, event) => {
           const target = event.target?.closest?.('.cm-annotation-dot');
           if (target?.dataset?.annotationId) {
-            window.dispatchEvent(new CustomEvent('lorica:focusAnnotation', {
-              detail: { id: target.dataset.annotationId },
+            const map = view.state.field(annotationsField, false);
+            const ln = view.state.doc.lineAt(line.from).number;
+            const list = map?.get(ln) || [];
+            const eventName = event.shiftKey ? 'lorica:focusAnnotation' : 'lorica:peekAnnotation';
+            const rect = target.getBoundingClientRect();
+            window.dispatchEvent(new CustomEvent(eventName, {
+              detail: {
+                id: target.dataset.annotationId,
+                line: ln,
+                annotations: list,
+                anchor: { x: rect.right + 6, y: rect.top },
+              },
             }));
             return true;
           }

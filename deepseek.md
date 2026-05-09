@@ -5,12 +5,13 @@ _every meaningful step. The point: if Claude runs out of context, the_
 _next assistant (DeepSeek, another Claude session, anyone) can pick up_
 _cold and stay productive without re-reading the whole repo._
 
-**Last updated**: 2026-05-09 by Claude (Opus 4.7) — **Wave 12 complete**.
-Annotation gutter dots, 3 new themes (13 total), Ollama wired through
-inline-complete + commit messages + PR descriptions. 133 JS tests + 8
-Rust tests green; main bundle 312 KiB (+9 KiB), vendors 186 KiB
-(unchanged). User has explicitly **lifted the no-new-deps rule** —
-add what makes Lorica the perfect futuristic IDE.
+**Last updated**: 2026-05-09 by Claude (Opus 4.7) — **Waves 13-17 complete**.
+Ollama EVERYWHERE (12 lighter call sites refactored), +5 niche LSPs
+(Zig, Nim, Crystal, Haskell, OCaml — total 22), annotation popovers,
+**floating windows v2 read-write**, **Live Share v1 with full text
+sync** via y-codemirror.next. 133 JS tests + 8 Rust tests green.
+Bundle: main 320 KiB, vendors 186 KiB. User has lifted the no-new-deps
+rule — keep adding what makes Lorica the perfect futuristic IDE.
 
 ---
 
@@ -151,6 +152,41 @@ tests/
   (+13 tests). WAVE_TEST_GUIDE.md updated with scenarios for
   Waves 6-9. CHANGELOG + LEDGER updated.
 
+- **Waves 13-17 — five-wave push** (2026-05-09 late night).
+  - **13. Ollama everywhere v2**: refactored the remaining 12 lighter
+    call sites to route through `aiProviders.js`. `aiSemanticRerank.js`,
+    `predictNextEdit.js`, `brainAutoExtract.js`, `agentSwarm.js`,
+    `swarmOrchestrator.js`, `useAI.js` all done. UI components
+    plumbed: AgentSwarmPanel, SwarmPanel, SnippetPalette, AutoFixModal,
+    GlobalSearch, ProjectBrainPanel, SandboxPanel, TimeScrubBar all
+    pass `ollamaBaseUrl` + `model` and use `isKeyless()` to gate the
+    API-key check. Ollama now works for **every** AI surface in
+    Lorica — agent loop, inline complete, commit messages, PR
+    descriptions, smart paste, swarm review, swarm dev, snippet gen,
+    auto-fix, semantic re-rank, brain extraction, time-scrub intent.
+  - **14. 5 new LSPs**: zls (Zig), nimlangserver, crystalline,
+    haskell-language-server, ocamllsp. Wired into both `lsp.rs::get_lsp_server`
+    and the Extensions panel registry. `LANGUAGE_BY_EXT` in `useLSP.js`
+    extended for `.zig/.nim/.cr/.hs/.lhs/.ml/.mli`. Total LSPs **17 → 22**.
+  - **15. Annotation popovers**: clicking a gutter dot now opens an
+    inline `AnnotationPopover` showing up to 4 notes per line, with
+    age, author, color, and an "edit" link to the full panel. Shift-
+    click jumps straight to the panel. Toggle-visibility command:
+    "Show/Hide annotation gutter dots".
+  - **16. Floating windows v2 (read-write)**: `FloatingViewer` is now
+    editable. Ctrl+S writes to disk, the main window's file watcher
+    picks up the change. Lock toggle keeps the v1 read-only mode
+    available. Beforeunload guard on dirty buffers. Diverging-doc
+    safeguard: refuses to silently overwrite unsaved edits when an
+    `fs:change` arrives.
+  - **17. Live Share v1 (full text sync)**: `y-codemirror.next` (~80 KiB
+    lazy chunk) binds Y.Text to CodeMirror. CollabPanel grows a
+    "Share active file" button — picks ONE file, syncs every keystroke
+    via Yjs CRDT. Other open files stay private. Initial-content seed
+    is gated by a `_meta` Y.Map so two peers joining simultaneously
+    don't both seed (avoids the duplicate-content footgun). Editor.jsx
+    rebuilds when `collabBinding` prop changes.
+
 - **Wave 12 — polish round 2** (2026-05-09 night). Four sub-waves:
   - **12.1 Annotations gutter**: completes Wave 11.4 — coloured dots in
     a dedicated CodeMirror gutter for every line that has a sticky
@@ -254,12 +290,14 @@ new:
 
 ## Status of the verification matrix (right now)
 
-- `npm run build` ✅ green (~66 s, main 312 KiB, entry ~1.02 MiB)
-- `cargo check` ✅ green, **0 warnings**
+- `npm run build` ✅ green (~73 s, main **317 KiB**, vendors 186 KiB,
+  entry ~1.03 MiB; +5 KiB for the popover + collab binding wiring)
+- `cargo check` ✅ green, **0 warnings** (Wave 14 LSP additions
+  compile clean)
 - `npm test` ✅ **133/133** Vitest cases passing across 10 files
-  (Wave 12 didn't add new test files — gutter/Ollama refactors are
-  covered by aiProviders + smoke through manual testing)
 - `cargo test --lib devcontainer` ✅ **8/8** Rust cases passing
+- New lazy chunks: `yjs-binding-loader` + `yjs-binding` (~80 KiB,
+  fetched only when sharing a file)
 
 ## What's open for the next assistant
 
@@ -269,29 +307,26 @@ In priority order — pick whichever fits the user's next ask:
    uncommitted. He may want one cumulative commit, or 5 squashes
    (one per wave: 6, 7, 8, 9, 10). Don't `git commit` without him
    asking.
-2. **Wave 13 candidates** (Wave 12 fully shipped — these are next):
-   - **Live Share v1: full text sync** via `y-codemirror.next` so
-     peers see actual edits, not just cursors. ~80 KiB extra dep,
-     well-known integration. Awareness already plumbed.
-   - **Ollama for the remaining call sites**: SnippetPalette,
-     AgentSwarmPanel, AutoFixModal, GlobalSearch (semantic re-rank),
-     ProjectBrainPanel, SandboxPanel, TimeScrubBar,
-     brainAutoExtract.js, agentSwarm.js, aiSemanticRerank.js,
-     predictNextEdit.js, useAI.js. ~12 sites. Same refactor pattern
-     as Wave 12.3 — use `aiProviders.js`.
-   - **Annotation popovers**: clicking a gutter dot currently opens
-     the panel. Inline hover popover with the note text would be
-     nicer for read-only browsing.
-   - **More LSP servers** — Zig, Nim, Crystal, Haskell, OCaml LSPs
-     to match the niches that already have static completions.
+2. **Wave 18 candidates** (Waves 13-17 fully shipped — these are next):
    - **Extension loader v0** — Wave 9 spec → real implementation
      (lift `extensions/focus-timer/` into a working loaded extension).
-     Big — multi-session work.
-   - **Floating windows v2 — read-write mode** (sync edits back to
-     the main window).
-   - **Perf pass 5** (deferred from 12.4) — codemirror.bundle is
-     still 413 KiB. Real wins would mean lazy-loading
-     `@codemirror/search` or restructuring the eager imports.
+     Big — multi-session work. Likely needs a small Rust command for
+     scanning the user data dir.
+   - **Live Share v2 — multi-file sharing**: today only one file is
+     bound at a time. Lift to a `Map<filePath, Y.Text>` plus a UI for
+     toggling per-file shares.
+   - **Live Share v3 — cursor decorations in the peer's editor**: the
+     awareness data is published, but other peers' carets aren't
+     rendered visually inside the editor. y-codemirror.next exposes
+     `yRemoteSelections()` for this — wire it once we ship multi-file.
+   - **Annotation comments thread**: stack of replies under a single
+     pinned annotation. Useful for code-review-style flows.
+   - **Perf pass 5** — codemirror.bundle is still 413 KiB. Real wins
+     would mean lazy-loading `@codemirror/search` or restructuring
+     the eager imports. Investigate the unnamed 208 KiB chunk too.
+   - **Tests for the new utilities** — Wave 14 LSP map, Wave 15
+     popover, Wave 16 floating editor save logic, Wave 17 collab
+     binding seed-once invariant.
 3. **Open audit minor items still on the books**:
    - `src-tauri/Cargo.toml` could declare `publish = false` to make
      the missing-license warning permanently impossible.
