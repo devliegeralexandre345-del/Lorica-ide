@@ -50,6 +50,8 @@ export default function GlobalSearch({ state, dispatch, onFileOpen }) {
     ? state.aiApiKey
     : provider === 'deepseek'
     ? state.aiDeepseekKey
+    : provider === 'openrouter'
+    ? state.aiOpenRouterKey
     : null; // Ollama keyless
   const canRerank = !!aiApiKey;
 

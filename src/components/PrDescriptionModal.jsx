@@ -20,6 +20,8 @@ export default function PrDescriptionModal({ state, dispatch, onClose }) {
     ? state.aiApiKey
     : provider === 'deepseek'
     ? state.aiDeepseekKey
+    : provider === 'openrouter'
+    ? state.aiOpenRouterKey
     : null;
   // Ollama runs locally and doesn't need a key — gate stays open.
   const keyOk = provider === 'ollama' ? true : !!apiKey;

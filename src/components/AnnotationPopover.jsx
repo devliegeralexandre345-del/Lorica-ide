@@ -108,6 +108,22 @@ export default function AnnotationPopover({ peek, onClose, onOpenPanel }) {
               <div className="text-[11px] text-lorica-text whitespace-pre-wrap font-sans leading-snug">
                 {a.text || <span className="italic text-lorica-textDim">(empty note)</span>}
               </div>
+              {/* Wave 20 — show reply count, with the latest 2 replies
+                  as a preview. Full thread requires the panel for
+                  add/edit (the popover stays read-only). */}
+              {Array.isArray(a.replies) && a.replies.length > 0 && (
+                <div className="mt-2 pl-3 border-l border-lorica-border/50 space-y-1">
+                  {a.replies.slice(-2).map((r) => (
+                    <div key={r.id} className="text-[10px] text-lorica-textDim">
+                      <span className="italic mr-1">{r.author || 'anon'}:</span>
+                      <span className="text-lorica-text">{r.text}</span>
+                    </div>
+                  ))}
+                  {a.replies.length > 2 && (
+                    <div className="text-[9px] text-lorica-textDim/70">+ {a.replies.length - 2} earlier replies — open panel</div>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}

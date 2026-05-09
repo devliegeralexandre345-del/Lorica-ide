@@ -336,6 +336,8 @@ export default function GitPanel({ state, dispatch }) {
       ? state.aiApiKey
       : provider === 'deepseek'
       ? state.aiDeepseekKey
+      : provider === 'openrouter'
+      ? state.aiOpenRouterKey
       : null; // Ollama: keyless
     if (!apiKey) {
       dispatch({

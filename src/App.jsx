@@ -641,7 +641,7 @@ Suggest the best resolution and explain why. Output ONLY the replacement code in
                         showMinimap: state.showMinimap !== false,
                         aiInlineEnabled: state.aiInlineEnabled,
                         aiProvider: state.aiProvider,
-                        aiApiKey: state.aiProvider === 'anthropic' ? state.aiApiKey : state.aiDeepseekKey,
+                        aiApiKey: state.aiProvider === 'anthropic' ? state.aiApiKey : state.aiProvider === 'deepseek' ? state.aiDeepseekKey : state.aiProvider === 'openrouter' ? state.aiOpenRouterKey : '',
                       }}
                     />
                   ) : (
@@ -654,7 +654,7 @@ Suggest the best resolution and explain why. Output ONLY the replacement code in
                         showMinimap={state.showMinimap !== false}
                         aiInlineEnabled={state.aiInlineEnabled}
                         aiProvider={state.aiProvider}
-                        aiApiKey={state.aiProvider === 'anthropic' ? state.aiApiKey : state.aiProvider === 'deepseek' ? state.aiDeepseekKey : ''}
+                        aiApiKey={state.aiProvider === 'anthropic' ? state.aiApiKey : state.aiProvider === 'deepseek' ? state.aiDeepseekKey : state.aiProvider === 'openrouter' ? state.aiOpenRouterKey : ''}
                         aiOllamaUrl={state.aiOllamaUrl}
                         aiOllamaModel={state.aiOllamaModel}
                         blameEnabled={state.blameEnabled}
@@ -688,7 +688,7 @@ Suggest the best resolution and explain why. Output ONLY the replacement code in
                             showMinimap: false,
                             aiInlineEnabled: state.aiInlineEnabled,
                             aiProvider: state.aiProvider,
-                            aiApiKey: state.aiProvider === 'anthropic' ? state.aiApiKey : state.aiProvider === 'deepseek' ? state.aiDeepseekKey : '',
+                            aiApiKey: state.aiProvider === 'anthropic' ? state.aiApiKey : state.aiProvider === 'deepseek' ? state.aiDeepseekKey : state.aiProvider === 'openrouter' ? state.aiOpenRouterKey : '',
                             aiOllamaUrl: state.aiOllamaUrl,
                             aiOllamaModel: state.aiOllamaModel,
                           }}
@@ -703,7 +703,7 @@ Suggest the best resolution and explain why. Output ONLY the replacement code in
                             showMinimap={false}
                             aiInlineEnabled={state.aiInlineEnabled}
                             aiProvider={state.aiProvider}
-                            aiApiKey={state.aiProvider === 'anthropic' ? state.aiApiKey : state.aiProvider === 'deepseek' ? state.aiDeepseekKey : ''}
+                            aiApiKey={state.aiProvider === 'anthropic' ? state.aiApiKey : state.aiProvider === 'deepseek' ? state.aiDeepseekKey : state.aiProvider === 'openrouter' ? state.aiOpenRouterKey : ''}
                             aiOllamaUrl={state.aiOllamaUrl}
                             aiOllamaModel={state.aiOllamaModel}
                             blameEnabled={state.blameEnabled}
@@ -903,6 +903,8 @@ Suggest the best resolution and explain why. Output ONLY the replacement code in
             annotations={annotationsApi.annotations}
             removeAnnotation={annotationsApi.removeAnnotation}
             updateAnnotation={annotationsApi.updateAnnotation}
+            addReply={annotationsApi.addReply}
+            removeReply={annotationsApi.removeReply}
             onOpenFile={(path /* , line */) => fs.openFile(path)}
           />
         )}

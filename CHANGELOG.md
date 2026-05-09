@@ -3,6 +3,97 @@
 All notable changes to Lorica IDE. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — Waves 6-22
+
+Waves 18-22 (2026-05-09 latest) close another 5-wave push: Live Share
+goes multi-file, OpenRouter joins as a 4th provider unlocking 100+
+models under one BYOK key, annotations get comment threads, the test
+seed grows another 20 cases, and the extension-loader runtime gets
+its phase-1 manifest scanner with strict validation + path-traversal
+guards.
+
+### Added — Wave 18 (Live Share v2 multi-file)
+
+- **Multi-file sharing**: `useCollabSession` switched from a single
+  `sharedFile` to a `Set<string>`. Multiple files sync in parallel;
+  binding is per-file. CollabPanel shows the full list with per-file
+  Unshare buttons and a "Share active file" quick-button.
+- **Remote cursors**: y-codemirror.next's `yCollab(awareness)` already
+  rendered remote carets in Wave 17 — confirmed working in v2.
+
+### Added — Wave 19 (OpenRouter — BYOK aggregator)
+
+- **4th AI provider** in Settings. One `sk-or-…` key gives access to
+  100+ upstream models (Claude, GPT-4o, Llama, Qwen, Gemini, …).
+- **Auto-fetched model catalog** with an in-place search filter.
+  Each option shows context length + per-million-token pricing.
+- **Reducer state**: `aiOpenRouterKey` (vault-persisted) +
+  `aiOpenRouterModel` (session-persisted, just the model id).
+- All ~12 AI call sites refactored in Wave 13 are now provider-aware
+  for openrouter too — same `aiProviders.js` central config.
+
+### Added — Wave 20 (Annotation comment threads)
+
+- **`replies: Array<Reply>`** field on every annotation. Threaded
+  follow-ups for code-review-style flows.
+- **Hook API**: `addReply(annotationId, {text, author})`,
+  `updateReply(annotationId, replyId, patch)`,
+  `removeReply(annotationId, replyId)`.
+- **Panel UI**: per-annotation thread renders with author + timestamp;
+  inline new-reply composer with author + text input. Hover-to-
+  delete on each reply.
+- **Popover preview**: shows the latest 2 replies + an "earlier
+  replies — open panel" hint.
+- **Legacy migration**: `ensureReplies()` lazily upgrades pre-v20
+  annotations on first interaction. No big-bang migration step.
+
+### Added — Wave 21 (Tests for Waves 13-20)
+
+- **`tests/aiProvidersOpenRouter.test.js`** — 12 cases pinning the
+  Wave 19 OpenRouter additions (URL, headers, body shape, response
+  extraction, isKeyless / supportsTools, resolveProviderConfig).
+- **`tests/annotationsReplies.test.js`** — 8 cases covering
+  `makeReply`, `ensureReplies` migration, and the seeded `replies: []`
+  in `makeAnnotation`.
+- Updated `aiProviders.test.js` for the 4-provider catalog.
+- Total: **153 across 12 files** (was 133 / 10).
+
+### Added — Wave 22 (Extension loader v0 phase 1)
+
+- **`src-tauri/src/extension_loader.rs`** — new Rust module.
+- **`cmd_extension_scan(projectPath?, builtinDir?)`** scans three
+  roots: project-local `.lorica/extensions/`, the user data dir, and
+  an optional in-tree builtin directory. First-found-wins on `id`
+  collisions (project > user > builtin).
+- **Strict validation** of every manifest — enforces:
+  - `lorica_api_version === "0"` (rejects future-version extensions
+    so they can't load against an incompatible API).
+  - `id` is `[a-zA-Z0-9-_]+`.
+  - Every permission appears in the v0 known list (`ui.statusBar`,
+    `ui.dock`, `ui.settingsTab`, `ui.commandPalette`, `storage.local`,
+    `storage.settings`, `events.editor`, `events.git`, `agent.tools`).
+- **`cmd_extension_read_entry(rootPath, entry)`** — relative-only
+  read with canonical-path traversal guard so `../../etc/passwd` is
+  blocked.
+- **4/4 Rust unit tests** passing (`cargo test --lib extension_loader`).
+- Bridge surface: `window.lorica.extensionLoader.scan()` +
+  `window.lorica.extensionLoader.readEntry()`.
+
+**Phase 2** (the actual JS sandbox runtime — `ctx.statusBar.register`,
+etc.) is queued for Wave 23+.
+
+### New dependencies
+
+- None.
+
+### Bundle impact (Waves 18-22)
+
+- `main.bundle.js`: 317 → **320 KiB** (+3 KiB for OpenRouter UI +
+  multi-file collab + reply UI + extension-loader bridge).
+- `vendors.bundle.js`: 186 KiB (unchanged).
+- `codemirror.bundle.js`: 413 KiB (unchanged).
+- No new lazy chunks.
+
 ## [Unreleased] — Waves 6-17
 
 Waves 13-17 (2026-05-09 late night) close the v2.3.x roadmap loop:

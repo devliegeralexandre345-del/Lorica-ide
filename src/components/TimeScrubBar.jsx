@@ -97,6 +97,8 @@ export default function TimeScrubBar({ state, dispatch }) {
     ? state.aiApiKey
     : provider === 'deepseek'
     ? state.aiDeepseekKey
+    : provider === 'openrouter'
+    ? state.aiOpenRouterKey
     : null;
 
   // Reload history when active file changes or when the panel is toggled on.

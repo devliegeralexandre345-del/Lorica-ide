@@ -72,6 +72,8 @@ export default function SmartPasteModal({ state, dispatch, activeFile, onInsert 
     ? state.aiApiKey
     : provider === 'deepseek'
     ? state.aiDeepseekKey
+    : provider === 'openrouter'
+    ? state.aiOpenRouterKey
     : null;
   const providerReady = isKeyless(provider) || !!apiKey;
 

@@ -69,6 +69,63 @@ _Append-only. Most recent at the top._
 
 ## Bilan log
 
+### 2026-05-09 (latest) — Waves 18-22 second 5-wave push
+
+User said "continue, hn" — interpreted as "do another 5". Picked from
+deepseek.md "Wave 18 candidates". Local edits, no agents.
+
+| Wave | Result |
+|---|---|
+| **18. Live Share v2 multi-file** | ✅ `useCollabSession` switched single-file → `Set<string>`. Per-file binding lookup, multi-Y.Text in a single Y.Doc. CollabPanel rewritten with a per-file list + Unshare button + "Share active" quick action. |
+| **19. OpenRouter (4th provider)** | ✅ BYOK aggregator unlocking 100+ models (Claude, GPT-4o, Llama, Qwen, Gemini, …) under one `sk-or-…` key. New `aiProviders` cases for endpoint/headers/body/extract. `listOpenRouterModels()` with 5-min cache + auto-probe. Settings UI with searchable dropdown showing context length + pricing. New reducer fields `aiOpenRouterKey` + `aiOpenRouterModel`, plus session persistence (model only — key goes through the vault). All ~12 Wave 13 call sites updated. |
+| **20. Annotation comment threads** | ✅ `replies: []` field on every annotation. `addReply`/`updateReply`/`removeReply` hook methods. Panel renders threads under each note + inline composer; popover shows latest 2 replies preview. `ensureReplies()` lazy migration for legacy entries. |
+| **21. Tests for the new utilities** | ✅ +20 cases: 12 in `aiProvidersOpenRouter.test.js`, 8 in `annotationsReplies.test.js`. Updated the existing `aiProviders.test.js` for the 4-provider catalog. **Total: 153 / 12 files (was 133 / 10)**. |
+| **22. Extension loader v0 phase 1** | ✅ New `src-tauri/src/extension_loader.rs` with `cmd_extension_scan` (3-root scan: project / user-data / builtin, first-found-wins) + `cmd_extension_read_entry` (path-traversal blocked via canonicalize). Strict manifest validation: `lorica_api_version === "0"`, ascii id, known-permission allowlist (`ui.statusBar`, `ui.dock`, `ui.settingsTab`, `ui.commandPalette`, `storage.local`, `storage.settings`, `events.editor`, `events.git`, `agent.tools`). 4/4 Rust unit tests. Bridge: `window.lorica.extensionLoader.scan/readEntry`. **Phase 2 (sandbox + dynamic import)** queued for Wave 23. |
+
+**Bundle final (post Wave 22):**
+
+| Chunk | Size | Δ vs Wave 17 |
+|---|---|---|
+| main.bundle.js | **320 KiB** | +3 KiB |
+| vendors.bundle.js | 186 KiB | unchanged |
+| codemirror.bundle.js | 413 KiB | unchanged |
+| Entrypoint total | **~1.03 MiB** | +3 KiB |
+
+**Decisions made (autonomous):**
+
+- **OpenRouter goes through `aiProviders.js`** — same OpenAI-compatible
+  shape as DeepSeek/Ollama, only the URL + Authorization header differ.
+  Adding it took 5 lines of switch-arm in the central config.
+- **Multi-file shares uses one Y.Doc per session, multiple Y.Texts.**
+  Y.Texts are independent CRDT containers — splitting them per file is
+  cleaner than one giant Y.Map of file → Y.Text. Y.Doc handles the
+  sub-doc lifecycle.
+- **Reply migration is lazy.** `ensureReplies()` runs on every reply
+  CRUD op so legacy entries pick up `replies: []` only when the user
+  actually interacts with them. No big-bang migration step.
+- **Extension loader phase 1 = scan only, not load.** Doing the full
+  v0 sandbox runtime in one wave was too big — phase 1 nails the
+  manifest schema + validation + safe file reads, phase 2 builds the
+  sandbox on top.
+- **Path traversal blocked via `canonicalize()`.** Comparing string
+  paths is fragile (`..` can survive normalization on weird filesystems).
+  Canonicalize-then-prefix-check is the safer pattern.
+
+**Files touched (Waves 18-22, ~22 files):**
+
+- New: `src-tauri/src/extension_loader.rs`,
+  `tests/aiProvidersOpenRouter.test.js`,
+  `tests/annotationsReplies.test.js`.
+- Modified: `App.jsx`, `Editor.jsx` (no — wait, only via aiApiKey
+  thread), `aiProviders.js`, `appReducer.js`, `useSession.js`,
+  `useCollabSession.js`, `useAnnotations.js`, `useAgent.js`,
+  `useAI.js`, `loricaBridge.js`, `lib.rs`, `Settings.jsx`,
+  `CollabPanel.jsx`, `AnnotationPopover.jsx`, `AnnotationsPanel.jsx`,
+  `SnippetPalette.jsx`, `AgentSwarmPanel.jsx`, `AutoFixModal.jsx`,
+  `GitPanel.jsx`, `GlobalSearch.jsx`, `PrDescriptionModal.jsx`,
+  `ProjectBrainPanel.jsx`, `SandboxPanel.jsx`, `TimeScrubBar.jsx`,
+  `SmartPasteModal.jsx`, `annotations.js`, `aiProviders.test.js`.
+
 ### 2026-05-09 (late night) — Waves 13-17 five-wave push
 
 User asked for "5 waves". Picked from the deepseek.md "Wave 13

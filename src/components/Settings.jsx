@@ -14,11 +14,16 @@ import {
   setVoiceFeatureEnabled,
   isVoiceSupported,
 } from '../utils/voiceInput';
-import { listOllamaModels, PROVIDER_DEFAULT_MODELS } from '../utils/aiProviders';
+import { listOllamaModels, listOpenRouterModels, PROVIDER_DEFAULT_MODELS } from '../utils/aiProviders';
 
 export default function Settings({ state, dispatch, actions }) {
   const [apiKey, setApiKey] = useState(state.aiApiKey);
   const [deepseekKey, setDeepseekKey] = useState(state.aiDeepseekKey);
+  const [openRouterKey, setOpenRouterKey] = useState(state.aiOpenRouterKey || '');
+  const [openRouterSaved, setOpenRouterSaved] = useState(false);
+  const [openRouterModels, setOpenRouterModels] = useState([]);
+  const [openRouterModelFilter, setOpenRouterModelFilter] = useState('');
+  const [openRouterProbing, setOpenRouterProbing] = useState(false);
   const [saved, setSaved] = useState(false);
   const [deepseekSaved, setDeepseekSaved] = useState(false);
   // AI co-author trailer — opt-in append of `Co-authored-by:` to commits
@@ -217,6 +222,39 @@ export default function Settings({ state, dispatch, actions }) {
     setTimeout(() => setDeepseekSaved(false), 2000);
   };
 
+  const saveOpenRouterKey = async () => {
+    dispatch({ type: 'SET_OPENROUTER_KEY', key: openRouterKey });
+    const persisted = await persistKeyToVault('openrouter_api_key', openRouterKey, 'OpenRouter API key');
+    setOpenRouterSaved(true);
+    dispatch({ type: 'ADD_TOAST', toast: {
+      type: persisted ? 'success' : 'info',
+      message: persisted ? 'OpenRouter key saved to vault' : 'OpenRouter key saved (session only)',
+    }});
+    setTimeout(() => setOpenRouterSaved(false), 2000);
+    // Trigger a model-catalog refresh now that we have a key.
+    refreshOpenRouterModels();
+  };
+
+  const refreshOpenRouterModels = async () => {
+    setOpenRouterProbing(true);
+    try {
+      const list = await listOpenRouterModels({ apiKey: openRouterKey || state.aiOpenRouterKey });
+      setOpenRouterModels(list);
+    } finally {
+      setOpenRouterProbing(false);
+    }
+  };
+
+  // Auto-fetch the OpenRouter catalog the first time the user lands on
+  // the OpenRouter provider — saves a manual click. Empty list is fine
+  // (catalog endpoint is open without a key).
+  useEffect(() => {
+    if (state.aiProvider === 'openrouter' && openRouterModels.length === 0 && !openRouterProbing) {
+      refreshOpenRouterModels();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.aiProvider]);
+
   const themeIcons = { midnight: Moon, hacker: Palette, arctic: Sun };
 
   return (
@@ -270,10 +308,109 @@ export default function Settings({ state, dispatch, actions }) {
               >
                 Ollama (local)
               </button>
+              <button
+                onClick={() => dispatch({ type: 'SET_AI_PROVIDER', provider: 'openrouter' })}
+                className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                  state.aiProvider === 'openrouter'
+                    ? 'bg-lorica-accent text-lorica-bg'
+                    : 'bg-lorica-bg border border-lorica-border text-lorica-textDim hover:text-lorica-text'
+                }`}
+                title="OpenRouter — BYOK aggregator giving access to 100+ models under one key"
+              >
+                OpenRouter
+              </button>
             </div>
 
             {/* Conditionally show API key input based on provider */}
-            {state.aiProvider === 'ollama' ? (
+            {state.aiProvider === 'openrouter' ? (
+              <div className="space-y-3">
+                <div className="px-3 py-2 rounded-lg bg-cyan-400/10 border border-cyan-400/30 text-[10px] text-cyan-200">
+                  <strong>BYOK aggregator.</strong> One API key gives you access to
+                  100+ models (Claude, GPT-4o, Llama, Qwen, Gemini, …). Get a key
+                  at <code>openrouter.ai/keys</code>. Same OpenAI-compatible
+                  protocol as DeepSeek + Ollama.
+                </div>
+
+                <div>
+                  <label className="flex items-center gap-2 text-xs font-semibold text-lorica-text mb-2">
+                    <Key size={14} className="text-lorica-accent" />
+                    OpenRouter API Key
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="password"
+                      value={openRouterKey}
+                      onChange={(e) => setOpenRouterKey(e.target.value)}
+                      placeholder="sk-or-..."
+                      className="flex-1 bg-lorica-bg border border-lorica-border rounded-lg px-3 py-2 text-xs text-lorica-text outline-none focus:border-lorica-accent font-mono"
+                    />
+                    <button
+                      onClick={saveOpenRouterKey}
+                      className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
+                        openRouterSaved ? 'bg-lorica-success/20 text-lorica-success' : 'bg-lorica-accent text-lorica-bg hover:bg-lorica-accent/80'
+                      }`}
+                    >
+                      {openRouterSaved ? '✓ Saved' : 'Save'}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[10px] uppercase tracking-widest text-lorica-textDim font-semibold">Model</label>
+                    <button
+                      onClick={refreshOpenRouterModels}
+                      disabled={openRouterProbing}
+                      className="text-[10px] text-lorica-textDim hover:text-lorica-accent disabled:opacity-40"
+                    >
+                      {openRouterProbing ? 'Probing…' : `Refresh (${openRouterModels.length})`}
+                    </button>
+                  </div>
+                  <input
+                    value={openRouterModelFilter}
+                    onChange={(e) => setOpenRouterModelFilter(e.target.value)}
+                    placeholder="Filter… (e.g. claude, llama, qwen)"
+                    className="w-full mb-2 bg-lorica-bg border border-lorica-border rounded-lg px-3 py-1.5 text-[11px] text-lorica-text outline-none focus:border-lorica-accent"
+                  />
+                  {openRouterModels.length > 0 ? (
+                    <select
+                      value={state.aiOpenRouterModel || PROVIDER_DEFAULT_MODELS.openrouter}
+                      onChange={(e) => dispatch({ type: 'SET_OPENROUTER_MODEL', model: e.target.value })}
+                      className="w-full bg-lorica-bg border border-lorica-border rounded-lg px-3 py-2 text-xs text-lorica-text outline-none focus:border-lorica-accent font-mono"
+                    >
+                      {openRouterModels
+                        .filter((m) => {
+                          const q = openRouterModelFilter.trim().toLowerCase();
+                          if (!q) return true;
+                          return (m.id || '').toLowerCase().includes(q) || (m.name || '').toLowerCase().includes(q);
+                        })
+                        .slice(0, 200)
+                        .map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.id}
+                            {m.context_length ? ` — ${(m.context_length / 1000).toFixed(0)}k ctx` : ''}
+                            {m.pricing?.prompt ? ` — $${(parseFloat(m.pricing.prompt) * 1_000_000).toFixed(2)}/M tok` : ''}
+                          </option>
+                        ))}
+                    </select>
+                  ) : (
+                    <input
+                      value={state.aiOpenRouterModel || ''}
+                      onChange={(e) => dispatch({ type: 'SET_OPENROUTER_MODEL', model: e.target.value })}
+                      placeholder="anthropic/claude-3.5-haiku"
+                      className="w-full bg-lorica-bg border border-lorica-border rounded-lg px-3 py-2 text-xs text-lorica-text outline-none focus:border-lorica-accent font-mono"
+                    />
+                  )}
+                  <p className="text-[10px] text-lorica-textDim mt-1">
+                    Model id format: <code>provider/model-name</code> (e.g.
+                    <code> anthropic/claude-3.5-sonnet</code>,
+                    <code> openai/gpt-4o-mini</code>,
+                    <code> meta-llama/llama-3.1-405b</code>). Pricing is per
+                    million tokens; full catalog at <code>openrouter.ai/models</code>.
+                  </p>
+                </div>
+              </div>
+            ) : state.aiProvider === 'ollama' ? (
               <div className="space-y-3">
                 <div className="px-3 py-2 rounded-lg bg-emerald-400/10 border border-emerald-400/30 text-[10px] text-emerald-200">
                   <strong>Privacy mode</strong> — every request stays on your machine.

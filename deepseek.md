@@ -5,12 +5,12 @@ _every meaningful step. The point: if Claude runs out of context, the_
 _next assistant (DeepSeek, another Claude session, anyone) can pick up_
 _cold and stay productive without re-reading the whole repo._
 
-**Last updated**: 2026-05-09 by Claude (Opus 4.7) — **Waves 13-17 complete**.
-Ollama EVERYWHERE (12 lighter call sites refactored), +5 niche LSPs
-(Zig, Nim, Crystal, Haskell, OCaml — total 22), annotation popovers,
-**floating windows v2 read-write**, **Live Share v1 with full text
-sync** via y-codemirror.next. 133 JS tests + 8 Rust tests green.
-Bundle: main 320 KiB, vendors 186 KiB. User has lifted the no-new-deps
+**Last updated**: 2026-05-09 by Claude (Opus 4.7) — **Waves 18-22 complete**.
+Live Share v2 multi-file, **OpenRouter as 4th provider** (100+ models),
+annotation **comment threads**, +20 tests, **extension loader phase 1**
+(manifest scanner with sandbox-permission validation + Rust unit tests).
+**153 JS tests + 12 Rust tests green**. Bundle: main 320 KiB, vendors
+186 KiB. User has lifted the no-new-deps
 rule — keep adding what makes Lorica the perfect futuristic IDE.
 
 ---
@@ -152,6 +152,32 @@ tests/
   (+13 tests). WAVE_TEST_GUIDE.md updated with scenarios for
   Waves 6-9. CHANGELOG + LEDGER updated.
 
+- **Waves 18-22 — second 5-wave push** (2026-05-09 latest).
+  - **18. Live Share v2 multi-file**: `useCollabSession` switched from
+    a single `sharedFile` to a `Set<string>` of paths. Multiple files
+    can sync in parallel; the binding lookup is per-file. Remote cursors
+    in peers' editors come for free via `yCollab(awareness)`.
+  - **19. OpenRouter (4th provider)**: BYOK aggregator giving access
+    to 100+ models (Claude, GPT-4o, Llama, Qwen, Gemini, …). Settings
+    UI auto-fetches the catalog with a search filter and shows context
+    length + per-million-token pricing. New `aiOpenRouterKey` +
+    `aiOpenRouterModel` reducer fields. All Wave 13 call sites updated
+    to recognise openrouter alongside the other 3 providers.
+  - **20. Annotation comment threads**: `replies: Array<Reply>` field
+    on every annotation. Hook gains `addReply` / `updateReply` /
+    `removeReply`. Panel gets a per-annotation thread view + new-reply
+    composer (author + text inputs). Popover preview shows the latest
+    2 replies. Legacy entries auto-migrate via `ensureReplies()`.
+  - **21. Tests for new utilities**: +20 cases (12 OpenRouter
+    provider, 8 annotation replies). Total: **153 / 12 files**.
+  - **22. Extension loader v0 phase 1**: new Rust module
+    `extension_loader.rs` with `cmd_extension_scan` (project,
+    user-data, builtin dir scan with first-found-wins) +
+    `cmd_extension_read_entry` (path-traversal-blocked file read).
+    Validates `lorica_api_version === "0"` and rejects unknown
+    permission strings. 4/4 Rust tests passing. **Phase 2** (the
+    actual JS sandbox + dynamic-import) is queued for Wave 23+.
+
 - **Waves 13-17 — five-wave push** (2026-05-09 late night).
   - **13. Ollama everywhere v2**: refactored the remaining 12 lighter
     call sites to route through `aiProviders.js`. `aiSemanticRerank.js`,
@@ -290,14 +316,16 @@ new:
 
 ## Status of the verification matrix (right now)
 
-- `npm run build` ✅ green (~73 s, main **317 KiB**, vendors 186 KiB,
-  entry ~1.03 MiB; +5 KiB for the popover + collab binding wiring)
-- `cargo check` ✅ green, **0 warnings** (Wave 14 LSP additions
-  compile clean)
-- `npm test` ✅ **133/133** Vitest cases passing across 10 files
-- `cargo test --lib devcontainer` ✅ **8/8** Rust cases passing
-- New lazy chunks: `yjs-binding-loader` + `yjs-binding` (~80 KiB,
-  fetched only when sharing a file)
+- `npm run build` ✅ green (~75 s, main **320 KiB**, vendors 186 KiB,
+  entry ~1.03 MiB; +3 KiB for OpenRouter UI + multi-file collab + reply
+  UI + extension-loader bridge)
+- `cargo check` ✅ green, **0 warnings**
+- `npm test` ✅ **153/153** Vitest cases across 12 files (+20 from
+  Wave 21: aiProvidersOpenRouter + annotationsReplies)
+- `cargo test --lib extension_loader` ✅ **4/4** (manifest validation
+  + path-traversal block)
+- `cargo test --lib devcontainer` ✅ **8/8**
+- Lazy chunks: yjs-binding (~80 KiB, only on share)
 
 ## What's open for the next assistant
 
@@ -307,26 +335,25 @@ In priority order — pick whichever fits the user's next ask:
    uncommitted. He may want one cumulative commit, or 5 squashes
    (one per wave: 6, 7, 8, 9, 10). Don't `git commit` without him
    asking.
-2. **Wave 18 candidates** (Waves 13-17 fully shipped — these are next):
-   - **Extension loader v0** — Wave 9 spec → real implementation
-     (lift `extensions/focus-timer/` into a working loaded extension).
-     Big — multi-session work. Likely needs a small Rust command for
-     scanning the user data dir.
-   - **Live Share v2 — multi-file sharing**: today only one file is
-     bound at a time. Lift to a `Map<filePath, Y.Text>` plus a UI for
-     toggling per-file shares.
-   - **Live Share v3 — cursor decorations in the peer's editor**: the
-     awareness data is published, but other peers' carets aren't
-     rendered visually inside the editor. y-codemirror.next exposes
-     `yRemoteSelections()` for this — wire it once we ship multi-file.
-   - **Annotation comments thread**: stack of replies under a single
-     pinned annotation. Useful for code-review-style flows.
-   - **Perf pass 5** — codemirror.bundle is still 413 KiB. Real wins
-     would mean lazy-loading `@codemirror/search` or restructuring
-     the eager imports. Investigate the unnamed 208 KiB chunk too.
-   - **Tests for the new utilities** — Wave 14 LSP map, Wave 15
-     popover, Wave 16 floating editor save logic, Wave 17 collab
-     binding seed-once invariant.
+2. **Wave 23 candidates** (Waves 18-22 fully shipped — these are next):
+   - **Extension loader v0 phase 2 (the actual runtime)**: scan
+     manifests is done; now wire `ctx.statusBar.register`,
+     `ctx.commands.register`, `ctx.storage.local`, `ctx.storage.settings`.
+     Use `cmd_extension_read_entry` + Blob URL + dynamic import.
+     Test by loading the in-tree `extensions/focus-timer/`.
+   - **Settings → Extensions tab**: surface scanned manifests with
+     enable / disable toggles. Persist enabled set under
+     `lorica.extensions.enabled` in localStorage.
+   - **Annotation reply threads — Markdown rendering**: today the
+     reply text is plain-text. Wire to MarkdownMessage so `**bold**`
+     and `code` render inline.
+   - **Code-review mode**: a meta-feature that pairs annotations +
+     Live Share — let one peer leave inline review notes that the
+     other sees as soft-pinned annotations.
+   - **Voice command parser**: Wave 11.1 added dictation; the next
+     step is intent parsing ("open settings", "run tests") so voice
+     can drive commands, not just dictate text.
+   - **Perf pass 5** — codemirror.bundle is still 413 KiB.
 3. **Open audit minor items still on the books**:
    - `src-tauri/Cargo.toml` could declare `publish = false` to make
      the missing-license warning permanently impossible.

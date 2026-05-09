@@ -13,6 +13,7 @@ pub mod dap;
 pub mod lsp;
 pub mod semantic;
 pub mod devcontainer;
+pub mod extension_loader;
 
 use state::AppState;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
@@ -137,6 +138,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             semantic::cmd_semantic_index_clear,
             // Dev containers (read-only first pass)
             devcontainer::cmd_devcontainer_detect,
+            // Extension loader v0 (Wave 22 phase 1: scanner + entry read)
+            extension_loader::cmd_extension_scan,
+            extension_loader::cmd_extension_read_entry,
             // File watcher
             watcher::cmd_watch_project,
             watcher::cmd_unwatch_project,

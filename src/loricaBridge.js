@@ -315,6 +315,19 @@ const devcontainer = {
 };
 
 // ============================================
+// Extension loader (Wave 22 phase 1) — scans manifests + reads the
+// entry JS source. Phase 2 will use cmd_extension_read_entry to feed
+// a Blob URL into a dynamic import inside the renderer.
+// ============================================
+const extensionLoader = {
+  scan: (projectPath, builtinDir) => safeInvoke('cmd_extension_scan', {
+    projectPath: projectPath || null,
+    builtinDir: builtinDir || null,
+  }),
+  readEntry: (rootPath, entry) => safeInvoke('cmd_extension_read_entry', { rootPath, entry }),
+};
+
+// ============================================
 // DAP (Debug Adapter Protocol)
 // ============================================
 const dap = {
@@ -366,6 +379,7 @@ window.lorica = {
   dap,
   lsp,
   devcontainer,
+  extensionLoader,
   platform,
 };
 

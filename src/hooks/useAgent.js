@@ -563,11 +563,15 @@ export function useAgent(state, dispatch) {
       ? state.aiApiKey
       : provider === 'deepseek'
       ? state.aiDeepseekKey
+      : provider === 'openrouter'
+      ? state.aiOpenRouterKey
       : null; // Ollama runs locally, no key
     const providerLabel = provider === 'anthropic'
       ? 'Anthropic'
       : provider === 'deepseek'
       ? 'DeepSeek'
+      : provider === 'openrouter'
+      ? 'OpenRouter'
       : 'Ollama';
 
     // Ollama is keyless — skip the "configure your key" gate.

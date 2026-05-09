@@ -21,10 +21,10 @@ import {
 } from '../src/utils/aiProviders.js';
 
 describe('catalog', () => {
-  it('lists exactly the three v2.3 providers', () => {
-    expect(PROVIDERS).toEqual(['anthropic', 'deepseek', 'ollama']);
-    expect(Object.keys(PROVIDER_LABELS).sort()).toEqual(['anthropic', 'deepseek', 'ollama']);
-    expect(Object.keys(PROVIDER_DEFAULT_MODELS).sort()).toEqual(['anthropic', 'deepseek', 'ollama']);
+  it('lists the four providers (Wave 19 added openrouter)', () => {
+    expect(PROVIDERS).toEqual(['anthropic', 'deepseek', 'ollama', 'openrouter']);
+    expect(Object.keys(PROVIDER_LABELS).sort()).toEqual(['anthropic', 'deepseek', 'ollama', 'openrouter']);
+    expect(Object.keys(PROVIDER_DEFAULT_MODELS).sort()).toEqual(['anthropic', 'deepseek', 'ollama', 'openrouter']);
   });
 });
 

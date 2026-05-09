@@ -117,6 +117,8 @@ If code context is provided, reference it specifically in your answers.`;
         ? state.aiApiKey
         : provider === 'deepseek'
         ? state.aiDeepseekKey
+        : provider === 'openrouter'
+        ? state.aiOpenRouterKey
         : null;
       if (!isKeyless(provider) && !apiKey) {
         dispatch({

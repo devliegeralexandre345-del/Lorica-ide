@@ -65,6 +65,8 @@ export default function AgentSwarmPanel({ state, dispatch, activeFile }) {
     ? state.aiApiKey
     : provider === 'deepseek'
     ? state.aiDeepseekKey
+    : provider === 'openrouter'
+    ? state.aiOpenRouterKey
     : null;
   const keyOk = provider === 'ollama' ? true : !!apiKey;
 

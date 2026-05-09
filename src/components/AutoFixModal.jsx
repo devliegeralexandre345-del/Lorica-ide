@@ -127,6 +127,8 @@ export default function AutoFixModal({ state, dispatch }) {
     ? state.aiApiKey
     : provider === 'deepseek'
     ? state.aiDeepseekKey
+    : provider === 'openrouter'
+    ? state.aiOpenRouterKey
     : null;
 
   const close = () => {

@@ -177,43 +177,54 @@ export default function CollabPanel({ state, dispatch, collab, activeFile }) {
                 WebRTC, not via Lorica.
               </p>
 
-              {/* Wave 17 — pick ONE file to share live. The active file
-                  the user opens in the main editor when they hit Share
-                  becomes the synced doc. Other files stay private. */}
+              {/* Wave 18 — multi-file shares. Toggle each open file
+                  in or out of the session independently. Active file
+                  has a one-click "Share" button at the top. */}
               <div className="mt-3 pt-3 border-t border-lorica-border/40 space-y-2">
-                <div className="text-[10px] uppercase tracking-widest text-lorica-textDim font-semibold">Shared file</div>
-                {collab.sharedFile ? (
-                  <div className="flex items-center gap-2 px-2 py-1.5 rounded bg-emerald-400/10 border border-emerald-400/30 text-[11px]">
-                    <FileText size={11} className="text-emerald-300" />
-                    <span className="font-mono text-lorica-text truncate flex-1">{collab.sharedFile}</span>
-                    <button
-                      onClick={collab.unshareFile}
-                      className="text-[10px] text-emerald-200 hover:text-emerald-100"
-                    >
-                      Unshare
-                    </button>
+                <div className="flex items-center gap-2">
+                  <div className="text-[10px] uppercase tracking-widest text-lorica-textDim font-semibold flex-1">
+                    Shared files {collab.sharedFiles?.size > 0 && `(${collab.sharedFiles.size})`}
                   </div>
-                ) : activeFile?.path ? (
-                  <button
-                    onClick={() => {
-                      collab.shareFile(activeFile.path, activeFile.content || '');
-                      dispatch({
-                        type: 'ADD_TOAST',
-                        toast: { type: 'success', message: `Sharing ${activeFile.name || activeFile.path} live`, duration: 2500 },
-                      });
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-cyan-400/15 border border-cyan-400/40 text-[11px] text-cyan-200 hover:bg-cyan-400/25"
-                  >
-                    <Share2 size={11} />
-                    Share active file ({activeFile.name || activeFile.path.split(/[\\/]/).pop()})
-                  </button>
+                  {activeFile?.path && !collab.isFileShared(activeFile.path) && (
+                    <button
+                      onClick={() => {
+                        collab.shareFile(activeFile.path, activeFile.content || '');
+                        dispatch({
+                          type: 'ADD_TOAST',
+                          toast: { type: 'success', message: `Sharing ${activeFile.name || activeFile.path}`, duration: 2200 },
+                        });
+                      }}
+                      className="flex items-center gap-1 px-2 py-0.5 rounded bg-cyan-400/15 border border-cyan-400/40 text-[10px] text-cyan-200 hover:bg-cyan-400/25"
+                    >
+                      <Share2 size={10} />
+                      Share active
+                    </button>
+                  )}
+                </div>
+                {collab.sharedFiles?.size === 0 ? (
+                  <div className="text-[10px] text-lorica-textDim italic">No files shared yet. Click "Share active" above.</div>
                 ) : (
-                  <div className="text-[10px] text-lorica-textDim italic">Open a file to share it.</div>
+                  <div className="space-y-1">
+                    {Array.from(collab.sharedFiles || []).map((p) => (
+                      <div key={p} className="flex items-center gap-2 px-2 py-1 rounded bg-emerald-400/10 border border-emerald-400/30 text-[10px]">
+                        <FileText size={10} className="text-emerald-300" />
+                        <span className="font-mono text-lorica-text truncate flex-1" title={p}>
+                          {p.split(/[\\/]/).slice(-2).join('/')}
+                        </span>
+                        <button
+                          onClick={() => collab.unshareFile(p)}
+                          className="text-[9px] text-emerald-200 hover:text-emerald-100"
+                        >
+                          Unshare
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 )}
                 <p className="text-[10px] text-lorica-textDim">
-                  Edits in the shared file sync to all peers in real time via CRDT
-                  (Yjs). Peers join the existing content — no overwrite. Other open
-                  files stay private to your machine.
+                  Each shared file syncs to peers via CRDT. Peers see your remote
+                  cursor as a coloured caret in their editor. Other open files stay
+                  private to your machine.
                 </p>
               </div>
             </div>

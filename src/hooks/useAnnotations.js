@@ -17,6 +17,8 @@ import {
   loadAnnotations,
   saveAnnotations,
   makeAnnotation,
+  makeReply,
+  ensureReplies,
   groupByFile,
   normalizeFilePath,
 } from '../utils/annotations';
@@ -89,6 +91,49 @@ export function useAnnotations(projectPath) {
     setAnnotations((cur) => cur.filter((a) => a.file !== norm));
   }, [projectPath]);
 
+  // Wave 20 — reply CRUD. `addReply` appends to a parent's replies
+  // array; `updateReply` patches one by id; `removeReply` deletes one.
+  // All three migrate the parent through `ensureReplies` so legacy
+  // entries (pre-v20) gain the array on first interaction.
+  const addReply = useCallback((annotationId, { text, author = '' } = {}) => {
+    const reply = makeReply({ text, author });
+    setAnnotations((cur) =>
+      cur.map((a) => {
+        if (a.id !== annotationId) return a;
+        const base = ensureReplies(a);
+        return { ...base, replies: [...base.replies, reply], updatedAt: Date.now() };
+      })
+    );
+    return reply;
+  }, []);
+
+  const updateReply = useCallback((annotationId, replyId, patch) => {
+    setAnnotations((cur) =>
+      cur.map((a) => {
+        if (a.id !== annotationId) return a;
+        const base = ensureReplies(a);
+        const next = base.replies.map((r) =>
+          r.id === replyId ? { ...r, ...patch, updatedAt: Date.now() } : r
+        );
+        return { ...base, replies: next, updatedAt: Date.now() };
+      })
+    );
+  }, []);
+
+  const removeReply = useCallback((annotationId, replyId) => {
+    setAnnotations((cur) =>
+      cur.map((a) => {
+        if (a.id !== annotationId) return a;
+        const base = ensureReplies(a);
+        return {
+          ...base,
+          replies: base.replies.filter((r) => r.id !== replyId),
+          updatedAt: Date.now(),
+        };
+      })
+    );
+  }, []);
+
   const byFile = useMemo(() => groupByFile(annotations), [annotations]);
 
   return {
@@ -99,5 +144,9 @@ export function useAnnotations(projectPath) {
     updateAnnotation,
     removeAnnotation,
     removeAllForFile,
+    // Wave 20 — replies API
+    addReply,
+    updateReply,
+    removeReply,
   };
 }

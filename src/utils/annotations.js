@@ -17,6 +17,16 @@
 //     pinned:   boolean (renders as a permanent gutter dot when true)
 //     createdAt: number  (epoch ms)
 //     updatedAt: number  (epoch ms)
+//     replies:  Array<Reply>  (Wave 20 — threaded follow-ups)
+//   }
+//
+// Shape of one reply:
+//   {
+//     id:       string
+//     text:     string
+//     author:   string
+//     createdAt: number
+//     updatedAt: number
 //   }
 
 const FILE = '.lorica/annotations.json';
@@ -41,6 +51,20 @@ export function makeAnnotation({ file, line, text = '', color = 'amber', author 
     color: ANNOTATION_COLORS.includes(color) ? color : 'amber',
     author,
     pinned: false,
+    createdAt: now,
+    updatedAt: now,
+    replies: [], // Wave 20 — threaded follow-ups, see makeReply
+  };
+}
+
+// New reply on an existing annotation. Plain object — the hook handles
+// inserting it into the parent's `replies` array.
+export function makeReply({ text = '', author = '' } = {}) {
+  const now = Date.now();
+  return {
+    id: 'r_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4),
+    text: String(text || ''),
+    author: String(author || ''),
     createdAt: now,
     updatedAt: now,
   };
@@ -121,4 +145,15 @@ function isValidAnnotation(a) {
     Number.isFinite(a.line) &&
     typeof a.text === 'string'
   );
+}
+
+// Migrate legacy entries that don't yet have a `replies` array. Pure
+// function — returns a shallow-cloned annotation with `replies: []`
+// inserted when missing. Saves the migration cost as a one-time pass
+// the next time the annotation is updated, so legacy stores stay
+// untouched until the user actually edits them.
+export function ensureReplies(a) {
+  if (!a || typeof a !== 'object') return a;
+  if (Array.isArray(a.replies)) return a;
+  return { ...a, replies: [] };
 }

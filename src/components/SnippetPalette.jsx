@@ -57,6 +57,8 @@ export default function SnippetPalette({ activeFile, dispatch, onInsert, state }
     ? state?.aiApiKey
     : provider === 'deepseek'
     ? state?.aiDeepseekKey
+    : provider === 'openrouter'
+    ? state?.aiOpenRouterKey
     : null;
   const keyOk = provider === 'ollama' ? true : !!apiKey;
 

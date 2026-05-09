@@ -104,41 +104,51 @@ export function useCollabSession() {
     });
   }, []);
 
-  // ── Wave 17 — shared file binding ──────────────────────────────────
+  // ── Live Share text sync (Wave 17 v1, Wave 18 v2 multi-file) ──────
   //
-  // The user picks ONE file to share at a time (the "shared file"
-  // pattern, like VS Code Live Share). When `sharedFile` is set, the
-  // Editor — for that file only — gets a yCollab extension that binds
-  // its content to the session's Y.Text. Other files stay private.
-  //
-  // We track the sharedFile path in component state so the panel can
-  // render a "Currently sharing: foo.js" indicator.
-  const [sharedFile, setSharedFile] = useState(null);
-  // Cached Y.Text per file (so re-binding the same file picks up the
-  // existing CRDT state instead of re-seeding).
+  // v2: any number of files can be shared in parallel. The user toggles
+  // share-on / share-off per file from the CollabPanel; each shared file
+  // gets its own Y.Text inside the session's Y.Doc. A single Y.Doc is
+  // enough because Y.Text instances are independent — they don't fight
+  // for ops as long as they have distinct keys.
+  const [sharedFiles, setSharedFiles] = useState(new Set());
   const sharedTextsRef = useRef(new Map());
 
   const shareFile = useCallback(async (filePath, initialContent) => {
     if (!sessionRef.current || !filePath) return null;
-    const cached = sharedTextsRef.current.get(filePath);
-    if (cached) {
-      setSharedFile(filePath);
-      return cached;
+    let ytext = sharedTextsRef.current.get(filePath);
+    if (!ytext) {
+      ytext = sessionRef.current.getSharedText(filePath, initialContent);
+      sharedTextsRef.current.set(filePath, ytext);
     }
-    const ytext = sessionRef.current.getSharedText(filePath, initialContent);
-    sharedTextsRef.current.set(filePath, ytext);
-    setSharedFile(filePath);
+    setSharedFiles((cur) => {
+      const next = new Set(cur);
+      next.add(filePath);
+      return next;
+    });
     return ytext;
   }, []);
 
-  const unshareFile = useCallback(() => {
-    setSharedFile(null);
+  const unshareFile = useCallback((filePath) => {
+    if (!filePath) {
+      // Backwards-compatible fallback for callers that still expect the
+      // v1 "stop sharing whatever was shared" behaviour. Drops every
+      // share so the editor flips back to private mode for all files.
+      setSharedFiles(new Set());
+      return;
+    }
+    setSharedFiles((cur) => {
+      if (!cur.has(filePath)) return cur;
+      const next = new Set(cur);
+      next.delete(filePath);
+      return next;
+    });
   }, []);
 
   // Editor.jsx asks for the binding extension at build time. Returns
-  // null when no session is live or this file isn't the shared file.
+  // null when no session is live or this file isn't shared.
   const getBindingFor = useCallback(async (filePath, initialContent) => {
-    if (!sessionRef.current || !filePath || filePath !== sharedFile) return null;
+    if (!sessionRef.current || !filePath || !sharedFiles.has(filePath)) return null;
     let ytext = sharedTextsRef.current.get(filePath);
     if (!ytext) {
       ytext = sessionRef.current.getSharedText(filePath, initialContent);
@@ -151,7 +161,10 @@ export function useCollabSession() {
       ytext,
       awareness: sessionRef.current.awareness,
     });
-  }, [sharedFile]);
+  }, [sharedFiles]);
+
+  // Backwards-compatible single-file accessor for legacy callers.
+  const sharedFile = sharedFiles.size > 0 ? Array.from(sharedFiles)[0] : null;
 
   // Final cleanup on unmount — guards against the user closing the IDE
   // mid-session without clicking Stop.
@@ -172,8 +185,10 @@ export function useCollabSession() {
     start,
     stop,
     publishCursor,
-    // Wave 17 — text sync surface
-    sharedFile,
+    // Wave 17/18 — text sync surface (multi-file in v2)
+    sharedFile,                    // legacy single-file accessor
+    sharedFiles,                   // new: Set of every shared path
+    isFileShared: (p) => sharedFiles.has(p),
     shareFile,
     unshareFile,
     getBindingFor,

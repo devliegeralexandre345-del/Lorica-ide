@@ -125,6 +125,8 @@ export default function SandboxPanel({ state, dispatch }) {
     ? state.aiApiKey
     : provider === 'deepseek'
     ? state.aiDeepseekKey
+    : provider === 'openrouter'
+    ? state.aiOpenRouterKey
     : null;
   const close = () => dispatch({ type: 'SET_PANEL', panel: 'showSandbox', value: false });
 

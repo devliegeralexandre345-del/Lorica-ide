@@ -46,7 +46,7 @@ export const initialState = {
   aiMessages: [],
   aiLoading: false,
   aiApiKey: '',
-  aiProvider: 'anthropic',     // 'anthropic' | 'deepseek' | 'ollama'
+  aiProvider: 'anthropic',     // 'anthropic' | 'deepseek' | 'ollama' | 'openrouter'
   aiDeepseekKey: '',
   // Ollama (local LLM) provider — added in Wave 11. URL is the OpenAI-
   // compatible endpoint base; default is localhost but advanced users can
@@ -55,6 +55,12 @@ export const initialState = {
   // box for most users.
   aiOllamaUrl: 'http://localhost:11434',
   aiOllamaModel: 'llama3.1:8b',
+  // OpenRouter — Wave 19. BYOK aggregator that proxies 100+ models
+  // (Claude, GPT-4o, Llama, Qwen, DeepSeek, etc.) under one API key.
+  // The model id includes the provider namespace, e.g.
+  // `anthropic/claude-3.5-sonnet` or `meta-llama/llama-3.1-405b`.
+  aiOpenRouterKey: '',
+  aiOpenRouterModel: 'anthropic/claude-3.5-haiku',
   // RGPD consent: user must explicitly agree before the first AI call
   // transmits any prompt or code context to a third-party provider.
   // Persisted to localStorage once accepted; stays per-machine.
@@ -439,6 +445,10 @@ export function appReducer(state, action) {
       return { ...state, aiOllamaUrl: action.url };
     case 'SET_OLLAMA_MODEL':
       return { ...state, aiOllamaModel: action.model };
+    case 'SET_OPENROUTER_KEY':
+      return { ...state, aiOpenRouterKey: action.key };
+    case 'SET_OPENROUTER_MODEL':
+      return { ...state, aiOpenRouterModel: action.model };
     case 'SET_AI_INLINE_ENABLED':
       return { ...state, aiInlineEnabled: !!action.value };
     case 'SET_AI_CONSENT': {
