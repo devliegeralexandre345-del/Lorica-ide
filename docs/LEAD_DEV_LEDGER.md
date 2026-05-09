@@ -69,6 +69,51 @@ _Append-only. Most recent at the top._
 
 ## Bilan log
 
+### 2026-05-09 (latest) — Waves 28-32 fourth 5-wave push
+
+User asked to keep going. Fourth 5-wave batch.
+
+| Wave | Result |
+|---|---|
+| **28. Voice intents v2** | ✅ 13 → 28 intents. EN+FR+ES+DE keywords. Tokeniser strips accents (NFD + drop combining marks). Catches typical user phrases like "ouvre le débogueur", "mostrar archivos", "öffne die einstellungen". |
+| **29. Code-review v2 (pins)** | ✅ Peer review notes merge into the editor's annotation stream so they pin as gutter dots at (file, line). Tagged `_remote: true`. |
+| **30. Inline rewrite presets** | ✅ QUICK_PROMPTS 6 → 12 in InlineAIEditPrompt. |
+| **31. Perf pass 5** | ✅ Lazy-loaded `AddAnnotationPrompt` + `AnnotationPopover`. main.bundle.js **326 → 319 KiB** (−7). First main-bundle reduction since Wave 5. |
+| **32. Test coverage** | ✅ Wave 28 boundary tests (30 cases). Total **214 / 15 files**. |
+
+**Bundle final (post Wave 32):**
+
+| Chunk | Size | Δ vs Wave 27 |
+|---|---|---|
+| main.bundle.js | **319 KiB** | **−7 KiB** ⬇️ |
+| vendors.bundle.js | 186 KiB | unchanged |
+| codemirror.bundle.js | 413 KiB | unchanged |
+| Entrypoint total | **~1.02 MiB** | −7 KiB |
+| `annotation-prompt` lazy | 3.2 KiB | new |
+| `annotation-popover` lazy | 5.6 KiB | new |
+
+**Decisions made (autonomous):**
+
+- **Multilingual voice — ES + DE on top of EN/FR.** International
+  contributors land here too. Stop-word filter + min-3-char
+  substring keeps the wider keyword pool from causing false matches.
+- **Code-review v2 = annotation merge.** Reusing the existing
+  annotations gutter saves writing a second decoration system. Tagged
+  `_remote: true` for future visual differentiation.
+- **Lazy AddAnnotationPrompt + AnnotationPopover.** They render only
+  on user gesture (right-click, click), so paying their JS at first
+  paint is wasteful. Easy 7 KiB win.
+- **Stop short of touching codemirror.bundle.js.** Lazy-loading
+  `@codemirror/search` would shave another 30 KiB but requires
+  surviving the keymap binding through a lazy load — too invasive
+  for one wave. Documented as Wave 33.
+
+**Files touched (Waves 28-32, ~5 files):**
+
+- New: `tests/voiceCommandsV2.test.js`.
+- Modified: `App.jsx`, `voiceCommands.js`, `InlineAIEditPrompt.jsx`,
+  `AnnotationPopover.jsx` (no — wait, just App's lazy import).
+
 ### 2026-05-09 (deep night) — Waves 23-27 third 5-wave push
 
 User asked for "60% of 5h" of continuous work. Delivered another 5

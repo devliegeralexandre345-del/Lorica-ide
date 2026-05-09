@@ -114,6 +114,114 @@ const INTENTS = [
     objects: ['shortcuts', 'cheatsheet', 'raccourcis', 'keymap'],
     cmd: { type: 'panel', panel: 'showKeyboardCheatsheet' },
   },
+  // Wave 28 — extended catalog. Adds new intents for the panels +
+  // editor actions the user reaches for most often, with bilingual
+  // (and a sprinkling of Spanish + German) keywords.
+  {
+    id: 'open.fileTree',
+    label: 'Toggle File Explorer',
+    actions: ['open', 'show', 'toggle', 'ouvre', 'affiche', 'abrir', 'mostrar', 'zeige'],
+    objects: ['files', 'explorer', 'tree', 'fichiers', 'archivos', 'dateien'],
+    cmd: { type: 'panel', panel: 'showFileTree' },
+  },
+  {
+    id: 'open.commandPalette',
+    label: 'Open Command Palette',
+    actions: ['open', 'show', 'ouvre', 'abrir'],
+    objects: ['command', 'palette', 'commandes', 'comandos', 'befehl'],
+    cmd: { type: 'panel', panel: 'showCommandPalette' },
+  },
+  {
+    id: 'open.omnibar',
+    label: 'Open Omnibar',
+    actions: ['open', 'ouvre', 'abrir'],
+    objects: ['omnibar', 'universel', 'universal'],
+    cmd: { type: 'panel', panel: 'showOmnibar' },
+  },
+  {
+    id: 'open.problems',
+    label: 'Open Problems Panel',
+    actions: ['open', 'show', 'ouvre', 'montre', 'mostrar'],
+    objects: ['problems', 'errors', 'erreurs', 'problèmes', 'problemes', 'errores', 'fehler'],
+    cmd: { type: 'panel', panel: 'showProblems' },
+  },
+  {
+    id: 'open.outline',
+    label: 'Open Outline',
+    actions: ['open', 'show', 'ouvre', 'mostrar'],
+    objects: ['outline', 'structure', 'symbols', 'gliederung', 'esquema'],
+    cmd: { type: 'panel', panel: 'showOutline' },
+  },
+  {
+    id: 'open.timeline',
+    label: 'Open Timeline',
+    actions: ['open', 'show', 'ouvre', 'mostrar'],
+    objects: ['timeline', 'history', 'historique', 'verlauf', 'historia'],
+    cmd: { type: 'panel', panel: 'showTimeline' },
+  },
+  {
+    id: 'open.bookmarks',
+    label: 'Open Bookmarks',
+    actions: ['open', 'show', 'ouvre'],
+    objects: ['bookmarks', 'favorites', 'favoris', 'marcadores', 'lesezeichen'],
+    cmd: { type: 'panel', panel: 'showBookmarksPanel' },
+  },
+  {
+    id: 'open.scratchpad',
+    label: 'Open Scratchpad',
+    actions: ['open', 'ouvre', 'abrir'],
+    objects: ['scratchpad', 'notepad', 'brouillon', 'borrador', 'notizblock'],
+    cmd: { type: 'panel', panel: 'showScratchpad' },
+  },
+  {
+    id: 'open.todoBoard',
+    label: 'Open TODO Board',
+    actions: ['open', 'show', 'ouvre'],
+    objects: ['todo', 'tasks', 'tâches', 'taches', 'tareas', 'aufgaben'],
+    cmd: { type: 'panel', panel: 'showTodoBoard' },
+  },
+  {
+    id: 'open.projectBrain',
+    label: 'Open Project Brain',
+    actions: ['open', 'show', 'ouvre', 'mostrar'],
+    objects: ['brain', 'cerveau', 'cerebro', 'gehirn'],
+    cmd: { type: 'panel', panel: 'showProjectBrain' },
+  },
+  {
+    id: 'open.debug',
+    label: 'Open Debug Panel',
+    actions: ['open', 'start', 'launch', 'ouvre', 'lance', 'depurar'],
+    objects: ['debug', 'debugger', 'debogueur', 'depurador'],
+    cmd: { type: 'panel', panel: 'showDebug' },
+  },
+  {
+    id: 'open.prReady',
+    label: 'Open PR Ready Check',
+    actions: ['check', 'open', 'vérifie', 'verifie', 'verifica', 'prüfe'],
+    objects: ['pr', 'ready', 'pull', 'request'],
+    cmd: { type: 'panel', panel: 'showPrReady' },
+  },
+  {
+    id: 'open.focusTimer',
+    label: 'Toggle Focus Timer',
+    actions: ['start', 'open', 'lance', 'démarre', 'demarre', 'iniciar'],
+    objects: ['focus', 'pomodoro', 'minuteur', 'temporizador'],
+    cmd: { type: 'panel', panel: 'showFocusTimer' },
+  },
+  {
+    id: 'toggle.split',
+    label: 'Toggle Split Editor',
+    actions: ['split', 'divise', 'partage', 'separa', 'teile'],
+    objects: ['editor', 'split', 'editeur', 'éditeur'],
+    cmd: { type: 'action', action: 'toggleSplit' },
+  },
+  {
+    id: 'open.snippets',
+    label: 'Open Snippet Palette',
+    actions: ['open', 'insert', 'ouvre', 'insère', 'insere', 'insertar'],
+    objects: ['snippet', 'snippets', 'fragment'],
+    cmd: { type: 'panel', panel: 'showSnippets' },
+  },
 ];
 
 // Stop-words filtered out before substring scoring — without this
@@ -135,11 +243,15 @@ const STOP_WORDS = new Set([
 // has "le" as a substring.
 const MIN_SUBSTRING_LEN = 3;
 
-// Lower-case + strip punctuation + split on whitespace + drop stop
-// words. Pure function — exported via __testing__ for unit tests.
+// Lower-case + strip accents + strip punctuation + split on whitespace
+// + drop stop words. The accent strip matters for French — without it,
+// "débogueur" tokenises as "débogueur" and won't substring-match the
+// "debogueur" keyword. NFD-normalise then drop combining marks.
 function tokenize(s) {
   return String(s || '')
     .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
     .replace(/[^\p{L}\p{N}\s]/gu, ' ')
     .split(/\s+/)
     .filter((t) => t && !STOP_WORDS.has(t));

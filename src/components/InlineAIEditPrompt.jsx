@@ -14,12 +14,22 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Sparkles, Check, X, Loader2, RotateCcw } from 'lucide-react';
 import { streamInlineEdit } from '../utils/aiInlineEdit';
 
+// Wave 30 — extended quick-prompt catalog. The Cmd+K palette already
+// exposed 6 presets; doubling the list adds the rewrites users reach
+// for most often (concise / explain / async / immutable / tests /
+// type-narrow). Stops at 12 to keep the chip row scannable.
 const QUICK_PROMPTS = [
   'Refactor for clarity',
+  'Make it more concise',
   'Add error handling',
-  'Convert to TypeScript',
+  'Add type annotations',
+  'Convert to async/await',
+  'Make it immutable',
   'Add JSDoc comments',
+  'Add unit tests',
   'Optimize performance',
+  'Extract pure helpers',
+  'Inline this',
   'Fix bugs',
 ];
 

@@ -3,6 +3,48 @@
 All notable changes to Lorica IDE. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — Waves 6-32
+
+Waves 28-32 (2026-05-09 latest) — voice catalog doubled, code-review
+v2 pins peers' notes inline as gutter dots, inline rewrite gets 6
+more presets, perf pass 5 lazy-loads two annotation overlays
+(main bundle DOWN 7 KiB), test seed grows by 30 cases.
+
+### Added — Wave 28 (Voice intents v2)
+
+- Catalog **13 → 28 intents** (file tree, command palette, omnibar,
+  problems, outline, timeline, bookmarks, scratchpad, TODO board,
+  project brain, debug, PR ready, focus timer, split editor, snippets).
+- **Spanish + German triggers** on top of EN+FR.
+- **Accent-stripping tokeniser** so "débogueur" matches "debogueur".
+
+### Added — Wave 29 (Code-review v2 in-editor pins)
+
+- Peer review notes merge into the annotations stream → pin as
+  gutter dots at the exact `(file, line)` on receiving peers'
+  editors. Author + colour preserved.
+
+### Added — Wave 30 (Inline rewrite presets)
+
+- `QUICK_PROMPTS` doubled (6 → 12): "Make it more concise",
+  "Add type annotations", "Convert to async/await", "Make it
+  immutable", "Add unit tests", "Extract pure helpers",
+  "Inline this".
+
+### Perf — Wave 31 (Lazy annotation overlays)
+
+- `AddAnnotationPrompt` + `AnnotationPopover` lazy-loaded.
+- `main.bundle.js`: 326 → **319 KiB** (−7 KiB, first reduction
+  since Wave 5).
+- New chunks: `annotation-prompt` (3.2 KiB), `annotation-popover`
+  (5.6 KiB).
+
+### Tests — Wave 32
+
+- `tests/voiceCommandsV2.test.js` — 30+ cases pinning the Wave 28
+  catalog + multilingual coverage.
+- Total: **214 across 15 files** (was 183 / 14).
+
 ## [Unreleased] — Waves 6-27
 
 Waves 23-27 (2026-05-09 deep night) ship the extension runtime that

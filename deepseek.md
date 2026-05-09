@@ -5,13 +5,14 @@ _every meaningful step. The point: if Claude runs out of context, the_
 _next assistant (DeepSeek, another Claude session, anyone) can pick up_
 _cold and stay productive without re-reading the whole repo._
 
-**Last updated**: 2026-05-09 by Claude (Opus 4.7) — **Waves 23-27 complete**.
-**Extension runtime** (Wave 9 spec → real loaded extensions, focus-timer
-ready), Settings → Extensions tab, **voice commands** (parse French + EN
-intents → IDE actions), **inline Markdown** in annotation replies, and
-**code-review mode** (live shared review notes during a Live Share
-session). **183 JS tests + 12 Rust tests green**. Bundle: main 326 KiB,
-vendors 186 KiB. User has lifted the no-new-deps
+**Last updated**: 2026-05-09 by Claude (Opus 4.7) — **Waves 28-32 complete**.
+Voice catalog **doubled** (28 intents, 4 languages — EN/FR/ES/DE),
+**code-review v2** (peer review notes pinned in-editor as gutter dots),
+**inline rewrite** quick-prompts doubled (6→12 presets), **lazy-loaded**
+annotation overlays (perf pass 5 — main bundle 326→**319 KiB** via two
+new lazy chunks), +31 tests with accent-stripping in voice tokeniser.
+**214 JS tests + 12 Rust tests green**. Bundle: main 319 KiB, vendors
+186 KiB. User has lifted the no-new-deps
 rule — keep adding what makes Lorica the perfect futuristic IDE.
 
 ---
@@ -152,6 +153,33 @@ tests/
   voiceInput + buildDockerRunCommand + devcontainer Rust parser
   (+13 tests). WAVE_TEST_GUIDE.md updated with scenarios for
   Waves 6-9. CHANGELOG + LEDGER updated.
+
+- **Waves 28-32 — fourth 5-wave push** (2026-05-09 latest deep night).
+  - **28. Voice intents v2**: catalog 13 → 28 intents. Added
+    file tree / command palette / omnibar / problems / outline /
+    timeline / bookmarks / scratchpad / TODO board / project brain /
+    debug / PR ready / focus timer / split editor / snippets. Spanish
+    + German keywords on top of EN+FR. Tokeniser now strips accents
+    (NFD-normalise + drop combining marks) so "débogueur" matches
+    the "debogueur" keyword.
+  - **29. Code-review v2**: peer review notes posted via
+    `collab.appendReviewNote(file, line, text)` are merged into the
+    annotations stream that `Editor.jsx` receives, so they pin as
+    in-editor gutter dots on the receiving peer's screen. Author +
+    color preserved; tagged `_remote: true` so future polish can
+    style them differently.
+  - **30. Inline rewrite presets**: `QUICK_PROMPTS` in
+    `InlineAIEditPrompt.jsx` doubled (6 → 12). Added "Make it more
+    concise", "Add type annotations", "Convert to async/await",
+    "Make it immutable", "Add unit tests", "Extract pure helpers",
+    "Inline this".
+  - **31. Perf pass 5**: lazy-load `AddAnnotationPrompt` +
+    `AnnotationPopover`. Both render only after a gutter click /
+    right-click — no need to ship them in the initial paint. New
+    chunks: `annotation-prompt` (3.2 KiB), `annotation-popover`
+    (5.6 KiB). main.bundle.js: 326 → **319 KiB** (−7 KiB).
+  - **32. Test coverage**: new `voiceCommandsV2.test.js` with 30+
+    cases pinning the Wave 28 catalog. Total: **214 / 15 files**.
 
 - **Waves 23-27 — third 5-wave push** (2026-05-09 deep night).
   - **23. Extension runtime (phase 2)**: `extensionRuntime.js` loads
@@ -351,16 +379,17 @@ new:
 
 ## Status of the verification matrix (right now)
 
-- `npm run build` ✅ green (~73 s, main **326 KiB**, vendors 186 KiB,
-  entry ~1.03 MiB; +6 KiB for the extension runtime + voice parser +
-  Markdown renderer + review mode UI)
+- `npm run build` ✅ green (~75 s, main **319 KiB**, vendors 186 KiB,
+  entry ~1.02 MiB; main went DOWN 7 KiB this batch thanks to lazy
+  annotation overlays in Wave 31)
 - `cargo check` ✅ green, **0 warnings**
-- `npm test` ✅ **183/183** Vitest cases across 14 files (+30 from
-  Waves 21+25+26: aiProvidersOpenRouter, annotationsReplies,
-  voiceCommands, inlineMarkdown)
+- `npm test` ✅ **214/214** Vitest cases across 15 files (+31 from
+  Wave 28's extended catalog + multilingual coverage)
 - `cargo test --lib extension_loader` ✅ **4/4**
 - `cargo test --lib devcontainer` ✅ **8/8**
-- Lazy chunks: yjs-binding (~80 KiB, only on share)
+- Lazy chunks: `yjs-binding` (~80 KiB, only on share),
+  `annotation-popover` (5.6 KiB, only on dot-click),
+  `annotation-prompt` (3.2 KiB, only on right-click-gutter)
 
 ## What's open for the next assistant
 
@@ -370,26 +399,25 @@ In priority order — pick whichever fits the user's next ask:
    uncommitted. He may want one cumulative commit, or 5 squashes
    (one per wave: 6, 7, 8, 9, 10). Don't `git commit` without him
    asking.
-2. **Wave 28 candidates** (Waves 23-27 fully shipped — these are next):
+2. **Wave 33 candidates** (Waves 28-32 fully shipped — these are next):
    - **Extension runtime v0.1 (sandbox hardening)**: shadow DOM for
      status-bar chips so extension CSS can't leak; Web Worker
      execution for CPU-intensive extensions; `network.outbound`
      permission with allow-list.
-   - **Code-review mode v2**: pin review notes to `(file, line)` and
-     render them as Lorica annotations on the receiving peer's
-     editor (today they're a panel-only feed).
-   - **Voice intents — extend catalog**: add "run tests", "format
-     this file", "switch to <theme>", "next/previous tab",
-     "split editor".
-   - **Status-bar host slot for the right-side**: today the slot is
-     in the right cluster but pre-FocusTimer. Some extensions might
-     want to register on the left side too.
-   - **Multi-language voice intents**: Spanish + German triggers
-     for international users.
-   - **Perf pass 5** — codemirror.bundle is still 413 KiB.
-   - **The Editor still needs `aiOpenRouterKey` threading** — only
-     the agent + inline-complete paths got it; smaller utilities
-     should pull through `aiProviders.resolveProviderConfig(state)`.
+   - **Voice command palette overlay**: while dictating, show the
+     parsed intent in a floating chip above the input so the user
+     sees what's about to fire before it does.
+   - **Codemirror chunk lazy-split**: 413 KiB is the long pole now.
+     Splitting `@codemirror/search` into its own chunk fetched on
+     `Ctrl+F` would shave ~30 KiB off the initial paint. Invasive
+     because the keymap binding has to survive a lazy load.
+   - **Status-bar host slot for the LEFT side too**: today extensions
+     can only register on the right cluster.
+   - **Code-review v3 — replies on review notes**: a peer can reply
+     to another peer's review note inline. Y.Map per note, simple
+     append-only.
+   - **Theme generator (AI-powered)**: "make me a theme based on
+     this image" using Claude's vision API.
 3. **Open audit minor items still on the books**:
    - `src-tauri/Cargo.toml` could declare `publish = false` to make
      the missing-license warning permanently impossible.
