@@ -107,6 +107,9 @@ const AIRefactorModal      = lazy(() => import(/* webpackChunkName: "refactor"  
 const RecentFilesSwitcher  = lazy(() => import(/* webpackChunkName: "recent-files" */ './components/RecentFilesSwitcher'));
 const HoverDocModal        = lazy(() => import(/* webpackChunkName: "hover-doc" */ './components/HoverDocModal'));
 const ConflictResolveModal = lazy(() => import(/* webpackChunkName: "conflict-resolve" */ './components/ConflictResolveModal'));
+const ImageToCodeModal     = lazy(() => import(/* webpackChunkName: "image-to-code" */ './components/ImageToCodeModal'));
+const AINamingModal        = lazy(() => import(/* webpackChunkName: "naming" */ './components/AINamingModal'));
+const CommitGroupingModal  = lazy(() => import(/* webpackChunkName: "commit-grouping" */ './components/CommitGroupingModal'));
 const AnnotationsPanel  = lazy(() => import(/* webpackChunkName: "annotations" */ './components/AnnotationsPanel'));
 const CollabPanel       = lazy(() => import(/* webpackChunkName: "collab"      */ './components/CollabPanel'));
 const SemanticTypesPanel = lazy(() => import(/* webpackChunkName: "sem-types"  */ './components/SemanticTypesPanel'));
@@ -1023,6 +1026,15 @@ Suggest the best resolution and explain why. Output ONLY the replacement code in
         {state.showHoverDoc && (
           <HoverDocModal state={state} dispatch={dispatch} activeFile={activeFile} lsp={lsp} />
         )}
+        {state.showImageToCode && (
+          <ImageToCodeModal state={state} dispatch={dispatch} activeFile={activeFile} />
+        )}
+        {state.showNaming && (
+          <AINamingModal state={state} dispatch={dispatch} activeFile={activeFile} />
+        )}
+        {state.showCommitGrouping && (
+          <CommitGroupingModal state={state} dispatch={dispatch} />
+        )}
         {state.showConflictResolve && state.activeConflictBlock && (
           <ConflictResolveModal
             state={state}
@@ -1067,6 +1079,7 @@ Suggest the best resolution and explain why. Output ONLY the replacement code in
             addReply={annotationsApi.addReply}
             removeReply={annotationsApi.removeReply}
             onOpenFile={(path /* , line */) => fs.openFile(path)}
+            collab={collab}
           />
         )}
         {state.showCollab && (

@@ -69,6 +69,52 @@ _Append-only. Most recent at the top._
 
 ## Bilan log
 
+### 2026-05-09 (super-final) — Waves 63-67 eleventh 5-wave push
+
+User: keep going. Eleventh batch.
+
+| Wave | Result |
+|---|---|
+| **63. Image-to-code (AI vision)** | ✅ `aiImageToCode.js` + `ImageToCodeModal`. Anthropic-only vision API. Drag-drop / paste / file pick → transcribed code. Insert via lorica:insertAtCursor. Lazy chunk `image-to-code`. |
+| **64. AI naming suggestions** | ✅ `aiNameSuggestions.js` strict JSON parser drops names containing whitespace. `AINamingModal` auto-fills from selection, auto-runs on open, applies via smartInsert. Lazy chunk `naming`. |
+| **65. AI commit grouping** | ✅ `aiCommitGrouping.js` proposes 1-5 atomic commits from working-tree diff (capped 24k chars). `CommitGroupingModal` auto-runs, "Stage these files" loops cmd_git_stage, "Use as commit message" fires lorica:setCommitMessage → GitPanel listener. Lazy chunk `commit-grouping`. |
+| **66. Annotation passthrough over Live Share** | ✅ `collab.js` sharedAnnotations Y.Map mirrors Wave 51's bookmark shape. AnnotationsPanel grows opt-in Share toggle + Peer annotations section with click-to-jump. |
+| **67. Tests + cleanup** | ✅ 30 new tests across 3 files (image data-URL parser, naming parser, commit-grouping parser). Reducer flags + command palette entries for 63/64/65. |
+
+**Verification matrix**
+
+- `npm test` ✅ **345 / 345 across 28 files** (was 314 / 25)
+- `npm run build` ✅ green, main.bundle **319 KiB** (+1 KiB vs Wave 62)
+- `cargo check` ✅ 0 warnings
+
+**Key trade-offs**
+
+- Image-to-code is Anthropic-only on purpose: vision support across
+  DeepSeek / Ollama / OpenRouter is patchy and model-dependent. The
+  modal renders an explicit warning when the active provider isn't
+  Anthropic so users aren't surprised by silent failures.
+- Naming-suggestion parser rejects names with whitespace — the
+  replacement is spliced directly into the editor via smartInsert,
+  and a multi-word name would break the surrounding code. Strict
+  rejection is safer than trying to camelCase it ourselves.
+- Commit grouping doesn't rewrite the index: the user stages each
+  group manually. We could automate it but the failure modes
+  (partially-staged state, conflicts during stage) are too costly.
+  The "Stage these files" button is the convenience layer.
+- Annotation passthrough is opt-in per peer (same as Wave 51's
+  bookmark sharing). Annotations are personal until a user clicks
+  Share, which matches the trust model the user expects.
+
+**What's open for Wave 68+**
+
+See `deepseek.md` "What's open" section. Top candidates:
+- Annotations gutter for peer annotations (ghost dots)
+- Image-to-code via OpenRouter (multi-provider vision)
+- AI test runner (failing test → proposed fix)
+- Commit grouping v2 with hunk-level splits
+- Codemirror search lazy-split (still deferred)
+- Extension settings popover
+
 ### 2026-05-09 (absolutely-final) — Waves 58-62 tenth 5-wave push
 
 User: keep going. Tenth batch.

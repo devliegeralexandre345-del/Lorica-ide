@@ -173,6 +173,10 @@ export function useCollabSession() {
   const [peerBookmarks, setPeerBookmarks] = useState([]);
   const bookmarksUnsubRef = useRef(null);
 
+  // Wave 66 — shared annotations (same pattern as bookmarks).
+  const [peerAnnotations, setPeerAnnotations] = useState([]);
+  const annotationsUnsubRef = useRef(null);
+
   const shareFile = useCallback(async (filePath, initialContent) => {
     if (!sessionRef.current || !filePath) return null;
     let ytext = sharedTextsRef.current.get(filePath);
@@ -282,6 +286,27 @@ export function useCollabSession() {
     return bookmarksUnsubRef.current;
   }, []);
 
+  // Wave 66 — same shape as the bookmark trio.
+  const publishAnnotations = useCallback((list) => {
+    if (!sessionRef.current) return;
+    sessionRef.current.publishAnnotations(list || []);
+  }, []);
+
+  const stopPublishingAnnotations = useCallback(() => {
+    if (!sessionRef.current) return;
+    sessionRef.current.clearMyAnnotations();
+  }, []);
+
+  const subscribePeerAnnotations = useCallback(() => {
+    if (!sessionRef.current) return () => {};
+    if (annotationsUnsubRef.current) return annotationsUnsubRef.current;
+    annotationsUnsubRef.current = sessionRef.current.onSharedAnnotationsChange((list) => {
+      const myCid = String(sessionRef.current.awareness.clientID);
+      setPeerAnnotations(list.filter((e) => e.clientId !== myCid));
+    });
+    return annotationsUnsubRef.current;
+  }, []);
+
   // Final cleanup on unmount — guards against the user closing the IDE
   // mid-session without clicking Stop.
   useEffect(() => {
@@ -323,5 +348,10 @@ export function useCollabSession() {
     stopPublishingBookmarks,
     subscribePeerBookmarks,
     peerBookmarks,
+    // Wave 66 — shared annotations
+    publishAnnotations,
+    stopPublishingAnnotations,
+    subscribePeerAnnotations,
+    peerAnnotations,
   };
 }

@@ -3,7 +3,73 @@
 All notable changes to Lorica IDE. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — Waves 6-62
+## [Unreleased] — Waves 6-67
+
+Waves 63-67 (2026-05-09 super-final) add image-to-code via AI vision
+(Anthropic), AI naming suggestions, AI commit grouping for atomic-
+commit proposals, and annotation passthrough over Live Share — plus
+30 tests across 3 new files. Build is **319 KiB** main bundle.
+
+### Added — Wave 63 (Image-to-code, AI vision)
+
+- **`aiImageToCode.js`** + **`ImageToCodeModal.jsx`**: paste, drop,
+  or pick a screenshot of code → AI transcribes it back to plain
+  source. Uses Anthropic vision API (`{type:'image', source:base64}`
+  content blocks). Gracefully refuses non-Anthropic providers.
+- "Insert at cursor" routes through `lorica:insertAtCursor`
+  (smartInsert extension).
+- Lazy chunk: `image-to-code`.
+
+### Added — Wave 64 (AI naming suggestions)
+
+- **`aiNameSuggestions.js`** + **`AINamingModal.jsx`**: returns 3
+  alternative identifiers with rationale. Strict JSON parser drops
+  names containing whitespace (would break splice into editor).
+- Auto-fills from active selection, auto-runs on open. Apply routes
+  through smartInsert.
+- Lazy chunk: `naming`.
+
+### Added — Wave 65 (AI commit grouping)
+
+- **`aiCommitGrouping.js`** + **`CommitGroupingModal.jsx`**: reads
+  the working-tree diff (staged + unstaged combined, capped at 24k
+  chars), asks the AI to split it into 1-5 atomic commits with
+  Conventional-Commit subjects + body + file lists + rationale.
+- "Stage these files" loops the existing `cmd_git_stage` per file.
+  "Use as commit message" fires `lorica:setCommitMessage` which
+  GitPanel listens for to pre-populate the commit input.
+- Lazy chunk: `commit-grouping`.
+
+### Added — Wave 66 (Annotation passthrough over Live Share)
+
+- **`collab.js`** exposes a `sharedAnnotations` Y.Map keyed by
+  clientID; each entry mirrors the Wave 51 bookmark shape (author,
+  color, annotations[], at).
+- **`useCollabSession`** adds `publishAnnotations`,
+  `stopPublishingAnnotations`, `subscribePeerAnnotations`, and a
+  `peerAnnotations` state field.
+- **`AnnotationsPanel.jsx`** grows an opt-in "Share" toggle (visible
+  only when collab is active) and a "Peer annotations" section
+  listing peers' notes with click-to-jump.
+
+### Tests — Wave 67
+
+- `tests/aiImageToCode.test.js` — 9 cases on `parseDataUrl` (mime
+  type extraction, base64 separator, malformed URLs).
+- `tests/aiNameSuggestions.test.js` — 10 cases on the JSON parser
+  (whitespace rejection, missing fields, empty arrays).
+- `tests/aiCommitGrouping.test.js` — 11 cases on the parser (subject
+  + files validation, 5-group cap, missing-field defaults).
+- Total: **345 across 28 files** (was 314 / 25).
+
+### Bundle impact (Waves 63-67)
+
+- main.bundle.js: 318 → **319 KiB** (+1 KiB). Lazy chunks added:
+  `image-to-code`, `naming`, `commit-grouping`.
+
+---
+
+## [Unreleased pre-67] — Waves 6-62
 
 Waves 58-62 (2026-05-09 absolutely-final) add Live Share peer
 presence in the file tree, an LSP-first hover-doc with AI fallback,

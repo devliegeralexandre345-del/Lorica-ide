@@ -400,6 +400,18 @@ export default function GitPanel({ state, dispatch }) {
     return () => window.removeEventListener('lorica:draftCommitMessage', onDraft);
   }, [handleGenerateCommitMessage]);
 
+  // Wave 65 — listen for the commit-grouping modal's "Use as commit
+  // message" action. The detail.text comes pre-formatted (subject +
+  // optional body separated by a blank line).
+  useEffect(() => {
+    const onSet = (ev) => {
+      const text = ev?.detail?.text;
+      if (typeof text === 'string' && text) setCommitMsg(text);
+    };
+    window.addEventListener('lorica:setCommitMessage', onSet);
+    return () => window.removeEventListener('lorica:setCommitMessage', onSet);
+  }, []);
+
   const handlePush = useCallback(async () => {
     dispatch({ type: 'ADD_TOAST', toast: { type: 'info', message: 'Pushing…', duration: 5000 } });
     const res = await window.lorica.git.push(state.projectPath);

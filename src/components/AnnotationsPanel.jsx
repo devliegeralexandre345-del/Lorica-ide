@@ -10,9 +10,10 @@
 // editor is the spatial view. Click a row → open the file at the
 // annotation's line.
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   X, StickyNote, Trash2, MapPin, Search, Pin, PinOff, MessageCircle, Send, Download,
+  Share2, Users,
 } from 'lucide-react';
 import { ANNOTATION_COLORS, exportAnnotationsToMarkdown } from '../utils/annotations';
 import { renderInlineMarkdown } from '../utils/inlineMarkdown';
@@ -45,9 +46,29 @@ export default function AnnotationsPanel({
   addReply,
   removeReply,
   onOpenFile,
+  // Wave 66 — Live Share annotations passthrough. Optional; when
+  // collab is active and `sharing` toggles on, this panel publishes
+  // the local snapshot + subscribes to peers and renders peers' notes
+  // in a dedicated section.
+  collab,
 }) {
   const [filter, setFilter] = useState('');
   const [colorFilter, setColorFilter] = useState('all');
+  // Wave 66 — Live Share annotation passthrough. Opt-in per peer.
+  const [sharing, setSharing] = useState(false);
+  useEffect(() => {
+    if (!sharing || !collab?.active) return;
+    collab.publishAnnotations?.(annotations || []);
+  }, [sharing, collab?.active, annotations]);
+  useEffect(() => {
+    if (!collab?.active || !sharing) return;
+    const unsub = collab.subscribePeerAnnotations?.();
+    return () => {
+      try { if (typeof unsub === 'function') unsub(); } catch {}
+      try { collab.stopPublishingAnnotations?.(); } catch {}
+    };
+  }, [sharing, collab?.active]);
+  const peerAnnotations = collab?.peerAnnotations || [];
   // Per-annotation reply draft + author. Map<annotationId, { text, author }>.
   const [replyDrafts, setReplyDrafts] = useState({});
 
@@ -121,6 +142,20 @@ export default function AnnotationsPanel({
           <div className="text-sm font-semibold text-lorica-text">Annotations</div>
           <div className="text-[10px] text-lorica-textDim">Spatial notes anchored to lines · stored under <code>.lorica/annotations.json</code></div>
           <div className="flex-1" />
+          {collab?.active && (
+            <button
+              onClick={() => setSharing((v) => !v)}
+              className={`flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded border ${
+                sharing
+                  ? 'bg-emerald-400/15 border-emerald-400/40 text-emerald-300'
+                  : 'border-lorica-border text-lorica-textDim hover:text-lorica-text'
+              }`}
+              title={sharing ? 'Sharing your annotations with peers' : 'Share your annotations with the room'}
+            >
+              <Share2 size={9} />
+              {sharing ? 'Sharing' : 'Share'}
+            </button>
+          )}
           <button
             onClick={downloadMarkdown}
             disabled={(annotations || []).length === 0}
@@ -164,6 +199,40 @@ export default function AnnotationsPanel({
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
+          {sharing && peerAnnotations.length > 0 && (
+            <div className="mb-3 rounded-lg border border-lorica-border bg-lorica-bg/40 p-3">
+              <div className="text-[9px] uppercase tracking-widest text-lorica-textDim font-semibold flex items-center gap-1 mb-2">
+                <Users size={9} /> Peer annotations
+                <span className="ml-auto text-lorica-textDim/60">
+                  {peerAnnotations.reduce((n, p) => n + (p.annotations?.length || 0), 0)}
+                </span>
+              </div>
+              {peerAnnotations.map((peer) => (
+                <div key={peer.clientId} className="mb-2">
+                  <div className="text-[10px] flex items-center gap-1.5 mb-1">
+                    <span className="inline-block w-2 h-2 rounded-full" style={{ background: peer.color || '#fbbf24' }} />
+                    <span className="text-lorica-text font-medium">{peer.author}</span>
+                    <span className="text-lorica-textDim">· {(peer.annotations || []).length} note{(peer.annotations || []).length === 1 ? '' : 's'}</span>
+                  </div>
+                  {(peer.annotations || []).slice(0, 5).map((a) => (
+                    <button
+                      key={a.id}
+                      onClick={() => { if (typeof onOpenFile === 'function' && a.file) onOpenFile(a.file, { line: a.line }); }}
+                      className="w-full text-left text-[10px] py-0.5 pl-3 hover:bg-lorica-accent/10 text-lorica-textDim hover:text-lorica-accent flex items-center gap-1 truncate"
+                    >
+                      <MapPin size={9} />
+                      <span className="truncate">{a.file}</span>
+                      <span className="text-lorica-textDim/70">:{a.line}</span>
+                      {a.text && <span className="ml-1 italic text-lorica-text/80 truncate">— {a.text.slice(0, 40)}</span>}
+                    </button>
+                  ))}
+                  {(peer.annotations || []).length > 5 && (
+                    <div className="text-[9px] text-lorica-textDim pl-3">+{peer.annotations.length - 5} more</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
           {filtered.length === 0 ? (
             <div className="text-center py-10 text-xs text-lorica-textDim">
               {annotations?.length === 0

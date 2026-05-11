@@ -293,6 +293,48 @@ export function createCollabSession({ roomId, displayName, signaling }) {
     return () => sharedBookmarks.unobserve(handler);
   }
 
+  // ── Wave 66 — Shared annotations ───────────────────────────────
+  //
+  // Mirror of Wave 51's shared bookmarks. Annotations are local-first
+  // (.lorica/annotations.json), so this just publishes the user's
+  // current snapshot under their clientID so peers can render them
+  // alongside their own. We don't merge peers' annotations into the
+  // local store — keeps ownership clear and avoids round-tripping
+  // mutations through the file system.
+  const sharedAnnotations = ydoc.getMap('shared-annotations');
+
+  function publishAnnotations(list) {
+    if (!Array.isArray(list)) return;
+    const cid = String(awareness.clientID);
+    sharedAnnotations.set(cid, {
+      author: String(awareness.getLocalState()?.user?.name || 'anonymous'),
+      color: String(awareness.getLocalState()?.user?.color || '#fbbf24'),
+      annotations: list,
+      at: Date.now(),
+    });
+  }
+
+  function clearMyAnnotations() {
+    sharedAnnotations.delete(String(awareness.clientID));
+  }
+
+  function snapshotSharedAnnotations() {
+    const out = [];
+    sharedAnnotations.forEach((entry, cid) => {
+      if (!entry || typeof entry !== 'object') return;
+      out.push({ clientId: cid, ...entry });
+    });
+    return out;
+  }
+
+  function onSharedAnnotationsChange(cb) {
+    if (typeof cb !== 'function') return () => {};
+    const handler = () => cb(snapshotSharedAnnotations());
+    sharedAnnotations.observe(handler);
+    cb(snapshotSharedAnnotations());
+    return () => sharedAnnotations.unobserve(handler);
+  }
+
   return {
     ydoc,
     provider,
@@ -311,5 +353,9 @@ export function createCollabSession({ roomId, displayName, signaling }) {
     publishBookmarks,
     clearMyBookmarks,
     onSharedBookmarksChange,
+    // Wave 66 — shared annotations
+    publishAnnotations,
+    clearMyAnnotations,
+    onSharedAnnotationsChange,
   };
 }

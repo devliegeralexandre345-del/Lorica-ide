@@ -5,16 +5,17 @@ _every meaningful step. The point: if Claude runs out of context, the_
 _next assistant (DeepSeek, another Claude session, anyone) can pick up_
 _cold and stay productive without re-reading the whole repo._
 
-**Last updated**: 2026-05-09 by Claude (Opus 4.7) — **Waves 58-62 complete**.
-**Live Share v3 file-tree presence** (peer dots next to files peers
-are viewing), **LSP hover w/ AI fallback** (HoverDocModal tries LSP
-first, falls back to AI), **Recent files TTL decay** (30-day stale
-filter), **AI conflict resolver** ("Quick AI merge" button on each
-conflict toolbar → direct merge modal that splices on accept),
-+12 tests across 1 new file + 3 TTL cases. **314 JS tests + 12 Rust
-tests green**. Bundle: main **318 KiB** (+2 KiB). User has lifted
-the no-new-deps rule — keep adding what makes Lorica the perfect
-futuristic IDE.
+**Last updated**: 2026-05-09 by Claude (Opus 4.7) — **Waves 63-67 complete**.
+**Image-to-code via AI vision** (Anthropic-only; paste/drop a
+screenshot → transcribed source), **AI naming suggestions** (3
+alternatives w/ rationale, apply via smartInsert), **AI commit
+grouping** (suggest atomic-commit splits w/ files + messages, one-
+click stage), **Bookmark sync v2 / annotation passthrough** (Live
+Share now also shares annotations via opt-in Share toggle in
+AnnotationsPanel), +31 tests across 3 new files. **345 JS tests +
+12 Rust tests green**. Bundle: main **319 KiB** (+1 KiB). User has
+lifted the no-new-deps rule — keep adding what makes Lorica the
+perfect futuristic IDE.
 
 ---
 
@@ -154,6 +155,39 @@ tests/
   voiceInput + buildDockerRunCommand + devcontainer Rust parser
   (+13 tests). WAVE_TEST_GUIDE.md updated with scenarios for
   Waves 6-9. CHANGELOG + LEDGER updated.
+
+- **Waves 63-67 — eleventh 5-wave push** (2026-05-09 super-final).
+  - **63. Image-to-code (AI vision)**: `aiImageToCode.js` +
+    `ImageToCodeModal.jsx`. Anthropic-only (vision API). Accepts
+    drag-drop, clipboard paste (Ctrl+V), or file pick. Sends a
+    `messages` block with `{type:'image', source:{type:'base64',...}}`
+    + a `{type:'text', text}` prompt. Renders the transcribed code
+    in a read-only textarea, "Insert at cursor" routes through
+    `lorica:insertAtCursor`. Lazy chunk: `image-to-code`.
+  - **64. AI naming suggestions**: `aiNameSuggestions.js` strict
+    JSON `{suggestions:[{name,rationale}]}` parser. Rejects names
+    containing whitespace (would break splice). `AINamingModal`
+    auto-fills from active selection, auto-runs on open, applies
+    via smartInsert. Lazy chunk: `naming`.
+  - **65. AI commit grouping**: `aiCommitGrouping.js` proposes 1-5
+    atomic commits from the working-tree diff (staged + unstaged
+    concatenated, capped at 24k chars). `CommitGroupingModal`
+    auto-runs, shows each group with subject + body + files list,
+    "Stage these files" loops the existing `cmd_git_stage` per file,
+    "Use as commit message" fires `lorica:setCommitMessage` which
+    GitPanel now listens for. Lazy chunk: `commit-grouping`.
+  - **66. Bookmark sync v2 / annotation passthrough**: `collab.js`
+    `sharedAnnotations` Y.Map mirrors the Wave 51 bookmark shape.
+    `useCollabSession` adds `publishAnnotations` /
+    `stopPublishingAnnotations` / `subscribePeerAnnotations` /
+    `peerAnnotations`. AnnotationsPanel grows an opt-in "Share"
+    toggle (visible only when collab live) + a "Peer annotations"
+    section listing peers' notes with click-to-jump.
+  - **67. Tests + cleanup**: `tests/aiImageToCode.test.js` (9 cases
+    on parseDataUrl), `tests/aiNameSuggestions.test.js` (10 cases),
+    `tests/aiCommitGrouping.test.js` (11 cases). Reducer flags
+    (`showImageToCode`, `showNaming`, `showCommitGrouping`). Command
+    palette entries for 63, 64, 65. Total: **345 / 28 files**.
 
 - **Waves 58-62 — tenth 5-wave push** (2026-05-09 absolutely-final).
   - **58. Live Share v3 — file-tree presence**: FileTree gains a
@@ -557,11 +591,11 @@ new:
 
 ## Status of the verification matrix (right now)
 
-- `npm run build` ✅ green (~76 s, main **318 KiB** (+2 KiB vs Wave 57),
+- `npm run build` ✅ green (~69 s, main **319 KiB** (+1 KiB vs Wave 62),
   vendors 182 KiB, entry ~1.02 MiB)
 - `cargo check` ✅ green, **0 warnings**
-- `npm test` ✅ **314/314** Vitest cases across 25 files (+12 from the
-  Wave 62 tests for conflict-resolver parser + recent-files TTL)
+- `npm test` ✅ **345/345** Vitest cases across 28 files (+31 from the
+  Wave 67 tests: image data-URL parser, naming parser, commit-grouping parser)
 - `cargo test --lib extension_loader` ✅ **4/4**
 - `cargo test --lib devcontainer` ✅ **8/8**
 - Lazy chunks: `yjs-binding` (~80 KiB, only on share),
@@ -569,7 +603,8 @@ new:
   `annotation-prompt` (3.2 KiB, only on right-click-gutter),
   `workspace-switcher` (Wave 43), `test-gen` (Wave 44), `doc-gen` (Wave 45),
   `refactor` (Wave 48), `recent-files` (Wave 49), `hover-doc` (Wave 55),
-  `conflict-resolve` (Wave 61)
+  `conflict-resolve` (Wave 61), `image-to-code` (Wave 63),
+  `naming` (Wave 64), `commit-grouping` (Wave 65)
 
 ## What's open for the next assistant
 
@@ -579,21 +614,20 @@ In priority order — pick whichever fits the user's next ask:
    uncommitted. He may want one cumulative commit, or 5 squashes
    (one per wave: 6, 7, 8, 9, 10). Don't `git commit` without him
    asking.
-2. **Wave 63 candidates** (Waves 58-62 fully shipped — these are next):
-   - **Smart paste image-to-code (AI vision)**: paste a screenshot
-     of code into the editor → AI transcribes it back to source.
-     Requires Anthropic vision API + image base64 piping (medium
-     effort, high "wow" factor).
-   - **AI naming suggestions**: select an identifier → 3 alternative
-     names with rationale (think "rename refactor" but AI-assisted).
-   - **AI-assisted commit grouping**: given a staged diff, propose
-     splitting into multiple atomic commits with messages.
-   - **Bookmark sync v2 — annotations follow bookmarks**: peers'
-     bookmarks already sync (Wave 51); next step is annotations
-     attached to those bookmarks landing as gutter dots too.
-   - **Codemirror search lazy-split** (still deferred, would save
-     ~30 KiB on entrypoint).
-   - **Extension settings popover** anchored to status-bar chips.
+2. **Wave 68 candidates** (Waves 63-67 fully shipped — these are next):
+   - **Annotations gutter for peer annotations**: today peers'
+     annotations show in the panel only; render them as ghost dots
+     in the editor gutter (distinct from local — outline only).
+   - **Image-to-code via OpenRouter** (multi-provider vision):
+     OpenRouter supports several vision models. Same UX, expand the
+     provider gate.
+   - **AI test runner**: hover a failing test → AI proposes the fix.
+     Uses the existing run-tests command + the refactor surface.
+   - **Commit grouping v2 — diff hunks not full files**: today each
+     group claims whole files; let the AI propose hunk-level splits
+     for files that touch multiple themes.
+   - **Codemirror search lazy-split** (still deferred).
+   - **Extension settings popover** (still open from Wave 53).
 
 3. **Wave 33 candidates** (historic; some shipped, some still open):
    - **Extension runtime v0.1 (sandbox hardening)**: shadow DOM for

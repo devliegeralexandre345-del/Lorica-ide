@@ -289,6 +289,16 @@ export const initialState = {
   // holds the block the modal is currently working with.
   showConflictResolve: false,
   activeConflictBlock: null,
+  // Image → Code via AI vision — Wave 63. Anthropic-only. Drag-drop /
+  // paste / file pick → transcribed source code.
+  showImageToCode: false,
+  // AI naming suggestions — Wave 64. 3 alternatives for the selected
+  // identifier, applied via the smartInsert event.
+  showNaming: false,
+  // AI commit grouping — Wave 65. Read working-tree diff → suggest
+  // splitting into atomic commits. Doesn't rewrite the index; the
+  // user stages each group and commits manually.
+  showCommitGrouping: false,
 
   // Keyboard cheatsheet
   showKeyboardCheatsheet: false,
