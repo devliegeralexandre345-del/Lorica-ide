@@ -5,6 +5,7 @@ import {
   WrapText,
 } from 'lucide-react';
 import { rerankSemanticHits } from '../utils/aiSemanticRerank';
+import { expandQuery } from '../utils/aiQueryExpand';
 
 // Two modes sharing one panel:
 //   exact    — substring search via cmd_search_in_files
@@ -41,6 +42,12 @@ export default function GlobalSearch({ state, dispatch, onFileOpen }) {
   // LLM re-rank layer — Claude/DeepSeek reorders top-50 cosine hits by actual
   // relevance and attaches a one-line explanation to each.
   const [rerankEnabled, setRerankEnabled] = useState(true);
+  // Wave 46 — opt-in AI query expansion. Off by default because it
+  // adds a 1-2s latency hit (extra LLM round-trip BEFORE the cosine
+  // search). When on, we ask the model to break a natural-language
+  // question into 2-4 semantic-search-friendly phrases, run cosine
+  // over each, then merge + dedupe before the rerank stage.
+  const [expandEnabled, setExpandEnabled] = useState(false);
   const [reranking, setReranking] = useState(false);
   const [rerankFallback, setRerankFallback] = useState(null); // null | string reason
   const rerankAbortRef = useRef(null);
@@ -132,15 +139,50 @@ export default function GlobalSearch({ state, dispatch, onFileOpen }) {
     setRerankFallback(null);
     let rawHits = [];
     try {
-      const res = await window.lorica.search.semanticSearch(state.projectPath, q, topK);
-      if (res && res.success !== false) {
-        rawHits = Array.isArray(res.data) ? res.data : (res.data?.data || []);
-        setSemanticHits(rawHits);
-      } else {
-        dispatch({
-          type: 'ADD_TOAST',
-          toast: { type: 'error', message: res?.error || 'Semantic search failed' },
-        });
+      // Wave 46 — optional query expansion. The user opts in via the
+      // toggle; we ask the AI for 2-4 phrase variants, fan out cosine
+      // search across all of them, and merge by file:line dedup.
+      let queries = [q];
+      if (expandEnabled && canRerank) {
+        try {
+          const expanded = await expandQuery({
+            question: q,
+            provider, apiKey: aiApiKey,
+            ollamaBaseUrl: state.aiOllamaUrl,
+            model: provider === 'ollama' ? state.aiOllamaModel
+              : provider === 'openrouter' ? state.aiOpenRouterModel
+              : undefined,
+          });
+          if (Array.isArray(expanded) && expanded.length > 0) {
+            queries = expanded;
+          }
+        } catch (e) {
+          // Expansion failed — silently fall back to the original
+          // query. Re-rank still runs on the cosine hits, so the
+          // user gets the v0 experience instead of a broken search.
+          console.warn('[search] query expansion failed:', e);
+        }
+      }
+
+      // Fan out cosine search across all queries, merge by id.
+      const merged = new Map();
+      for (const sub of queries) {
+        const res = await window.lorica.search.semanticSearch(state.projectPath, sub, topK);
+        if (!res || res.success === false) continue;
+        const hits = Array.isArray(res.data) ? res.data : (res.data?.data || []);
+        for (const h of hits) {
+          // Hits don't always carry a stable id, so we key by
+          // path:start_line. First occurrence wins (cosine score
+          // is comparable across queries because the embedding
+          // model is the same).
+          const id = `${h.path || h.relative || ''}:${h.start_line ?? 0}`;
+          if (!merged.has(id)) merged.set(id, h);
+        }
+      }
+      rawHits = Array.from(merged.values()).slice(0, topK);
+      setSemanticHits(rawHits);
+      if (rawHits.length === 0) {
+        // No hits — note this but don't error.
         setSemanticLoading(false);
         return;
       }
@@ -180,7 +222,7 @@ export default function GlobalSearch({ state, dispatch, onFileOpen }) {
       if (rerankAbortRef.current === ctrl) rerankAbortRef.current = null;
       setReranking(false);
     }
-  }, [state.projectPath, indexStatus, dispatch, rerankEnabled, canRerank, provider, aiApiKey]);
+  }, [state.projectPath, indexStatus, dispatch, rerankEnabled, expandEnabled, canRerank, provider, aiApiKey, state.aiOllamaUrl, state.aiOllamaModel, state.aiOpenRouterModel]);
 
   // Abort any in-flight rerank when this panel unmounts.
   useEffect(() => () => rerankAbortRef.current?.abort(), []);
@@ -518,6 +560,27 @@ export default function GlobalSearch({ state, dispatch, onFileOpen }) {
                     : 'AI re-rank OFF — raw cosine similarity only'}
               >
                 <Brain size={10} /> AI re-rank {rerankEnabled && canRerank ? 'ON' : 'OFF'}
+              </button>
+              {/* Wave 46 — AI query expansion toggle. Same gate
+                  (needs an AI key); independent from rerank because
+                  one solves recall, the other precision. */}
+              <button
+                onClick={() => canRerank && setExpandEnabled((v) => !v)}
+                disabled={!canRerank}
+                className={`flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors ${
+                  !canRerank
+                    ? 'text-lorica-textDim/50 cursor-not-allowed'
+                    : expandEnabled
+                      ? 'bg-cyan-500/15 text-cyan-400 hover:bg-cyan-500/25'
+                      : 'text-lorica-textDim hover:text-lorica-text hover:bg-lorica-panel/40'
+                }`}
+                title={!canRerank
+                  ? 'Add an AI API key in Settings to enable query expansion'
+                  : expandEnabled
+                    ? 'AI query expansion ON — your natural-language question gets broken into 2-4 search phrases'
+                    : 'AI query expansion OFF — single literal query'}
+              >
+                <Brain size={10} /> AI expand {expandEnabled && canRerank ? 'ON' : 'OFF'}
               </button>
               {reranking && (
                 <span className="flex items-center gap-1 text-purple-400/80">

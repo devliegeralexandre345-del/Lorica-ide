@@ -222,6 +222,13 @@ const INTENTS = [
     objects: ['snippet', 'snippets', 'fragment'],
     cmd: { type: 'panel', panel: 'showSnippets' },
   },
+  {
+    id: 'open.workspaceSwitcher',
+    label: 'Switch workspace',
+    actions: ['switch', 'change', 'open', 'ouvre', 'change', 'cambiar', 'wechsle'],
+    objects: ['workspace', 'project', 'projet', 'proyecto', 'projekt'],
+    cmd: { type: 'panel', panel: 'showWorkspaceSwitcher' },
+  },
 ];
 
 // Stop-words filtered out before substring scoring — without this

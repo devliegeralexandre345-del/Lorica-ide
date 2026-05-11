@@ -69,6 +69,47 @@ _Append-only. Most recent at the top._
 
 ## Bilan log
 
+### 2026-05-09 (absolute final) — Waves 43-47 seventh 5-wave push
+
+User asked to keep going "tant qu'il y a pas tout ce que tu voulais ajouter
+en implementer a 100%" — keep firing until everything I wanted is in.
+
+| Wave | Result |
+|---|---|
+| **43. Workspace Switcher** | ✅ `WorkspaceSwitcher.jsx` modal listing recent projects from localStorage. Filterable, keyboard nav (↑/↓/Enter/Esc), "Open folder…" fallback. Voice intent `open.workspaceSwitcher` (EN/FR/ES/DE) + command palette entry. Lazy chunk: `workspace-switcher`. |
+| **44. AI Test Generator** | ✅ `aiTestGenerator.js` + `AITestGeneratorModal`. Auto-runs against active selection or file. Strict JSON `{path, framework, content}` parser rejects malformed model output. Save via `lorica.fs.writeFile` after creating parent dir. Lazy chunk: `test-gen`. |
+| **45. AI Doc Generator** | ✅ `aiDocGenerator.js` + `AIDocGeneratorModal`. Active file → markdown reference (overview, Public API table, Examples, Notes). Source clipped at 16k chars. Output cleaner unwraps whole-reply fences while keeping inner example fences. Save / copy / download. Lazy chunk: `doc-gen`. |
+| **46. AI query expansion wired** | ✅ Wave 41's `expandQuery()` utility was shipped but unwired. GlobalSearch now has an "AI expand ON/OFF" toggle next to the "AI re-rank" toggle. When ON, fans the query out into 2-4 phrases, cosine-searches the union, merges by `path:start_line`. Falls back to original query on parse failure. |
+| **47. Tests + cleanup** | ✅ `aiTestGenerator.test.js` (11 cases) + `aiDocGenerator.test.js` (10 cases). Reducer flags `showTestGenerator` + `showDocGenerator` added. App.jsx lazy imports + modal renderers. Command palette: 2 new entries right after "Explain selection (AI)". |
+
+**Verification matrix**
+
+- `npm test` ✅ **263 / 263 across 20 files** (was 242 / 18 — +21 / +2 files)
+- `npm run build` ✅ green, main.bundle **314 KiB** (Wave 42 was 321 — net **−7 KiB** despite 5 new features, thanks to lazy chunks for 43/44/45)
+- `cargo check` ✅ 0 warnings
+
+**Key trade-offs**
+
+- Doc generator caps source at 16k chars: huge files (CodeMirror's
+  ~2k-line autocomplete generators) get truncated. The model still
+  produces a usable overview because the top of the file (imports,
+  exports, top-level defs) is the signal-rich slice.
+- Test generator's strict JSON contract makes parsing brittle to model
+  drift but eliminates the "what if the model wraps the test in
+  prose" footgun. Falls back to null + user-visible error if parse
+  fails, which is the right default — don't write a corrupt file.
+- AI expand defaults OFF in GlobalSearch: it does an extra round-trip
+  per search, so users without a configured provider see no overhead.
+
+**What's open for Wave 48+**
+
+See `deepseek.md` "What's open" section. Top candidates:
+- AI Refactor Suggestion modal
+- Bookmark sync over Live Share
+- Recent files quick-switch (Ctrl+E)
+- AI commit-message voice intent
+- Codemirror chunk lazy-split (search subchunk)
+
 ### 2026-05-09 (absolute deepest) — Waves 38-42 sixth 5-wave push
 
 User asked for sustained 60% of 5h. Sixth batch.

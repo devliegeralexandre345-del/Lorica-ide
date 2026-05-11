@@ -5,13 +5,14 @@ _every meaningful step. The point: if Claude runs out of context, the_
 _next assistant (DeepSeek, another Claude session, anyone) can pick up_
 _cold and stay productive without re-reading the whole repo._
 
-**Last updated**: 2026-05-09 by Claude (Opus 4.7) — **Waves 38-42 complete**.
-**AI Code Explain** (selection → 4-10 line markdown explanation),
-**Annotation Markdown export** (whole project → downloadable .md),
-**Recent collab rooms** persisted with one-click reconnect, **AI query
-expansion** for semantic search, +21 tests across 2 new files.
-**242 JS tests + 12 Rust tests green**. Bundle: main 321 KiB. User has lifted the no-new-deps
-rule — keep adding what makes Lorica the perfect futuristic IDE.
+**Last updated**: 2026-05-09 by Claude (Opus 4.7) — **Waves 43-47 complete**.
+**Workspace Switcher** (recent projects modal w/ keyboard nav),
+**AI Test Generator** (selection → drafted test file, save to disk),
+**AI Doc Generator** (active file → markdown reference page),
+**AI query expansion** wired into GlobalSearch as an opt-in toggle,
++19 tests across 2 new files. **263 JS tests + 12 Rust tests green**.
+Bundle: main **314 KiB**. User has lifted the no-new-deps rule — keep
+adding what makes Lorica the perfect futuristic IDE.
 
 ---
 
@@ -151,6 +152,39 @@ tests/
   voiceInput + buildDockerRunCommand + devcontainer Rust parser
   (+13 tests). WAVE_TEST_GUIDE.md updated with scenarios for
   Waves 6-9. CHANGELOG + LEDGER updated.
+
+- **Waves 43-47 — seventh 5-wave push** (2026-05-09 absolute final night).
+  - **43. Workspace Switcher**: `WorkspaceSwitcher.jsx` modal — recent
+    projects from `lorica.recentProjects` localStorage, filterable list,
+    keyboard nav (↑/↓/Enter/Esc), one-click "Open folder…" fallback.
+    Wired into command palette + voice intents (`open.workspaceSwitcher`,
+    accepts EN/FR/ES/DE). New `showWorkspaceSwitcher` flag in reducer.
+    Lazy chunk: `workspace-switcher`.
+  - **44. AI Test Generator**: `aiTestGenerator.js` + `AITestGeneratorModal`.
+    Auto-runs on open against the active selection (or full active
+    file). Strict-JSON contract `{path, framework, content}` from the
+    model; the parser rejects anything that doesn't fit. Modal shows
+    editable suggested path + framework badge + preview, "Save test
+    file" writes via `window.lorica.fs.writeFile` (creates parent dir
+    first). Lazy chunk: `test-gen`.
+  - **45. AI Doc Generator**: `aiDocGenerator.js` + `AIDocGeneratorModal`.
+    Generates a markdown reference (overview / Public API table /
+    Examples / Notes) for the active file. Caps source at 16k chars.
+    Output cleaner strips whole-reply code-fence wraps but preserves
+    legitimate inner example fences. Save / copy / download. Lazy
+    chunk: `doc-gen`.
+  - **46. AI query expansion wired**: GlobalSearch grows an "AI expand
+    ON/OFF" toggle next to the existing "AI re-rank" toggle. When ON
+    (and rerank canon: provider has a key), the query is fanned out via
+    `expandQuery()` into 2-4 semantic-search-friendly phrases, cosine
+    search runs over the union of results, merge keyed by `path:start_line`.
+    Falls back to original query on parse failure (utility was shipped
+    in Wave 41 but unwired).
+  - **47. Tests + integration**: `tests/aiTestGenerator.test.js`
+    (11 cases on `parseTestJson`) + `tests/aiDocGenerator.test.js`
+    (10 cases on `cleanOutput`). Command palette entries for Wave 44
+    + Wave 45. All flags wired into the reducer + App lazy imports.
+    Total: **263 / 20 files**.
 
 - **Waves 38-42 — sixth 5-wave push** (2026-05-09 absolute deepest night).
   - **38. AI Code Explain**: `aiCodeExplain.js` + `AICodeExplainModal`.
@@ -421,16 +455,17 @@ new:
 
 ## Status of the verification matrix (right now)
 
-- `npm run build` ✅ green (~51 s, main **321 KiB** (+2 KiB), vendors
-  186 KiB, entry ~1.02 MiB)
+- `npm run build` ✅ green (~67 s, main **314 KiB** (−7 KiB vs Wave 42),
+  vendors 182 KiB, entry ~1.02 MiB)
 - `cargo check` ✅ green, **0 warnings**
-- `npm test` ✅ **242/242** Vitest cases across 18 files (+13 from
-  Wave 42's annotation-export + query-expand tests)
+- `npm test` ✅ **263/263** Vitest cases across 20 files (+21 across the
+  Wave 47 tests for test-gen + doc-gen parsers)
 - `cargo test --lib extension_loader` ✅ **4/4**
 - `cargo test --lib devcontainer` ✅ **8/8**
 - Lazy chunks: `yjs-binding` (~80 KiB, only on share),
   `annotation-popover` (5.6 KiB, only on dot-click),
-  `annotation-prompt` (3.2 KiB, only on right-click-gutter)
+  `annotation-prompt` (3.2 KiB, only on right-click-gutter),
+  `workspace-switcher` (Wave 43), `test-gen` (Wave 44), `doc-gen` (Wave 45)
 
 ## What's open for the next assistant
 
@@ -440,7 +475,24 @@ In priority order — pick whichever fits the user's next ask:
    uncommitted. He may want one cumulative commit, or 5 squashes
    (one per wave: 6, 7, 8, 9, 10). Don't `git commit` without him
    asking.
-2. **Wave 33 candidates** (Waves 28-32 fully shipped — these are next):
+2. **Wave 48 candidates** (Waves 43-47 fully shipped — these are next):
+   - **AI Refactor Suggestion modal**: hover a function, "Suggest
+     refactors" → AI returns 3 diffs with rationale; user picks one to
+     apply via the existing inline-edit pipeline.
+   - **Bookmark sync over Live Share**: bookmarks already exist locally;
+     share them in the same Yjs doc as annotations so peers see them.
+   - **Recent files quick-switch (Ctrl+E)**: like VS Code's Ctrl+P but
+     scoped to currently-open + recently-closed buffers only.
+   - **AI commit-message in voice intent catalog**: when a `commit
+     message` voice phrase is detected, open GitPanel and pre-populate
+     a draft from the staged diff.
+   - **Codemirror chunk lazy-split**: 413 KiB chunk; splitting
+     `@codemirror/search` saves ~30 KiB on initial paint. Invasive.
+   - **Extension settings panel inside the extension's status-bar chip**:
+     today extensions add settings to the global Settings → Extensions
+     tab. A per-extension chip-popover would scale better.
+
+3. **Wave 33 candidates** (historic; some shipped, some still open):
    - **Extension runtime v0.1 (sandbox hardening)**: shadow DOM for
      status-bar chips so extension CSS can't leak; Web Worker
      execution for CPU-intensive extensions; `network.outbound`

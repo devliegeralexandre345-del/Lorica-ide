@@ -266,6 +266,15 @@ export const initialState = {
   // AI Code Explain — Wave 38. Ask the AI to explain the active
   // selection (or first 200 lines of the file) in 4–10 line markdown.
   showCodeExplain: false,
+  // Workspace switcher — Wave 43. Quick-jump modal listing the
+  // recent-projects MRU.
+  showWorkspaceSwitcher: false,
+  // AI Test generator — Wave 44. Generates a unit-test file from the
+  // active selection / file.
+  showTestGenerator: false,
+  // AI Documentation generator — Wave 45. Writes a Markdown reference
+  // page for the active file.
+  showDocGenerator: false,
 
   // Keyboard cheatsheet
   showKeyboardCheatsheet: false,

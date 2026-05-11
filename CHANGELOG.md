@@ -3,7 +3,79 @@
 All notable changes to Lorica IDE. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — Waves 6-37
+## [Unreleased] — Waves 6-47
+
+Waves 43-47 (2026-05-09 absolute final) add a workspace switcher
+(recent projects modal), AI test generator (selection → test file),
+AI documentation generator (active file → markdown reference page),
+wires the Wave 41 AI query expansion into GlobalSearch as an opt-in
+toggle, and adds 21 tests across 2 new files. Build is **314 KiB**
+(−7 KiB vs Wave 42 despite 5 new features thanks to lazy chunks).
+
+### Added — Wave 43 (Workspace Switcher)
+
+- **`WorkspaceSwitcher.jsx`**: modal listing recent projects from
+  `lorica.recentProjects` localStorage. Filterable input, keyboard
+  navigation (↑/↓/Enter/Esc), one-click "Open folder…" fallback when
+  the desired project isn't in the recents list. Lazy chunk:
+  `workspace-switcher`.
+- New `showWorkspaceSwitcher` flag in `appReducer`.
+- Voice intent `open.workspaceSwitcher` accepts EN/FR/ES/DE
+  ("switch workspace", "change projet", "cambiar proyecto",
+  "wechsle projekt").
+- Command palette: "Switch Workspace (recent projects)".
+
+### Added — Wave 44 (AI Test Generator)
+
+- **`aiTestGenerator.js`** + **`AITestGeneratorModal.jsx`**: auto-runs
+  on open against the active editor selection (or full active file).
+  Strict JSON `{path, framework, content}` contract — the parser
+  rejects anything that doesn't fit, so a malformed model reply
+  can't write a corrupt test file. Modal shows editable suggested
+  path + framework badge + read-only preview, "Save test file" writes
+  via `window.lorica.fs.writeFile` after creating the parent dir.
+  Lazy chunk: `test-gen`.
+- Command palette: "Generate tests for selection (AI)".
+
+### Added — Wave 45 (AI Doc Generator)
+
+- **`aiDocGenerator.js`** + **`AIDocGeneratorModal.jsx`**: generates a
+  Markdown reference page (overview, Public API table, Examples,
+  Notes) for the active file. Caps source at 16k chars to keep token
+  use sane on huge files. Output cleaner strips whole-reply code-fence
+  wraps while preserving legitimate inner example fences. Save next
+  to source / copy / download. Lazy chunk: `doc-gen`.
+- Command palette: "Generate documentation for active file (AI)".
+
+### Changed — Wave 46 (AI query expansion wired)
+
+- `GlobalSearch.jsx` grows an "AI expand ON/OFF" toggle next to the
+  existing "AI re-rank" toggle. When ON (and a provider key is
+  configured), the user's query is fanned out via `expandQuery()`
+  (shipped in Wave 41) into 2-4 semantic-search-friendly phrases.
+  Cosine search runs over the union of results, merged by
+  `path:start_line` key. Falls back to the original query on parse
+  failure or provider error.
+
+### Tests — Wave 47
+
+- `tests/aiTestGenerator.test.js` — 11 cases on `parseTestJson`
+  covering fence stripping, prose-wrapped JSON extraction, missing
+  fields, non-string content, whitespace trimming.
+- `tests/aiDocGenerator.test.js` — 10 cases on `cleanOutput` covering
+  whole-reply fence unwrap, inner-fence preservation, asymmetric
+  wraps, non-string coercion, whitespace trimming.
+- Total: **263 across 20 files** (was 242 / 18).
+
+### Bundle impact (Waves 43-47)
+
+- main.bundle.js: 321 → **314 KiB** (−7 KiB despite 5 new features
+  thanks to lazy chunks for 43/44/45).
+- Lazy chunks added: `workspace-switcher`, `test-gen`, `doc-gen`.
+
+---
+
+## [Unreleased pre-47] — Waves 6-42
 
 Waves 33-37 (2026-05-09 deepest night) add an AI theme generator,
 live voice preview, threaded review notes, a left-side status-bar

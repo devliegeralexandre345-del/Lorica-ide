@@ -99,6 +99,9 @@ const WorktreesPanel    = lazy(() => import(/* webpackChunkName: "worktrees"   *
 const SmartPasteModal   = lazy(() => import(/* webpackChunkName: "smart-paste" */ './components/SmartPasteModal'));
 const ThemeGeneratorModal = lazy(() => import(/* webpackChunkName: "theme-gen" */ './components/ThemeGeneratorModal'));
 const AICodeExplainModal  = lazy(() => import(/* webpackChunkName: "code-explain" */ './components/AICodeExplainModal'));
+const WorkspaceSwitcher   = lazy(() => import(/* webpackChunkName: "workspace-switcher" */ './components/WorkspaceSwitcher'));
+const AITestGeneratorModal = lazy(() => import(/* webpackChunkName: "test-gen" */ './components/AITestGeneratorModal'));
+const AIDocGeneratorModal  = lazy(() => import(/* webpackChunkName: "doc-gen" */ './components/AIDocGeneratorModal'));
 const AnnotationsPanel  = lazy(() => import(/* webpackChunkName: "annotations" */ './components/AnnotationsPanel'));
 const CollabPanel       = lazy(() => import(/* webpackChunkName: "collab"      */ './components/CollabPanel'));
 const SemanticTypesPanel = lazy(() => import(/* webpackChunkName: "sem-types"  */ './components/SemanticTypesPanel'));
@@ -961,6 +964,20 @@ Suggest the best resolution and explain why. Output ONLY the replacement code in
         )}
         {state.showCodeExplain && (
           <AICodeExplainModal state={state} dispatch={dispatch} activeFile={activeFile} />
+        )}
+        {state.showWorkspaceSwitcher && (
+          <WorkspaceSwitcher
+            state={state}
+            dispatch={dispatch}
+            onOpen={fs.openProject}
+            onOpenFolder={fs.openFolder}
+          />
+        )}
+        {state.showTestGenerator && (
+          <AITestGeneratorModal state={state} dispatch={dispatch} activeFile={activeFile} />
+        )}
+        {state.showDocGenerator && (
+          <AIDocGeneratorModal state={state} dispatch={dispatch} activeFile={activeFile} />
         )}
         {state.showSmartPaste && (
           <SmartPasteModal
