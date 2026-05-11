@@ -69,6 +69,46 @@ _Append-only. Most recent at the top._
 
 ## Bilan log
 
+### 2026-05-09 (absolute final-final) — Waves 48-52 eighth 5-wave push
+
+User: keep going until 100% of what I wanted is implemented. Eighth batch.
+
+| Wave | Result |
+|---|---|
+| **48. AI Refactor Suggestions** | ✅ `aiRefactorSuggestions.js` + `AIRefactorModal`. 3 alternative refactors with title + rationale + replacement. Strict JSON parser drops invalid entries while keeping valid ones. Apply via existing `lorica:insertAtCursor` (smartInsert) — no Editor.jsx touched. Lazy chunk: `refactor`. |
+| **49. Recent files Ctrl+E** | ✅ `recentFiles.js` per-project localStorage history (cap 50). `RecentFilesSwitcher` modal lists open files first, then recently-closed. Pure `mergeOpenAndRecent` for cheap testing. Effect in App.jsx records on `activeFile.path` change. Lazy chunk: `recent-files`. |
+| **50. Voice "draft commit message"** | ✅ Compound voice intent: opens GitPanel + dispatches `lorica:draftCommitMessage` window event. GitPanel registers a listener that calls its existing AI generator. New voice cmd types (`event`, `compound`) generalised for future intents. |
+| **51. Bookmark sync over Live Share** | ✅ `collab.js` shared Y.Map keyed by clientID. `useCollabSession` adds `publishBookmarks` / `subscribePeerBookmarks` / `peerBookmarks`. BookmarksPanel opt-in Share toggle (visible only when session live) + "Peer bookmarks" section grouped per peer with click-to-jump. |
+| **52. Tests + cleanup** | ✅ `aiRefactorSuggestions.test.js` (11 cases) + `recentFiles.test.js` (12 cases — pure merger + localStorage round-trip). Reducer flags. Command palette entries. |
+
+**Verification matrix**
+
+- `npm test` ✅ **286 / 286 across 22 files** (was 263 / 20)
+- `npm run build` ✅ green, main.bundle **316 KiB** (+2 KiB vs Wave 47, still −5 KiB net vs Wave 42 baseline)
+- `cargo check` ✅ 0 warnings
+
+**Key trade-offs**
+
+- The refactor modal's strict JSON contract means the model can't
+  reply with prose. We accept the cost — applying garbage to the
+  selection is worse than asking the user to re-run.
+- Bookmark sharing is *opt-in* per peer rather than automatic: a
+  peer who never clicks Share is invisible, which matches user
+  expectation that bookmarks are personal until proven otherwise.
+- Ctrl+E history records on activation not OPEN_FILE so tab-switching
+  also bumps the entry. Side-effect: if a user opens N files in
+  bulk without focusing each one, only the active one is recorded.
+  This is correct — the others are already on the tab strip.
+
+**What's open for Wave 53+**
+
+- Codemirror chunk lazy-split (`@codemirror/search` → ~30 KiB win)
+- AI inline-rewrite presets v3
+- Project-wide AI search ("find code by description")
+- Extension settings popover from status-bar chip
+- Worktree diff viewer
+- Hover-doc lookup
+
 ### 2026-05-09 (absolute final) — Waves 43-47 seventh 5-wave push
 
 User asked to keep going "tant qu'il y a pas tout ce que tu voulais ajouter

@@ -5,14 +5,16 @@ _every meaningful step. The point: if Claude runs out of context, the_
 _next assistant (DeepSeek, another Claude session, anyone) can pick up_
 _cold and stay productive without re-reading the whole repo._
 
-**Last updated**: 2026-05-09 by Claude (Opus 4.7) — **Waves 43-47 complete**.
-**Workspace Switcher** (recent projects modal w/ keyboard nav),
-**AI Test Generator** (selection → drafted test file, save to disk),
-**AI Doc Generator** (active file → markdown reference page),
-**AI query expansion** wired into GlobalSearch as an opt-in toggle,
-+19 tests across 2 new files. **263 JS tests + 12 Rust tests green**.
-Bundle: main **314 KiB**. User has lifted the no-new-deps rule — keep
-adding what makes Lorica the perfect futuristic IDE.
+**Last updated**: 2026-05-09 by Claude (Opus 4.7) — **Waves 48-52 complete**.
+**AI Refactor Suggestions** (3 alternative refactors per selection w/
+rationale + apply-via-smartInsert), **Recent files Ctrl+E quick-switch**
+(scoped to open + recently-closed per project), **AI commit-message
+voice intent** (says "draft commit message" → opens GitPanel + drafts),
+**Bookmark sync over Live Share** (opt-in share toggle, peer bookmarks
+section in panel), +23 tests across 2 new files. **286 JS tests + 12
+Rust tests green**. Bundle: main **316 KiB**. User has lifted the
+no-new-deps rule — keep adding what makes Lorica the perfect
+futuristic IDE.
 
 ---
 
@@ -152,6 +154,40 @@ tests/
   voiceInput + buildDockerRunCommand + devcontainer Rust parser
   (+13 tests). WAVE_TEST_GUIDE.md updated with scenarios for
   Waves 6-9. CHANGELOG + LEDGER updated.
+
+- **Waves 48-52 — eighth 5-wave push** (2026-05-09 absolute final-final).
+  - **48. AI Refactor Suggestions**: `aiRefactorSuggestions.js` +
+    `AIRefactorModal`. Asks the active provider for 3 alternative
+    refactors of the selected snippet, each with title + rationale +
+    replacement. Strict JSON `{suggestions:[{title,rationale,replacement}]}`
+    parser drops invalid entries but keeps valid ones. Apply button
+    routes the chosen replacement through the existing
+    `lorica:insertAtCursor` window event (smartInsert ViewPlugin
+    overwrites the selection without touching Editor internals).
+    Lazy chunk: `refactor`.
+  - **49. Recent files quick-switch (Ctrl+E)**: `recentFiles.js`
+    util persists per-project file-open history to localStorage
+    (capped at 50). `RecentFilesSwitcher` modal lists open files
+    first (badge), then recently-closed. Pure helper
+    `mergeOpenAndRecent` keeps test coverage cheap. Recording effect
+    in App.jsx watches `activeFile.path` so re-focusing also bumps
+    the entry. Lazy chunk: `recent-files`.
+  - **50. AI commit-message voice intent**: `voiceCommands.js` gains
+    an intent that compounds two steps — open GitPanel + dispatch a
+    `lorica:draftCommitMessage` window event the panel listens for to
+    call its existing AI generator. The compound type is generic, so
+    future intents can chain more steps.
+  - **51. Bookmark sync over Live Share**: `collab.js` exposes a
+    shared Y.Map keyed by clientID, each entry a per-peer
+    `{author, color, bookmarks:{lines, details}}`. `useCollabSession`
+    adds `publishBookmarks` / `stopPublishingBookmarks` /
+    `subscribePeerBookmarks` / `peerBookmarks`. BookmarksPanel grows
+    an opt-in "Share" toggle (visible only when a session is live)
+    and renders a "Peer bookmarks" section grouped per peer.
+  - **52. Tests + cleanup**: `tests/aiRefactorSuggestions.test.js`
+    (11 cases) + `tests/recentFiles.test.js` (12 cases on storage
+    round-trip + the pure merger). Reducer flags for new modals.
+    Command palette entries for waves 48 + 49. Total: **286 / 22 files**.
 
 - **Waves 43-47 — seventh 5-wave push** (2026-05-09 absolute final night).
   - **43. Workspace Switcher**: `WorkspaceSwitcher.jsx` modal — recent
@@ -455,17 +491,18 @@ new:
 
 ## Status of the verification matrix (right now)
 
-- `npm run build` ✅ green (~67 s, main **314 KiB** (−7 KiB vs Wave 42),
-  vendors 182 KiB, entry ~1.02 MiB)
+- `npm run build` ✅ green (~59 s, main **316 KiB** (+2 KiB vs Wave 47,
+  −5 KiB vs Wave 42 baseline), vendors 182 KiB, entry ~1.02 MiB)
 - `cargo check` ✅ green, **0 warnings**
-- `npm test` ✅ **263/263** Vitest cases across 20 files (+21 across the
-  Wave 47 tests for test-gen + doc-gen parsers)
+- `npm test` ✅ **286/286** Vitest cases across 22 files (+23 from the
+  Wave 52 tests for refactor parser + recentFiles)
 - `cargo test --lib extension_loader` ✅ **4/4**
 - `cargo test --lib devcontainer` ✅ **8/8**
 - Lazy chunks: `yjs-binding` (~80 KiB, only on share),
   `annotation-popover` (5.6 KiB, only on dot-click),
   `annotation-prompt` (3.2 KiB, only on right-click-gutter),
-  `workspace-switcher` (Wave 43), `test-gen` (Wave 44), `doc-gen` (Wave 45)
+  `workspace-switcher` (Wave 43), `test-gen` (Wave 44), `doc-gen` (Wave 45),
+  `refactor` (Wave 48), `recent-files` (Wave 49)
 
 ## What's open for the next assistant
 
@@ -475,22 +512,24 @@ In priority order — pick whichever fits the user's next ask:
    uncommitted. He may want one cumulative commit, or 5 squashes
    (one per wave: 6, 7, 8, 9, 10). Don't `git commit` without him
    asking.
-2. **Wave 48 candidates** (Waves 43-47 fully shipped — these are next):
-   - **AI Refactor Suggestion modal**: hover a function, "Suggest
-     refactors" → AI returns 3 diffs with rationale; user picks one to
-     apply via the existing inline-edit pipeline.
-   - **Bookmark sync over Live Share**: bookmarks already exist locally;
-     share them in the same Yjs doc as annotations so peers see them.
-   - **Recent files quick-switch (Ctrl+E)**: like VS Code's Ctrl+P but
-     scoped to currently-open + recently-closed buffers only.
-   - **AI commit-message in voice intent catalog**: when a `commit
-     message` voice phrase is detected, open GitPanel and pre-populate
-     a draft from the staged diff.
+2. **Wave 53 candidates** (Waves 48-52 fully shipped — these are next):
    - **Codemirror chunk lazy-split**: 413 KiB chunk; splitting
-     `@codemirror/search` saves ~30 KiB on initial paint. Invasive.
-   - **Extension settings panel inside the extension's status-bar chip**:
-     today extensions add settings to the global Settings → Extensions
-     tab. A per-extension chip-popover would scale better.
+     `@codemirror/search` saves ~30 KiB on initial paint. Invasive
+     because keymap bindings have to survive a lazy load.
+   - **AI inline-rewrite presets v3**: hover a function → quick-action
+     bar with shipped Wave 30 presets (12) + 6 new ones suggested by
+     usage (e.g. "convert callback to promise", "narrow types").
+   - **Project-wide AI search ("find code by description")**:
+     `aiQueryExpand` is wired into vector search; next step is
+     letting users ask "where do we handle GitHub auth?" and get
+     ranked answers + jump-to-line.
+   - **Extension settings popover** anchored to the status-bar chip.
+   - **Worktree diff viewer in the Worktrees panel**: today the panel
+     only lists worktrees + branches. Click a worktree → see
+     uncommitted-changes diff inline.
+   - **Hover-doc lookup**: hover any identifier → AI fetches a
+     1-paragraph explanation using the existing aiDocGenerator
+     stripped-down. Bounded by a per-session cache.
 
 3. **Wave 33 candidates** (historic; some shipped, some still open):
    - **Extension runtime v0.1 (sandbox hardening)**: shadow DOM for

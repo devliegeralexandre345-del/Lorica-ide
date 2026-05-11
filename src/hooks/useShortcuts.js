@@ -142,6 +142,8 @@ export function useShortcuts(state, dispatch, actions, security) {
     // users (same binding VS Code uses for commands).
     if (ctrl && !e.shiftKey && e.key === 'p') { e.preventDefault(); dispatch({ type: 'SET_PANEL', panel: 'showOmnibar', value: true }); }
     if (ctrl && e.shiftKey && (e.key === 'P' || e.key === 'p')) { e.preventDefault(); dispatch({ type: 'TOGGLE_PANEL', panel: 'showCommandPalette' }); }
+    // Wave 49 — Ctrl+E recent-files quick-switch (scoped to open + recent).
+    if (ctrl && !e.shiftKey && !e.altKey && e.key === 'e') { e.preventDefault(); dispatch({ type: 'SET_PANEL', panel: 'showRecentFiles', value: true }); }
     // Ctrl+Shift+A — Multi-Agent Swarm deep review of the active file.
     if (ctrl && e.shiftKey && (e.key === 'A' || e.key === 'a')) {
       // Don't clash with the existing AI panel toggle (which is now Ctrl+Alt+A below).

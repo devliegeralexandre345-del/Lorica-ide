@@ -249,6 +249,50 @@ export function createCollabSession({ roomId, displayName, signaling }) {
     };
   }
 
+  // ── Wave 51 — Shared bookmarks ────────────────────────────────
+  //
+  // A shared Y.Map keyed by clientID → { author, color, bookmarks }.
+  // bookmarks itself is the local app shape:
+  //   { [filePath]: { lines: number[], details: { [line]: {note,group} } } }
+  // We share the WHOLE per-peer snapshot rather than a flat array so
+  // a peer can ungroup themselves later (i.e. publish empty) without
+  // affecting other peers' contributions.
+  const sharedBookmarks = ydoc.getMap('shared-bookmarks');
+
+  function publishBookmarks(snapshot) {
+    if (!snapshot || typeof snapshot !== 'object') return;
+    const cid = String(awareness.clientID);
+    const safe = {
+      author: String(awareness.getLocalState()?.user?.name || 'anonymous'),
+      color: String(awareness.getLocalState()?.user?.color || '#fbbf24'),
+      bookmarks: snapshot,
+      at: Date.now(),
+    };
+    sharedBookmarks.set(cid, safe);
+  }
+
+  function clearMyBookmarks() {
+    const cid = String(awareness.clientID);
+    sharedBookmarks.delete(cid);
+  }
+
+  function snapshotSharedBookmarks() {
+    const out = [];
+    sharedBookmarks.forEach((entry, cid) => {
+      if (!entry || typeof entry !== 'object') return;
+      out.push({ clientId: cid, ...entry });
+    });
+    return out;
+  }
+
+  function onSharedBookmarksChange(cb) {
+    if (typeof cb !== 'function') return () => {};
+    const handler = () => cb(snapshotSharedBookmarks());
+    sharedBookmarks.observe(handler);
+    cb(snapshotSharedBookmarks());
+    return () => sharedBookmarks.unobserve(handler);
+  }
+
   return {
     ydoc,
     provider,
@@ -263,5 +307,9 @@ export function createCollabSession({ roomId, displayName, signaling }) {
     onReviewNotesChange,
     // Wave 35 — review-note replies
     appendReviewReply,
+    // Wave 51 — shared bookmarks
+    publishBookmarks,
+    clearMyBookmarks,
+    onSharedBookmarksChange,
   };
 }

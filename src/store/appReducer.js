@@ -275,6 +275,12 @@ export const initialState = {
   // AI Documentation generator — Wave 45. Writes a Markdown reference
   // page for the active file.
   showDocGenerator: false,
+  // AI Refactor suggester — Wave 48. Returns 3 alternative refactors
+  // for the active selection, applied via the smartInsert event.
+  showRefactor: false,
+  // Recent files quick-switch — Wave 49. Ctrl+E surface scoped to
+  // currently-open + recently-closed files only.
+  showRecentFiles: false,
 
   // Keyboard cheatsheet
   showKeyboardCheatsheet: false,

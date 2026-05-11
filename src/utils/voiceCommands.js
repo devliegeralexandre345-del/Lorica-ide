@@ -229,6 +229,33 @@ const INTENTS = [
     objects: ['workspace', 'project', 'projet', 'proyecto', 'projekt'],
     cmd: { type: 'panel', panel: 'showWorkspaceSwitcher' },
   },
+  {
+    // Wave 50 — voice commit-message draft. Opens GitPanel AND
+    // dispatches a signal the panel listens for to draft a message
+    // from the staged diff via the active AI provider.
+    id: 'commit.draftMessage',
+    label: 'Draft commit message (AI)',
+    actions: ['draft', 'redige', 'redigé', 'redigé', 'écris', 'ecris', 'write', 'commit', 'committe', 'genere', 'génère'],
+    objects: ['commit', 'message', 'commitmessage'],
+    cmd: { type: 'compound', steps: [
+      { type: 'panel', panel: 'showGit' },
+      { type: 'event', event: 'lorica:draftCommitMessage' },
+    ] },
+  },
+  {
+    id: 'open.recentFiles',
+    label: 'Recent files (quick-switch)',
+    actions: ['open', 'show', 'ouvre', 'montre', 'recent', 'récents', 'recents'],
+    objects: ['files', 'fichiers', 'recent', 'récents', 'recents', 'history', 'historique'],
+    cmd: { type: 'panel', panel: 'showRecentFiles' },
+  },
+  {
+    id: 'open.refactor',
+    label: 'AI refactor suggestions',
+    actions: ['refactor', 'refactorer', 'refactor', 'rewrite', 'reecris', 'réécris'],
+    objects: ['code', 'selection', 'sélection', 'snippet'],
+    cmd: { type: 'panel', panel: 'showRefactor' },
+  },
 ];
 
 // Stop-words filtered out before substring scoring — without this
@@ -331,6 +358,22 @@ export function executeVoiceCommand(parsed, { dispatch, actions } = {}) {
     const fn = actions?.current?.[cmd.action];
     if (typeof fn === 'function') { fn(); return true; }
     return false;
+  }
+  // Wave 50 — `event` posts a window CustomEvent so a panel can react
+  // without us having to import its imperative API (avoids circular
+  // deps). The panel registers an addEventListener in its own scope.
+  if (cmd.type === 'event') {
+    window.dispatchEvent(new CustomEvent(cmd.event, { detail: cmd.detail || {} }));
+    return true;
+  }
+  // `compound` runs each step in order, short-circuiting on the first
+  // step that doesn't apply (e.g. an action that isn't wired).
+  if (cmd.type === 'compound' && Array.isArray(cmd.steps)) {
+    for (const step of cmd.steps) {
+      const ok = executeVoiceCommand({ intent: { cmd: step } }, { dispatch, actions });
+      if (!ok) return false;
+    }
+    return true;
   }
   return false;
 }

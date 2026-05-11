@@ -165,6 +165,14 @@ export function useCollabSession() {
   const [reviewNotes, setReviewNotes] = useState([]);
   const reviewUnsubRef = useRef(null);
 
+  // Wave 51 — shared bookmarks. `peerBookmarks` is the snapshot of
+  // every peer's published bookmark map (clientId → { author, color,
+  // bookmarks: { [filePath]: {lines, details} } }). BookmarksPanel
+  // reads this to render a "Peer bookmarks" section under the local
+  // ones; we never *merge* into local state to keep ownership clear.
+  const [peerBookmarks, setPeerBookmarks] = useState([]);
+  const bookmarksUnsubRef = useRef(null);
+
   const shareFile = useCallback(async (filePath, initialContent) => {
     if (!sessionRef.current || !filePath) return null;
     let ytext = sharedTextsRef.current.get(filePath);
@@ -249,6 +257,31 @@ export function useCollabSession() {
     return sessionRef.current.appendReviewReply(noteId, { text });
   }, [reviewMode]);
 
+  // Wave 51 — publish the local bookmarks to the session and start
+  // observing peer publications. Called by BookmarksPanel when the
+  // user opts in to sharing. The publication is overwritten each time
+  // the local snapshot changes, so a peer who removes a bookmark
+  // also removes it from peers' views.
+  const publishBookmarks = useCallback((snapshot) => {
+    if (!sessionRef.current) return;
+    sessionRef.current.publishBookmarks(snapshot || {});
+  }, []);
+
+  const stopPublishingBookmarks = useCallback(() => {
+    if (!sessionRef.current) return;
+    sessionRef.current.clearMyBookmarks();
+  }, []);
+
+  const subscribePeerBookmarks = useCallback(() => {
+    if (!sessionRef.current) return () => {};
+    if (bookmarksUnsubRef.current) return bookmarksUnsubRef.current;
+    bookmarksUnsubRef.current = sessionRef.current.onSharedBookmarksChange((list) => {
+      const myCid = String(sessionRef.current.awareness.clientID);
+      setPeerBookmarks(list.filter((e) => e.clientId !== myCid));
+    });
+    return bookmarksUnsubRef.current;
+  }, []);
+
   // Final cleanup on unmount — guards against the user closing the IDE
   // mid-session without clicking Stop.
   useEffect(() => {
@@ -285,5 +318,10 @@ export function useCollabSession() {
     // Wave 40 — recent rooms history
     recentRooms,
     forgetRecent,
+    // Wave 51 — shared bookmarks
+    publishBookmarks,
+    stopPublishingBookmarks,
+    subscribePeerBookmarks,
+    peerBookmarks,
   };
 }

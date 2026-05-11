@@ -3,7 +3,91 @@
 All notable changes to Lorica IDE. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — Waves 6-47
+## [Unreleased] — Waves 6-52
+
+Waves 48-52 (2026-05-09 absolute final-final) add AI refactor
+suggestions (3 alternatives per selection with rationale), a Ctrl+E
+recent-files quick-switch, voice-triggered AI commit-message drafting,
+and opt-in bookmark sharing over Live Share — plus 23 tests across 2
+new files. Build is **316 KiB** main bundle (+2 KiB vs Wave 47).
+
+### Added — Wave 48 (AI Refactor Suggestions)
+
+- **`aiRefactorSuggestions.js`** + **`AIRefactorModal.jsx`**: returns
+  3 alternative refactors of the current selection, each with title +
+  one-sentence rationale + drop-in replacement. Strict JSON
+  `{suggestions:[{title,rationale,replacement}]}` parser drops
+  invalid entries while keeping the valid ones (so a partial reply
+  still gives the user something to work with).
+- Apply button routes the replacement through the existing
+  `lorica:insertAtCursor` window event (smartInsert extension), so
+  CodeMirror's selection is overwritten without ever touching
+  Editor.jsx internals.
+- Lazy chunk: `refactor`.
+- Command palette: "Suggest 3 refactors for selection (AI)".
+- Voice intent: `open.refactor` (EN + FR).
+
+### Added — Wave 49 (Recent files Ctrl+E quick-switch)
+
+- **`recentFiles.js`**: per-project localStorage history of opened
+  files (capped at 50). Pure helper `mergeOpenAndRecent` keeps the
+  test coverage cheap.
+- **`RecentFilesSwitcher.jsx`**: Ctrl+E modal. Currently-open files
+  appear first with an "open" badge; recently-closed entries below.
+  Filter input + ↑/↓/Enter/Esc keyboard nav.
+- Activates files via `SET_ACTIVE_FILE` if open, or re-reads from
+  disk via `fs.openFile` if closed.
+- Recording is wired in `App.jsx` via a `useEffect` on
+  `activeFile.path` so re-focusing also bumps the entry to the top.
+- Lazy chunk: `recent-files`.
+- Command palette: "Recent files (quick-switch)" with `Ctrl+E` hint.
+- Voice intent: `open.recentFiles`.
+
+### Added — Wave 50 (AI commit-message voice intent)
+
+- `voiceCommands.js` gains a `commit.draftMessage` intent that
+  triggers a compound action: open GitPanel + dispatch a
+  `lorica:draftCommitMessage` window event.
+- GitPanel registers a listener that calls its existing AI commit
+  generator (`generateCommitMessage` from Wave 1).
+- New voice-command types added to the executor: `event` (fires a
+  window CustomEvent) + `compound` (runs a sequence of steps).
+
+### Added — Wave 51 (Bookmark sync over Live Share)
+
+- **`collab.js`** exposes a shared `Y.Map` keyed by clientID where
+  each entry is a per-peer `{author, color, bookmarks:{lines, details}}`.
+- **`useCollabSession`** adds `publishBookmarks`,
+  `stopPublishingBookmarks`, `subscribePeerBookmarks`, and a
+  `peerBookmarks` state field.
+- **`BookmarksPanel.jsx`** gains an opt-in "Share" toggle (visible
+  only when a Live Share session is live). When ON, the panel pushes
+  the local snapshot on every change and renders a "Peer bookmarks"
+  section grouped per peer with click-to-jump.
+- Sharing is *opt-in per peer* — a peer who doesn't click Share is
+  invisible in the room's collective view. Matches user expectation
+  that bookmarks are personal until proven otherwise.
+
+### Tests — Wave 52
+
+- `tests/aiRefactorSuggestions.test.js` — 11 cases on the JSON parser
+  (fences, prose-wrapped, missing fields, empty entries, whitespace
+  trim, all-invalid → null).
+- `tests/recentFiles.test.js` — 12 cases covering the pure
+  `mergeOpenAndRecent` (dedupe, ordering, empty inputs) and the
+  localStorage round-trip (record/load, bump on re-open, per-project
+  namespacing, 50-entry cap, malformed storage fallback).
+- Total: **286 across 22 files** (was 263 / 20).
+
+### Bundle impact (Waves 48-52)
+
+- main.bundle.js: 314 → **316 KiB** (+2 KiB despite 4 new features
+  thanks to lazy chunks for 48 + 49).
+- Lazy chunks added: `refactor`, `recent-files`.
+
+---
+
+## [Unreleased pre-52] — Waves 6-47
 
 Waves 43-47 (2026-05-09 absolute final) add a workspace switcher
 (recent projects modal), AI test generator (selection → test file),

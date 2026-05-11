@@ -391,6 +391,15 @@ export default function GitPanel({ state, dispatch }) {
   // Cancel any in-flight generation when the panel unmounts.
   useEffect(() => () => generateAbortRef.current?.abort(), []);
 
+  // Wave 50 — listen for the voice-triggered draft event. The voice
+  // intent only knows how to open the panel; we hook the actual
+  // generation here because the AI plumbing lives in this component.
+  useEffect(() => {
+    const onDraft = () => { handleGenerateCommitMessage(); };
+    window.addEventListener('lorica:draftCommitMessage', onDraft);
+    return () => window.removeEventListener('lorica:draftCommitMessage', onDraft);
+  }, [handleGenerateCommitMessage]);
+
   const handlePush = useCallback(async () => {
     dispatch({ type: 'ADD_TOAST', toast: { type: 'info', message: 'Pushing…', duration: 5000 } });
     const res = await window.lorica.git.push(state.projectPath);

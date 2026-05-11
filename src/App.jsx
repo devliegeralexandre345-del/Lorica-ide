@@ -37,6 +37,7 @@ import { useCollabSession } from './hooks/useCollabSession';
 import { bootEnabledExtensions } from './utils/extensionRuntime';
 import { loadIdentity } from './utils/agentIdentity';
 import { loadSemanticStore } from './utils/semanticTypes';
+import { recordFileOpen } from './utils/recentFiles';
 
 // -------------------------------------------------------------------
 // Eager imports — rendered on first paint (or so close to it that code
@@ -102,6 +103,8 @@ const AICodeExplainModal  = lazy(() => import(/* webpackChunkName: "code-explain
 const WorkspaceSwitcher   = lazy(() => import(/* webpackChunkName: "workspace-switcher" */ './components/WorkspaceSwitcher'));
 const AITestGeneratorModal = lazy(() => import(/* webpackChunkName: "test-gen" */ './components/AITestGeneratorModal'));
 const AIDocGeneratorModal  = lazy(() => import(/* webpackChunkName: "doc-gen" */ './components/AIDocGeneratorModal'));
+const AIRefactorModal      = lazy(() => import(/* webpackChunkName: "refactor"  */ './components/AIRefactorModal'));
+const RecentFilesSwitcher  = lazy(() => import(/* webpackChunkName: "recent-files" */ './components/RecentFilesSwitcher'));
 const AnnotationsPanel  = lazy(() => import(/* webpackChunkName: "annotations" */ './components/AnnotationsPanel'));
 const CollabPanel       = lazy(() => import(/* webpackChunkName: "collab"      */ './components/CollabPanel'));
 const SemanticTypesPanel = lazy(() => import(/* webpackChunkName: "sem-types"  */ './components/SemanticTypesPanel'));
@@ -515,6 +518,16 @@ export default function App() {
   const splitFile = (state.splitMode && state.splitFileIndex >= 0) ? (state.openFiles[state.splitFileIndex] || null) : null;
   const isZen = state.zenMode;
 
+  // Wave 49 — track each file the user activates so Ctrl+E shows a
+  // useful "recently opened" list. We record on activation rather than
+  // on OPEN_FILE dispatch so re-focusing an already-open file also
+  // bumps it to the top of the list.
+  useEffect(() => {
+    if (activeFile?.path) {
+      recordFileOpen(state.projectPath, activeFile);
+    }
+  }, [activeFile?.path, state.projectPath]);
+
   // Wave 17 — resolve the Live Share binding asynchronously when the
   // active file is the one being shared. The binding library is lazy-
   // loaded (~80 KiB chunk), so we cache the result in state and pass
@@ -654,7 +667,7 @@ Suggest the best resolution and explain why. Output ONLY the replacement code in
                 ) : state.showOutline ? (
                   <OutlinePanel state={state} dispatch={dispatch} activeFile={activeFile} />
                 ) : state.showBookmarksPanel ? (
-                  <BookmarksPanel state={state} dispatch={dispatch} onFileOpen={fs.openFile} />
+                  <BookmarksPanel state={state} dispatch={dispatch} onFileOpen={fs.openFile} collab={collab} />
                 ) : state.showScratchpad ? (
                   <Scratchpad state={state} dispatch={dispatch} />
                 ) : state.showTodoBoard ? (
@@ -978,6 +991,12 @@ Suggest the best resolution and explain why. Output ONLY the replacement code in
         )}
         {state.showDocGenerator && (
           <AIDocGeneratorModal state={state} dispatch={dispatch} activeFile={activeFile} />
+        )}
+        {state.showRefactor && (
+          <AIRefactorModal state={state} dispatch={dispatch} activeFile={activeFile} />
+        )}
+        {state.showRecentFiles && (
+          <RecentFilesSwitcher state={state} dispatch={dispatch} onFileOpen={fs.openFile} />
         )}
         {state.showSmartPaste && (
           <SmartPasteModal

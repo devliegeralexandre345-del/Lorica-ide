@@ -11,16 +11,39 @@
 //
 // Both persist to localStorage automatically via the reducer.
 
-import React, { useMemo, useState } from 'react';
-import { Star, X, FileText, Folder, Edit3, Check } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Star, X, FileText, Folder, Edit3, Check, Users, Share2 } from 'lucide-react';
 
-export default function BookmarksPanel({ state, dispatch, onFileOpen }) {
+export default function BookmarksPanel({ state, dispatch, onFileOpen, collab }) {
   const bookmarks = state.bookmarks || {};
   const details = state.bookmarkDetails || {};
   const [filterGroup, setFilterGroup] = useState(null);
   const [editKey, setEditKey] = useState(null); // "path:line"
   const [editNote, setEditNote] = useState('');
   const [editGroup, setEditGroup] = useState('');
+  // Wave 51 — opt-in bookmark sharing. Persists per-session: turning
+  // it on starts publishing the local snapshot AND subscribes to peers.
+  const [sharing, setSharing] = useState(false);
+
+  // Push local bookmarks every time they change while sharing is on.
+  // `peerBookmarks` is filled by collab.subscribePeerBookmarks (called
+  // when the user toggles sharing on).
+  useEffect(() => {
+    if (!sharing || !collab?.active) return;
+    collab.publishBookmarks?.({ bookmarks, details });
+  }, [sharing, collab?.active, bookmarks, details]);
+
+  // Subscribe / unsubscribe to peers when the toggle flips.
+  useEffect(() => {
+    if (!collab?.active || !sharing) return;
+    const unsub = collab.subscribePeerBookmarks?.();
+    return () => {
+      try { if (typeof unsub === 'function') unsub(); } catch {}
+      try { collab.stopPublishingBookmarks?.(); } catch {}
+    };
+  }, [sharing, collab?.active]);
+
+  const peerBookmarks = collab?.peerBookmarks || [];
 
   const flat = useMemo(() => {
     const rows = [];
@@ -93,6 +116,20 @@ export default function BookmarksPanel({ state, dispatch, onFileOpen }) {
       <div className="px-3 py-2 border-b border-lorica-border flex items-center gap-2 shrink-0">
         <Star size={14} className="text-lorica-accent" fill="currentColor" />
         <span className="text-[10px] uppercase tracking-widest text-lorica-textDim font-semibold">Bookmarks</span>
+        {collab?.active && (
+          <button
+            onClick={() => setSharing((v) => !v)}
+            className={`ml-2 flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded border ${
+              sharing
+                ? 'bg-emerald-400/15 border-emerald-400/40 text-emerald-300'
+                : 'border-lorica-border text-lorica-textDim hover:text-lorica-text'
+            }`}
+            title={sharing ? 'Sharing your bookmarks with peers' : 'Share your bookmarks with the room'}
+          >
+            <Share2 size={9} />
+            {sharing ? 'Sharing' : 'Share'}
+          </button>
+        )}
         <span className="ml-auto text-[10px] text-lorica-textDim">{flat.length}</span>
       </div>
 
@@ -124,6 +161,40 @@ export default function BookmarksPanel({ state, dispatch, onFileOpen }) {
         {flat.length === 0 && (
           <div className="p-4 text-[11px] text-lorica-textDim text-center">
             No bookmarks yet. Press <kbd className="px-1 bg-lorica-bg border border-lorica-border rounded text-[9px]">Ctrl+M</kbd> on any line.
+          </div>
+        )}
+        {sharing && peerBookmarks.length > 0 && (
+          <div className="border-b border-lorica-border/40 bg-lorica-bg/30">
+            <div className="px-3 py-1 text-[9px] uppercase tracking-widest text-lorica-textDim font-semibold flex items-center gap-1">
+              <Users size={9} /> Peer bookmarks
+              <span className="ml-auto text-lorica-textDim/60">{peerBookmarks.reduce((n, p) => n + Object.values(p.bookmarks || {}).reduce((a, b) => a + (b?.lines?.length || 0), 0), 0)}</span>
+            </div>
+            {peerBookmarks.map((peer) => (
+              <div key={peer.clientId} className="px-3 py-1">
+                <div className="text-[10px] flex items-center gap-1.5">
+                  <span className="inline-block w-2 h-2 rounded-full" style={{ background: peer.color || '#fbbf24' }} />
+                  <span className="text-lorica-text font-medium">{peer.author}</span>
+                </div>
+                {Object.entries(peer.bookmarks?.bookmarks || {}).map(([filePath, lines]) => (
+                  <div key={filePath} className="pl-3.5">
+                    {(lines || []).map((line) => {
+                      const name = filePath.split(/[\\/]/).pop();
+                      return (
+                        <button
+                          key={`${filePath}:${line}`}
+                          onClick={() => onFileOpen?.(filePath, { line })}
+                          className="w-full text-left text-[10px] py-0.5 hover:bg-lorica-accent/10 text-lorica-textDim hover:text-lorica-accent flex items-center gap-1"
+                        >
+                          <FileText size={9} />
+                          <span className="truncate">{name}</span>
+                          <span className="text-lorica-textDim/70">:{line}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            ))}
           </div>
         )}
         {[...grouped.entries()].map(([group, rows]) => (
