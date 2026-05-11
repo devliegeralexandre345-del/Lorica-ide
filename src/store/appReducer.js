@@ -284,6 +284,11 @@ export const initialState = {
   // AI hover-doc lookup — Wave 55. Identifier → one-paragraph
   // explanation. Cached per session inside aiHoverDoc.
   showHoverDoc: false,
+  // AI conflict resolver — Wave 61. Direct merge modal launched from
+  // the conflict toolbar's "Quick AI merge" button. `activeConflictBlock`
+  // holds the block the modal is currently working with.
+  showConflictResolve: false,
+  activeConflictBlock: null,
 
   // Keyboard cheatsheet
   showKeyboardCheatsheet: false,
@@ -389,6 +394,8 @@ export function appReducer(state, action) {
       return { ...state, [action.panel]: !state[action.panel] };
     case 'SET_PANEL':
       return { ...state, [action.panel]: action.value };
+    case 'SET_CONFLICT_BLOCK':
+      return { ...state, activeConflictBlock: action.block };
     case 'SET_LOCKED':
       return { ...state, isLocked: action.value };
     case 'SET_VAULT_STATE':

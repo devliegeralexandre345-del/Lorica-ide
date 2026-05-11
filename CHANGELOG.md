@@ -3,7 +3,73 @@
 All notable changes to Lorica IDE. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — Waves 6-57
+## [Unreleased] — Waves 6-62
+
+Waves 58-62 (2026-05-09 absolutely-final) add Live Share peer
+presence in the file tree, an LSP-first hover-doc with AI fallback,
+30-day TTL decay for the recent-files history, and a direct AI
+conflict resolver with one-click apply — plus 12 tests across 1 new
+file. Build is **318 KiB** main bundle (+2 KiB vs Wave 57).
+
+### Added — Wave 58 (Live Share file-tree presence)
+
+- **`FileTree.jsx`** gains a `peers` prop. Each non-directory row
+  checks whether any peer's awareness `file` matches and renders a
+  `<PeerDots>` chip — up to 3 coloured dots + `+N` overflow.
+- **`App.jsx`** publishes the active file via `collab.publishCursor`
+  on every `activeFile.path` change (no longer requires the Collab
+  panel to be open).
+
+### Added — Wave 59 (LSP hover with AI fallback)
+
+- **`HoverDocModal.jsx`** now takes an `lsp` prop. On look-up, it
+  searches the file content for the identifier's first occurrence,
+  calls `lsp.requestHover(file, line, character)` via
+  `textDocument/hover`, and renders the returned MarkedString /
+  MarkupContent if non-empty.
+- AI fallback unchanged: any LSP miss / error falls through to the
+  Wave 55 `fetchHoverDoc`. A source badge (LSP / AI / Cached) tells
+  the user which path produced the answer.
+
+### Changed — Wave 60 (Recent files TTL decay)
+
+- `loadRecentFiles` now filters entries older than 30 days. Entries
+  lacking a timestamp (pre-Wave-60 data) are preserved — the next
+  activation re-records them with a current `ts` so the TTL takes
+  effect organically.
+- New optional `{ now }` parameter for deterministic TTL testing.
+
+### Added — Wave 61 (AI conflict resolver)
+
+- **`aiConflictResolve.js`**: strict `{replacement, rationale}` JSON
+  parser + provider call. Sends OURS / THEIRS / ±5 lines of context.
+- **`ConflictResolveModal.jsx`**: auto-fires on open against the
+  selected conflict block, shows the proposed merge + rationale,
+  applies via `UPDATE_FILE_CONTENT` on Accept.
+- **`conflictMarkers.js`** extension: new "Quick AI merge" button in
+  every conflict toolbar (alongside the existing "Resolve with AI"
+  that seeds the agent panel).
+- Reducer: `showConflictResolve`, `activeConflictBlock` state, and a
+  `SET_CONFLICT_BLOCK` action.
+- Lazy chunk: `conflict-resolve`.
+
+### Tests — Wave 62
+
+- `tests/aiConflictResolve.test.js` — 9 cases on the JSON parser
+  (fences, prose-wrapped, missing fields, non-string replacement,
+  whitespace preservation).
+- 3 new cases in `tests/recentFiles.test.js` covering the 30-day
+  TTL, the pre-Wave-60 grandfather clause, and the `now` override.
+- Total: **314 across 25 files** (was 302 / 24).
+
+### Bundle impact (Waves 58-62)
+
+- main.bundle.js: 316 → **318 KiB** (+2 KiB). Lazy chunks added:
+  `conflict-resolve`.
+
+---
+
+## [Unreleased pre-62] — Waves 6-57
 
 Waves 53-57 (2026-05-09 yet-more-final) extend the inline-rewrite
 preset catalog (12 → 18), add an inline worktree diff viewer, add an

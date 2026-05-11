@@ -11,15 +11,42 @@
 // one keypress and stays clear of editor internals.
 
 import React, { useEffect, useRef, useState } from 'react';
-import { BookOpen, X, Loader2, Search, AlertTriangle, Sparkles } from 'lucide-react';
+import { BookOpen, X, Loader2, Search, AlertTriangle, Sparkles, Server } from 'lucide-react';
 import { fetchHoverDoc, getCachedHoverDoc } from '../utils/aiHoverDoc';
 
-export default function HoverDocModal({ state, dispatch, activeFile }) {
+// Wave 59 — convert an LSP hover response (per the spec) into a plain
+// string. Hover is one of `{ contents: string }`, `{ contents: MarkupContent }`,
+// `{ contents: (MarkedString | string)[] }`, or null.
+function lspHoverToString(hover) {
+  if (!hover) return '';
+  const c = hover.contents;
+  if (typeof c === 'string') return c;
+  if (Array.isArray(c)) {
+    return c.map((x) => (typeof x === 'string' ? x : (x?.value || ''))).filter(Boolean).join('\n\n');
+  }
+  if (c?.value) return c.value;
+  return '';
+}
+
+// Locate the first occurrence of the identifier in the file's content.
+// Returns { line, character } (0-indexed, LSP-style) or null.
+function findIdentifierPosition(content, identifier) {
+  if (!content || !identifier) return null;
+  const lines = content.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const idx = lines[i].indexOf(identifier);
+    if (idx >= 0) return { line: i, character: idx };
+  }
+  return null;
+}
+
+export default function HoverDocModal({ state, dispatch, activeFile, lsp }) {
   const [identifier, setIdentifier] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
   const [fromCache, setFromCache] = useState(false);
+  const [source, setSource] = useState(null); // 'lsp' | 'ai' | 'cache' | null
   const abortRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -52,10 +79,10 @@ export default function HoverDocModal({ state, dispatch, activeFile }) {
 
   // Pre-fill the result box from cache if we already have one.
   useEffect(() => {
-    if (!identifier) { setResult(null); setFromCache(false); return; }
+    if (!identifier) { setResult(null); setFromCache(false); setSource(null); return; }
     const cached = getCachedHoverDoc(activeFile?.name, identifier);
-    if (cached) { setResult(cached); setFromCache(true); }
-    else { setResult(null); setFromCache(false); }
+    if (cached) { setResult(cached); setFromCache(true); setSource('cache'); }
+    else { setResult(null); setFromCache(false); setSource(null); }
   }, [identifier, activeFile?.name]);
 
   const run = async () => {
@@ -63,8 +90,29 @@ export default function HoverDocModal({ state, dispatch, activeFile }) {
     setBusy(true);
     setError(null);
     setFromCache(false);
+    setSource(null);
     abortRef.current = new AbortController();
     try {
+      // Wave 59 — try LSP first when there's an active session for
+      // this file. LSP-provided hovers are richer than what the AI
+      // can guess from a snippet (real signature, real docstring).
+      if (lsp && activeFile?.content) {
+        const pos = findIdentifierPosition(activeFile.content, identifier.trim());
+        if (pos) {
+          try {
+            const hover = await lsp.requestHover(activeFile, pos.line, pos.character);
+            const text = lspHoverToString(hover).trim();
+            if (text) {
+              setResult(text);
+              setSource('lsp');
+              return;
+            }
+          } catch {
+            // Fall through to AI on any LSP error — the AI path is
+            // the resilient fallback.
+          }
+        }
+      }
       // Build a small snippet for context — prefer the active selection
       // when it's larger than a single word, else use the file head.
       const sel = state.editorSelection?.text || '';
@@ -84,6 +132,7 @@ export default function HoverDocModal({ state, dispatch, activeFile }) {
         signal: abortRef.current.signal,
       });
       setResult(text);
+      setSource('ai');
     } catch (e) {
       if (e.name !== 'AbortError') setError(e.message || String(e));
     } finally {
@@ -146,9 +195,21 @@ export default function HoverDocModal({ state, dispatch, activeFile }) {
           )}
           {result && (
             <>
-              {fromCache && (
-                <div className="text-[9px] uppercase tracking-widest text-emerald-300 mb-1">Cached</div>
-              )}
+              <div className="flex items-center gap-2 mb-1">
+                {fromCache && (
+                  <span className="text-[9px] uppercase tracking-widest text-emerald-300">Cached</span>
+                )}
+                {source === 'lsp' && (
+                  <span className="flex items-center gap-1 text-[9px] uppercase tracking-widest text-sky-300">
+                    <Server size={9} /> LSP
+                  </span>
+                )}
+                {source === 'ai' && (
+                  <span className="flex items-center gap-1 text-[9px] uppercase tracking-widest text-purple-300">
+                    <Sparkles size={9} /> AI
+                  </span>
+                )}
+              </div>
               <div className="text-[12px] leading-relaxed text-lorica-text whitespace-pre-wrap">
                 {result}
               </div>

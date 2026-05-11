@@ -95,7 +95,29 @@ function InlineInput({ defaultValue, onConfirm, onCancel, placeholder }) {
   );
 }
 
-function TreeNode({ node, depth, onFileClick, onRefresh, projectPath, fs, dispatch, heatmap, gitFileStatus, forceExpanded = false }) {
+// Wave 58 — coloured dot row showing every peer whose active file
+// matches the row's path. Capped at 3 visible to keep the row sane.
+function PeerDots({ peers }) {
+  const shown = peers.slice(0, 3);
+  const extra = peers.length - shown.length;
+  return (
+    <span className="flex-shrink-0 flex items-center gap-0.5 opacity-90 group-hover:opacity-0 transition-opacity"
+      title={peers.map((p) => p.name).join(', ') + ' viewing this file'}>
+      {shown.map((p) => (
+        <span
+          key={p.clientID}
+          className="inline-block w-1.5 h-1.5 rounded-full"
+          style={{ background: p.color || '#fbbf24' }}
+        />
+      ))}
+      {extra > 0 && (
+        <span className="text-[9px] text-lorica-textDim">+{extra}</span>
+      )}
+    </span>
+  );
+}
+
+function TreeNode({ node, depth, onFileClick, onRefresh, projectPath, fs, dispatch, heatmap, gitFileStatus, forceExpanded = false, peers = [] }) {
   // When the parent is showing filter results we auto-expand every dir
   // so matches in deep paths aren't hidden behind a chevron. If the user
   // collapses manually the local state still wins — that's the standard
@@ -225,6 +247,14 @@ function TreeNode({ node, depth, onFileClick, onRefresh, projectPath, fs, dispat
           </span>
         )}
 
+        {/* Wave 58 — peer presence dots. Coloured dot per peer whose
+            active file matches this node's path. Capped at 3 visible;
+            an "+N" badge handles overflow. Hidden on hover for the
+            same reason as the git deco. */}
+        {!renaming && !node.isDirectory && peers.some((p) => p?.file === node.path) && (
+          <PeerDots peers={peers.filter((p) => p?.file === node.path)} />
+        )}
+
         {/* Rename inline */}
         {renaming && (
           <div className="flex-1">
@@ -286,6 +316,7 @@ function TreeNode({ node, depth, onFileClick, onRefresh, projectPath, fs, dispat
               heatmap={heatmap}
               gitFileStatus={gitFileStatus}
               forceExpanded={forceExpanded}
+              peers={peers}
             />
           ))}
         </div>
@@ -294,7 +325,7 @@ function TreeNode({ node, depth, onFileClick, onRefresh, projectPath, fs, dispat
   );
 }
 
-export default function FileTree({ tree, projectPath, onFileClick, onRefresh, dispatch, fs, heatmap, heatmapEnabled, heatmapRange, onHeatmapToggle, onHeatmapRangeChange, heatmapLoading, gitFileStatus }) {
+export default function FileTree({ tree, projectPath, onFileClick, onRefresh, dispatch, fs, heatmap, heatmapEnabled, heatmapRange, onHeatmapToggle, onHeatmapRangeChange, heatmapLoading, gitFileStatus, peers = [] }) {
   const [creatingRoot, setCreatingRoot] = useState(null);
   const [filter, setFilter] = useState('');
   const [showFilter, setShowFilter] = useState(false);
@@ -441,6 +472,7 @@ export default function FileTree({ tree, projectPath, onFileClick, onRefresh, di
               heatmap={heatmap}
               gitFileStatus={gitFileStatus}
               forceExpanded={!!filter}
+              peers={peers}
             />
           ))
         ) : filter ? (

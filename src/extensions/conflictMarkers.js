@@ -118,6 +118,11 @@ class ConflictToolbarWidget extends WidgetType {
 
     wrap.appendChild(mkBtn('Resolve with AI', 'ai', 'ai',
       'Open the AI agent with the conflict context pre-loaded'));
+    // Wave 61 — direct AI merge: skips the agent chat, asks the
+    // provider for a single proposed replacement that the user accepts
+    // or cancels via a modal.
+    wrap.appendChild(mkBtn('Quick AI merge', 'ai-quick', 'ai',
+      'Ask the AI to propose a merge directly and preview it in a modal'));
     wrap.appendChild(mkBtn(`Keep ${this.block.oursLabel}`, 'ours', 'ours',
       `Replace the block with the ${this.block.oursLabel} side`));
     wrap.appendChild(mkBtn(`Keep ${this.block.theirsLabel}`, 'theirs', 'theirs',
@@ -134,10 +139,10 @@ class ConflictToolbarWidget extends WidgetType {
 // changes transaction (fast, no React detour). For 'ai' we hand off to
 // the host via the facet — the host opens the agent panel.
 function handleConflictAction(view, block, action) {
-  if (action === 'ai') {
+  if (action === 'ai' || action === 'ai-quick') {
     const cb = view.state.facet(conflictResolveFacet);
     if (cb) {
-      try { cb(block, 'ai'); } catch (_) { /* swallow — UI feedback is the host's job */ }
+      try { cb(block, action); } catch (_) { /* swallow — UI feedback is the host's job */ }
     }
     return;
   }

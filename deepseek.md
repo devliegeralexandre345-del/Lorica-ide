@@ -5,15 +5,15 @@ _every meaningful step. The point: if Claude runs out of context, the_
 _next assistant (DeepSeek, another Claude session, anyone) can pick up_
 _cold and stay productive without re-reading the whole repo._
 
-**Last updated**: 2026-05-09 by Claude (Opus 4.7) — **Waves 53-57 complete**.
-**Inline-rewrite presets v3** (12 → 18 quick prompts), **Worktree diff
-viewer** (per-worktree unstaged + staged diff inline, syntax-coloured),
-**AI hover-doc lookup** (identifier → one-paragraph explanation, cached
-per session), **Project-wide AI question search** ("Ask the codebase"
-button synthesises answers over semantic-search hits with file:line
-citations), +16 tests across 2 new files. **302 JS tests + 12 Rust
-tests green**. Bundle: main **316 KiB** (stable). User has lifted the
-no-new-deps rule — keep adding what makes Lorica the perfect
+**Last updated**: 2026-05-09 by Claude (Opus 4.7) — **Waves 58-62 complete**.
+**Live Share v3 file-tree presence** (peer dots next to files peers
+are viewing), **LSP hover w/ AI fallback** (HoverDocModal tries LSP
+first, falls back to AI), **Recent files TTL decay** (30-day stale
+filter), **AI conflict resolver** ("Quick AI merge" button on each
+conflict toolbar → direct merge modal that splices on accept),
++12 tests across 1 new file + 3 TTL cases. **314 JS tests + 12 Rust
+tests green**. Bundle: main **318 KiB** (+2 KiB). User has lifted
+the no-new-deps rule — keep adding what makes Lorica the perfect
 futuristic IDE.
 
 ---
@@ -154,6 +154,38 @@ tests/
   voiceInput + buildDockerRunCommand + devcontainer Rust parser
   (+13 tests). WAVE_TEST_GUIDE.md updated with scenarios for
   Waves 6-9. CHANGELOG + LEDGER updated.
+
+- **Waves 58-62 — tenth 5-wave push** (2026-05-09 absolutely-final).
+  - **58. Live Share v3 — file-tree presence**: FileTree gains a
+    `peers` prop. Each non-directory row checks if any peer's
+    awareness `file` matches and renders a `<PeerDots>` chip (up to
+    3 coloured dots + `+N` overflow). App.jsx publishes the active
+    file via `collab.publishCursor` on every `activeFile.path`
+    change (no longer scoped to the Collab panel being open).
+  - **59. LSP hover w/ AI fallback**: HoverDocModal now takes an
+    `lsp` prop. On run, it searches the file for the identifier's
+    first occurrence, calls `lsp.requestHover(file, line, character)`
+    via `textDocument/hover`, and renders the returned MarkedString /
+    MarkupContent if non-empty. On miss / error, falls back to the
+    Wave 55 AI call. Source badge (LSP / AI / Cached) tells the
+    user which path produced the answer.
+  - **60. Recent files TTL decay**: `loadRecentFiles` now filters
+    entries older than 30 days (entries lacking a timestamp are
+    kept — pre-Wave-60 history is preserved). New optional `now`
+    override makes the TTL test deterministic.
+  - **61. AI conflict resolver**: `aiConflictResolve.js` with strict
+    `{replacement, rationale}` JSON parser. ConflictResolveModal
+    auto-fires on open with the conflict block + ±5 lines of
+    context. Apply splices the AI's replacement into the file via
+    `UPDATE_FILE_CONTENT`. Conflict toolbar gains a "Quick AI merge"
+    button next to the existing "Resolve with AI" (agent-seed) one.
+    Lazy chunk: `conflict-resolve`.
+  - **62. Tests + cleanup**: `tests/aiConflictResolve.test.js`
+    (9 cases on the parser) + 3 new TTL cases in
+    `tests/recentFiles.test.js`. Reducer: `showConflictResolve`,
+    `activeConflictBlock`, `SET_CONFLICT_BLOCK` action. App.jsx
+    modal renderer w/ apply handler that uses `UPDATE_FILE_CONTENT`.
+    Total: **314 / 25 files**.
 
 - **Waves 53-57 — ninth 5-wave push** (2026-05-09 yet-more-final).
   - **53. AI inline-rewrite presets v3**: `QUICK_PROMPTS` in
@@ -525,18 +557,19 @@ new:
 
 ## Status of the verification matrix (right now)
 
-- `npm run build` ✅ green (~83 s, main **316 KiB** (stable vs Wave 52),
+- `npm run build` ✅ green (~76 s, main **318 KiB** (+2 KiB vs Wave 57),
   vendors 182 KiB, entry ~1.02 MiB)
 - `cargo check` ✅ green, **0 warnings**
-- `npm test` ✅ **302/302** Vitest cases across 24 files (+16 from the
-  Wave 57 tests for hover-doc cache + codebase-answer formatter)
+- `npm test` ✅ **314/314** Vitest cases across 25 files (+12 from the
+  Wave 62 tests for conflict-resolver parser + recent-files TTL)
 - `cargo test --lib extension_loader` ✅ **4/4**
 - `cargo test --lib devcontainer` ✅ **8/8**
 - Lazy chunks: `yjs-binding` (~80 KiB, only on share),
   `annotation-popover` (5.6 KiB, only on dot-click),
   `annotation-prompt` (3.2 KiB, only on right-click-gutter),
   `workspace-switcher` (Wave 43), `test-gen` (Wave 44), `doc-gen` (Wave 45),
-  `refactor` (Wave 48), `recent-files` (Wave 49), `hover-doc` (Wave 55)
+  `refactor` (Wave 48), `recent-files` (Wave 49), `hover-doc` (Wave 55),
+  `conflict-resolve` (Wave 61)
 
 ## What's open for the next assistant
 
@@ -546,25 +579,21 @@ In priority order — pick whichever fits the user's next ask:
    uncommitted. He may want one cumulative commit, or 5 squashes
    (one per wave: 6, 7, 8, 9, 10). Don't `git commit` without him
    asking.
-2. **Wave 58 candidates** (Waves 53-57 fully shipped — these are next):
-   - **Codemirror chunk lazy-split**: 413 KiB chunk; splitting
-     `@codemirror/search` saves ~30 KiB on initial paint. Invasive
-     because keymap bindings have to survive a lazy load — defer
-     until somebody can stress-test thoroughly.
-   - **Extension settings popover** anchored to the status-bar chip.
-   - **Hover-doc as real CM hover provider**: the modal works but a
-     real hover requires Editor internals — would need either a
-     CodeMirror extension contract via props, or sanctioned escape
-     hatch.
-   - **Persistent recent-files history across project re-opens**:
-     today the localStorage is per-project but bumped on every
-     activate; consider TTL-based decay so old entries fade.
-   - **Live Share v3 — file-tree presence**: peers' active-file
-     paths already publish via awareness; surface them as decorations
-     in the FileTree (eyeball icon next to files a peer has open).
-   - **Mini-language hover provider**: leverage `cmd_lsp_hover`
-     where an LSP is connected; fall back to the AI hover-doc
-     when no LSP is available.
+2. **Wave 63 candidates** (Waves 58-62 fully shipped — these are next):
+   - **Smart paste image-to-code (AI vision)**: paste a screenshot
+     of code into the editor → AI transcribes it back to source.
+     Requires Anthropic vision API + image base64 piping (medium
+     effort, high "wow" factor).
+   - **AI naming suggestions**: select an identifier → 3 alternative
+     names with rationale (think "rename refactor" but AI-assisted).
+   - **AI-assisted commit grouping**: given a staged diff, propose
+     splitting into multiple atomic commits with messages.
+   - **Bookmark sync v2 — annotations follow bookmarks**: peers'
+     bookmarks already sync (Wave 51); next step is annotations
+     attached to those bookmarks landing as gutter dots too.
+   - **Codemirror search lazy-split** (still deferred, would save
+     ~30 KiB on entrypoint).
+   - **Extension settings popover** anchored to status-bar chips.
 
 3. **Wave 33 candidates** (historic; some shipped, some still open):
    - **Extension runtime v0.1 (sandbox hardening)**: shadow DOM for

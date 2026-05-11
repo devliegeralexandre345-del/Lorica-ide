@@ -114,4 +114,35 @@ describe('localStorage round-trip', () => {
     recordFileOpen('/p', { name: 'x' });
     expect(loadRecentFiles('/p')).toEqual([]);
   });
+
+  it('drops entries older than the 30-day TTL', () => {
+    // Wave 60 — write a hand-built history with one stale + one fresh.
+    const stale = Date.now() - 31 * 24 * 60 * 60 * 1000;
+    const fresh = Date.now() - 1 * 24 * 60 * 60 * 1000;
+    localStorage.setItem('lorica.recentFiles./p', JSON.stringify([
+      { path: '/p/old.js', name: 'old.js', ts: stale },
+      { path: '/p/new.js', name: 'new.js', ts: fresh },
+    ]));
+    const out = loadRecentFiles('/p');
+    expect(out.map((e) => e.path)).toEqual(['/p/new.js']);
+  });
+
+  it('keeps entries with no timestamp (pre-Wave-60 history is preserved)', () => {
+    localStorage.setItem('lorica.recentFiles./p', JSON.stringify([
+      { path: '/p/legacy.js', name: 'legacy.js' }, // no ts
+    ]));
+    const out = loadRecentFiles('/p');
+    expect(out).toHaveLength(1);
+    expect(out[0].path).toBe('/p/legacy.js');
+  });
+
+  it('accepts an explicit `now` override for deterministic TTL testing', () => {
+    const t = 100_000_000;
+    localStorage.setItem('lorica.recentFiles./p', JSON.stringify([
+      { path: '/p/older.js', name: 'older.js', ts: t - 31 * 24 * 60 * 60 * 1000 },
+      { path: '/p/younger.js', name: 'younger.js', ts: t - 1000 },
+    ]));
+    const out = loadRecentFiles('/p', { now: t });
+    expect(out.map((e) => e.path)).toEqual(['/p/younger.js']);
+  });
 });

@@ -106,6 +106,7 @@ const AIDocGeneratorModal  = lazy(() => import(/* webpackChunkName: "doc-gen" */
 const AIRefactorModal      = lazy(() => import(/* webpackChunkName: "refactor"  */ './components/AIRefactorModal'));
 const RecentFilesSwitcher  = lazy(() => import(/* webpackChunkName: "recent-files" */ './components/RecentFilesSwitcher'));
 const HoverDocModal        = lazy(() => import(/* webpackChunkName: "hover-doc" */ './components/HoverDocModal'));
+const ConflictResolveModal = lazy(() => import(/* webpackChunkName: "conflict-resolve" */ './components/ConflictResolveModal'));
 const AnnotationsPanel  = lazy(() => import(/* webpackChunkName: "annotations" */ './components/AnnotationsPanel'));
 const CollabPanel       = lazy(() => import(/* webpackChunkName: "collab"      */ './components/CollabPanel'));
 const SemanticTypesPanel = lazy(() => import(/* webpackChunkName: "sem-types"  */ './components/SemanticTypesPanel'));
@@ -529,6 +530,16 @@ export default function App() {
     }
   }, [activeFile?.path, state.projectPath]);
 
+  // Wave 58 — publish our active file via awareness whenever it
+  // changes so peers see "X is viewing foo.js" in the file tree even
+  // when the Collab panel is closed.
+  useEffect(() => {
+    if (!collab.active) return;
+    if (activeFile?.path) {
+      collab.publishCursor({ file: activeFile.path, line: 1, column: 1 });
+    }
+  }, [collab.active, activeFile?.path]);
+
   // Wave 17 — resolve the Live Share binding asynchronously when the
   // active file is the one being shared. The binding library is lazy-
   // loaded (~80 KiB chunk), so we cache the result in state and pass
@@ -575,6 +586,15 @@ export default function App() {
     // interacted with — and only one is "active" in our reducer at a time.)
     const file = activeFile || splitFile;
     if (!file) return;
+
+    // Wave 61 — "Quick AI merge" path: open the direct resolver modal
+    // instead of seeding the agent panel. The modal auto-runs the
+    // request + offers Apply/Cancel.
+    if (action === 'ai-quick') {
+      dispatch({ type: 'SET_CONFLICT_BLOCK', block });
+      dispatch({ type: 'SET_PANEL', panel: 'showConflictResolve', value: true });
+      return;
+    }
 
     if (action !== 'ai') {
       // Inline path — extension already applied the change. Toast only.
@@ -692,6 +712,7 @@ Suggest the best resolution and explain why. Output ONLY the replacement code in
                     onHeatmapToggle={() => dispatch({ type: 'TOGGLE_HEATMAP' })}
                     onHeatmapRangeChange={(d) => dispatch({ type: 'SET_HEATMAP_RANGE', days: d })}
                     gitFileStatus={gitFileStatus}
+                    peers={collab.active ? collab.peers : []}
                   />
                 )}
               </Suspense>
@@ -1000,7 +1021,27 @@ Suggest the best resolution and explain why. Output ONLY the replacement code in
           <RecentFilesSwitcher state={state} dispatch={dispatch} onFileOpen={fs.openFile} />
         )}
         {state.showHoverDoc && (
-          <HoverDocModal state={state} dispatch={dispatch} activeFile={activeFile} />
+          <HoverDocModal state={state} dispatch={dispatch} activeFile={activeFile} lsp={lsp} />
+        )}
+        {state.showConflictResolve && state.activeConflictBlock && (
+          <ConflictResolveModal
+            state={state}
+            dispatch={dispatch}
+            block={state.activeConflictBlock}
+            file={activeFile || splitFile}
+            onAccept={(block, replacement) => {
+              const file = activeFile || splitFile;
+              if (!file) return;
+              const idx = state.openFiles.findIndex((f) => f.path === file.path);
+              if (idx < 0) return;
+              // Splice the AI's replacement into the conflict's range.
+              const before = file.content.slice(0, block.start);
+              const after = file.content.slice(block.end);
+              const next = before + replacement + (replacement.endsWith('\n') ? '' : '\n') + after;
+              dispatch({ type: 'UPDATE_FILE_CONTENT', index: idx, content: next });
+              dispatch({ type: 'ADD_TOAST', toast: { type: 'success', message: 'Conflict resolved (AI merge)', duration: 2200 } });
+            }}
+          />
         )}
         {state.showSmartPaste && (
           <SmartPasteModal

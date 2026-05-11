@@ -69,6 +69,51 @@ _Append-only. Most recent at the top._
 
 ## Bilan log
 
+### 2026-05-09 (absolutely-final) — Waves 58-62 tenth 5-wave push
+
+User: keep going. Tenth batch.
+
+| Wave | Result |
+|---|---|
+| **58. Live Share v3 file-tree presence** | ✅ FileTree gains `peers` prop. Each file row checks awareness `file` matches and renders coloured peer dots (cap 3, +N overflow). App.jsx publishes the active file via collab.publishCursor on every activation. |
+| **59. LSP hover w/ AI fallback** | ✅ HoverDocModal now takes `lsp` prop. Searches file content for identifier position, calls `lsp.requestHover()` via `textDocument/hover`, renders MarkedString/MarkupContent if non-empty. AI fallback unchanged. Source badge (LSP/AI/Cached). |
+| **60. Recent files TTL decay** | ✅ `loadRecentFiles` filters entries older than 30 days (entries lacking ts are kept — pre-Wave-60 history preserved). Optional `now` override for deterministic tests. |
+| **61. AI conflict resolver** | ✅ `aiConflictResolve.js` strict JSON parser. ConflictResolveModal auto-fires with block + ±5 lines context. Apply splices replacement into UPDATE_FILE_CONTENT. New "Quick AI merge" button in conflict toolbar alongside existing "Resolve with AI" (agent-seed). Lazy chunk `conflict-resolve`. |
+| **62. Tests + cleanup** | ✅ 9-case conflict parser test + 3 TTL cases. Reducer: `showConflictResolve`, `activeConflictBlock`, `SET_CONFLICT_BLOCK` action. Modal renderer in App.jsx w/ splice handler. |
+
+**Verification matrix**
+
+- `npm test` ✅ **314 / 314 across 25 files** (was 302 / 24)
+- `npm run build` ✅ green, main.bundle **318 KiB** (+2 KiB vs Wave 57)
+- `cargo check` ✅ 0 warnings
+
+**Key trade-offs**
+
+- File-tree peer dots use the existing `collab.peers` snapshot
+  (awareness-based) rather than introducing a new shared structure.
+  Snapshot already includes `file` field — no protocol change.
+- LSP hover fires on every identifier even if the file has no
+  active LSP session. Cost: one map lookup that returns null. The
+  AI fallback runs when LSP returns nothing OR errors, so the
+  modal always produces *some* answer when configured.
+- Recent files TTL: keeping pre-Wave-60 entries (no ts) avoids a
+  surprise wipe on first launch after upgrade. The next activation
+  re-records the entry with a current ts so the TTL takes effect
+  organically.
+- "Quick AI merge" sits alongside the agent-seed "Resolve with AI"
+  rather than replacing it. Users who want a chat keep the agent
+  flow; users who want one-click apply use the new modal.
+
+**What's open for Wave 63+**
+
+See `deepseek.md` "What's open" section. Top candidates:
+- Smart paste image-to-code (AI vision)
+- AI naming suggestions
+- AI-assisted commit grouping
+- Bookmark sync v2 — annotations follow bookmarks
+- Codemirror search lazy-split (still deferred)
+- Extension settings popover
+
 ### 2026-05-09 (yet-more-final) — Waves 53-57 ninth 5-wave push
 
 User: keep going. Ninth batch.

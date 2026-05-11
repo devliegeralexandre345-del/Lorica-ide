@@ -11,18 +11,28 @@
 
 const STORAGE_PREFIX = 'lorica.recentFiles.';
 const CAP = 50;
+// Wave 60 — entries older than 30 days drop off the list automatically.
+// Stale files in the quick-switch dilute the signal; users rarely want
+// to re-open a file they haven't touched in a month.
+const TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 function storageKey(projectPath) {
   return STORAGE_PREFIX + (projectPath || '__default__');
 }
 
-export function loadRecentFiles(projectPath) {
+export function loadRecentFiles(projectPath, { now = Date.now() } = {}) {
   try {
     const raw = localStorage.getItem(storageKey(projectPath));
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter((e) => e && typeof e.path === 'string').slice(0, CAP);
+    return parsed
+      .filter((e) => e && typeof e.path === 'string')
+      // Wave 60 — TTL filter. Entries without a `ts` (pre-Wave-60 data)
+      // are kept so we don't wipe history on upgrade; the next record
+      // adds the timestamp.
+      .filter((e) => typeof e.ts !== 'number' || now - e.ts < TTL_MS)
+      .slice(0, CAP);
   } catch {
     return [];
   }
