@@ -281,6 +281,9 @@ export const initialState = {
   // Recent files quick-switch — Wave 49. Ctrl+E surface scoped to
   // currently-open + recently-closed files only.
   showRecentFiles: false,
+  // AI hover-doc lookup — Wave 55. Identifier → one-paragraph
+  // explanation. Cached per session inside aiHoverDoc.
+  showHoverDoc: false,
 
   // Keyboard cheatsheet
   showKeyboardCheatsheet: false,

@@ -36,6 +36,7 @@ export default function CommandPalette({ state, dispatch, onOpenFolder, onLock, 
     { label: 'Generate documentation for active file (AI)', icon: Sparkles, action: () => { dispatch({ type: 'SET_PANEL', panel: 'showDocGenerator', value: true }); close(); } },
     { label: 'Suggest 3 refactors for selection (AI)', icon: Sparkles, action: () => { dispatch({ type: 'SET_PANEL', panel: 'showRefactor', value: true }); close(); } },
     { label: 'Recent files (quick-switch)', icon: Search, hint: 'Ctrl+E', action: () => { dispatch({ type: 'SET_PANEL', panel: 'showRecentFiles', value: true }); close(); } },
+    { label: 'Look up identifier (AI hover doc)', icon: Sparkles, action: () => { dispatch({ type: 'SET_PANEL', panel: 'showHoverDoc', value: true }); close(); } },
     { label: 'Annotations (browse spatial notes)', icon: StickyNote, action: () => { dispatch({ type: 'SET_PANEL', panel: 'showAnnotationsPanel', value: true }); close(); } },
     { label: state.showAnnotations === false ? 'Show annotation gutter dots' : 'Hide annotation gutter dots', icon: StickyNote, action: () => {
       dispatch({ type: 'SET_PANEL', panel: 'showAnnotations', value: state.showAnnotations === false });

@@ -105,6 +105,7 @@ const AITestGeneratorModal = lazy(() => import(/* webpackChunkName: "test-gen" *
 const AIDocGeneratorModal  = lazy(() => import(/* webpackChunkName: "doc-gen" */ './components/AIDocGeneratorModal'));
 const AIRefactorModal      = lazy(() => import(/* webpackChunkName: "refactor"  */ './components/AIRefactorModal'));
 const RecentFilesSwitcher  = lazy(() => import(/* webpackChunkName: "recent-files" */ './components/RecentFilesSwitcher'));
+const HoverDocModal        = lazy(() => import(/* webpackChunkName: "hover-doc" */ './components/HoverDocModal'));
 const AnnotationsPanel  = lazy(() => import(/* webpackChunkName: "annotations" */ './components/AnnotationsPanel'));
 const CollabPanel       = lazy(() => import(/* webpackChunkName: "collab"      */ './components/CollabPanel'));
 const SemanticTypesPanel = lazy(() => import(/* webpackChunkName: "sem-types"  */ './components/SemanticTypesPanel'));
@@ -997,6 +998,9 @@ Suggest the best resolution and explain why. Output ONLY the replacement code in
         )}
         {state.showRecentFiles && (
           <RecentFilesSwitcher state={state} dispatch={dispatch} onFileOpen={fs.openFile} />
+        )}
+        {state.showHoverDoc && (
+          <HoverDocModal state={state} dispatch={dispatch} activeFile={activeFile} />
         )}
         {state.showSmartPaste && (
           <SmartPasteModal

@@ -5,14 +5,14 @@ _every meaningful step. The point: if Claude runs out of context, the_
 _next assistant (DeepSeek, another Claude session, anyone) can pick up_
 _cold and stay productive without re-reading the whole repo._
 
-**Last updated**: 2026-05-09 by Claude (Opus 4.7) — **Waves 48-52 complete**.
-**AI Refactor Suggestions** (3 alternative refactors per selection w/
-rationale + apply-via-smartInsert), **Recent files Ctrl+E quick-switch**
-(scoped to open + recently-closed per project), **AI commit-message
-voice intent** (says "draft commit message" → opens GitPanel + drafts),
-**Bookmark sync over Live Share** (opt-in share toggle, peer bookmarks
-section in panel), +23 tests across 2 new files. **286 JS tests + 12
-Rust tests green**. Bundle: main **316 KiB**. User has lifted the
+**Last updated**: 2026-05-09 by Claude (Opus 4.7) — **Waves 53-57 complete**.
+**Inline-rewrite presets v3** (12 → 18 quick prompts), **Worktree diff
+viewer** (per-worktree unstaged + staged diff inline, syntax-coloured),
+**AI hover-doc lookup** (identifier → one-paragraph explanation, cached
+per session), **Project-wide AI question search** ("Ask the codebase"
+button synthesises answers over semantic-search hits with file:line
+citations), +16 tests across 2 new files. **302 JS tests + 12 Rust
+tests green**. Bundle: main **316 KiB** (stable). User has lifted the
 no-new-deps rule — keep adding what makes Lorica the perfect
 futuristic IDE.
 
@@ -154,6 +154,40 @@ tests/
   voiceInput + buildDockerRunCommand + devcontainer Rust parser
   (+13 tests). WAVE_TEST_GUIDE.md updated with scenarios for
   Waves 6-9. CHANGELOG + LEDGER updated.
+
+- **Waves 53-57 — ninth 5-wave push** (2026-05-09 yet-more-final).
+  - **53. AI inline-rewrite presets v3**: `QUICK_PROMPTS` in
+    `InlineAIEditPrompt.jsx` 12 → 18. Added: "Convert callbacks to
+    promises", "Narrow the types", "Remove dead code", "Replace magic
+    numbers with constants", "Translate comments to English",
+    "Convert to functional style". Ordered roughly by frequency.
+  - **54. Worktree diff viewer**: `WorktreesPanel.jsx` grows a "Diff"
+    button per worktree. On first click, fetches `cmd_git_diff` +
+    `cmd_git_diff_staged` against the worktree's path (no new Rust
+    needed — worktree paths ARE valid project paths for git). New
+    `WorktreeDiffBlock` + `DiffText` sub-components render staged
+    and unstaged blocks separately, syntax-coloured (`+` green, `-`
+    red, `@@` sky), with a 6k-line truncation cap so big diffs don't
+    stutter the panel.
+  - **55. AI hover-doc lookup**: `aiHoverDoc.js` + `HoverDocModal.jsx`.
+    Identifier (auto-filled from active selection or typed) →
+    one-paragraph explanation. Module-scoped cache keyed by
+    `${file}::${identifier}` survives re-renders but not session
+    boundaries. Surfaced via the command palette ("Look up identifier")
+    rather than a real CM hover provider, because the latter would
+    require modifying Editor.jsx (forbidden).
+  - **56. Project-wide AI question search**: `aiCodebaseAnswer.js`
+    formats the top-K semantic-search hits into a single user
+    message (40 lines per snippet, 12k char total budget) and asks
+    the AI for a one-paragraph answer with `path:line` citations.
+    GlobalSearch grows an "Ask the codebase" button that surfaces
+    once results are in. Answer renders above the result list,
+    auto-clears when hits change.
+  - **57. Tests + cleanup**: `tests/aiHoverDoc.test.js` (8 cases on
+    the cache primitives) + `tests/aiCodebaseAnswer.test.js`
+    (8 cases on `formatHits` chunking + truncation). Reducer flag
+    `showHoverDoc`. Command palette entry. Lazy chunk `hover-doc`.
+    Total: **302 / 24 files**.
 
 - **Waves 48-52 — eighth 5-wave push** (2026-05-09 absolute final-final).
   - **48. AI Refactor Suggestions**: `aiRefactorSuggestions.js` +
@@ -491,18 +525,18 @@ new:
 
 ## Status of the verification matrix (right now)
 
-- `npm run build` ✅ green (~59 s, main **316 KiB** (+2 KiB vs Wave 47,
-  −5 KiB vs Wave 42 baseline), vendors 182 KiB, entry ~1.02 MiB)
+- `npm run build` ✅ green (~83 s, main **316 KiB** (stable vs Wave 52),
+  vendors 182 KiB, entry ~1.02 MiB)
 - `cargo check` ✅ green, **0 warnings**
-- `npm test` ✅ **286/286** Vitest cases across 22 files (+23 from the
-  Wave 52 tests for refactor parser + recentFiles)
+- `npm test` ✅ **302/302** Vitest cases across 24 files (+16 from the
+  Wave 57 tests for hover-doc cache + codebase-answer formatter)
 - `cargo test --lib extension_loader` ✅ **4/4**
 - `cargo test --lib devcontainer` ✅ **8/8**
 - Lazy chunks: `yjs-binding` (~80 KiB, only on share),
   `annotation-popover` (5.6 KiB, only on dot-click),
   `annotation-prompt` (3.2 KiB, only on right-click-gutter),
   `workspace-switcher` (Wave 43), `test-gen` (Wave 44), `doc-gen` (Wave 45),
-  `refactor` (Wave 48), `recent-files` (Wave 49)
+  `refactor` (Wave 48), `recent-files` (Wave 49), `hover-doc` (Wave 55)
 
 ## What's open for the next assistant
 
@@ -512,24 +546,25 @@ In priority order — pick whichever fits the user's next ask:
    uncommitted. He may want one cumulative commit, or 5 squashes
    (one per wave: 6, 7, 8, 9, 10). Don't `git commit` without him
    asking.
-2. **Wave 53 candidates** (Waves 48-52 fully shipped — these are next):
+2. **Wave 58 candidates** (Waves 53-57 fully shipped — these are next):
    - **Codemirror chunk lazy-split**: 413 KiB chunk; splitting
      `@codemirror/search` saves ~30 KiB on initial paint. Invasive
-     because keymap bindings have to survive a lazy load.
-   - **AI inline-rewrite presets v3**: hover a function → quick-action
-     bar with shipped Wave 30 presets (12) + 6 new ones suggested by
-     usage (e.g. "convert callback to promise", "narrow types").
-   - **Project-wide AI search ("find code by description")**:
-     `aiQueryExpand` is wired into vector search; next step is
-     letting users ask "where do we handle GitHub auth?" and get
-     ranked answers + jump-to-line.
+     because keymap bindings have to survive a lazy load — defer
+     until somebody can stress-test thoroughly.
    - **Extension settings popover** anchored to the status-bar chip.
-   - **Worktree diff viewer in the Worktrees panel**: today the panel
-     only lists worktrees + branches. Click a worktree → see
-     uncommitted-changes diff inline.
-   - **Hover-doc lookup**: hover any identifier → AI fetches a
-     1-paragraph explanation using the existing aiDocGenerator
-     stripped-down. Bounded by a per-session cache.
+   - **Hover-doc as real CM hover provider**: the modal works but a
+     real hover requires Editor internals — would need either a
+     CodeMirror extension contract via props, or sanctioned escape
+     hatch.
+   - **Persistent recent-files history across project re-opens**:
+     today the localStorage is per-project but bumped on every
+     activate; consider TTL-based decay so old entries fade.
+   - **Live Share v3 — file-tree presence**: peers' active-file
+     paths already publish via awareness; surface them as decorations
+     in the FileTree (eyeball icon next to files a peer has open).
+   - **Mini-language hover provider**: leverage `cmd_lsp_hover`
+     where an LSP is connected; fall back to the AI hover-doc
+     when no LSP is available.
 
 3. **Wave 33 candidates** (historic; some shipped, some still open):
    - **Extension runtime v0.1 (sandbox hardening)**: shadow DOM for

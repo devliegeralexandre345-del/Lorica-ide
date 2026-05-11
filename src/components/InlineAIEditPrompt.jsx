@@ -31,6 +31,14 @@ const QUICK_PROMPTS = [
   'Extract pure helpers',
   'Inline this',
   'Fix bugs',
+  // Wave 53 — six additions surfacing the rewrites usage logs show
+  // people typing manually. Keep them ordered roughly by frequency.
+  'Convert callbacks to promises',
+  'Narrow the types',
+  'Remove dead code',
+  'Replace magic numbers with constants',
+  'Translate comments to English',
+  'Convert to functional style',
 ];
 
 export default function InlineAIEditPrompt({

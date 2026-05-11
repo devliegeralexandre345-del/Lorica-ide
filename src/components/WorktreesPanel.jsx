@@ -16,7 +16,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   X, Plus, Trash2, GitMerge, FolderOpen, RefreshCw, GitBranch,
-  Loader2, AlertTriangle, CheckCircle2,
+  Loader2, AlertTriangle, CheckCircle2, GitCompare,
 } from 'lucide-react';
 
 export default function WorktreesPanel({ state, dispatch, onSwitchProject }) {
@@ -27,6 +27,12 @@ export default function WorktreesPanel({ state, dispatch, onSwitchProject }) {
   const [adding, setAdding] = useState(false);
   const [newBranch, setNewBranch] = useState('');
   const [mergeResult, setMergeResult] = useState(null);
+  // Wave 54 — per-worktree diff cache keyed by worktree path. null =
+  // not loaded yet, '' = empty diff (clean), string = unified-diff text.
+  // We keep staged/unstaged separately because they're often both non-
+  // empty and showing them concatenated would be unreadable.
+  const [diffs, setDiffs] = useState({}); // path -> { unstaged, staged, loading, error }
+  const [expanded, setExpanded] = useState({}); // path -> bool
 
   const close = () => dispatch({ type: 'SET_PANEL', panel: 'showWorktrees', value: false });
 
@@ -110,6 +116,40 @@ export default function WorktreesPanel({ state, dispatch, onSwitchProject }) {
     }
   };
 
+  // Wave 54 — fetch the worktree's diff (unstaged + staged) using the
+  // existing per-project git plumbing. The worktree path IS a valid
+  // project path from git's POV, so we just point the existing
+  // commands at it.
+  const fetchDiff = useCallback(async (wt) => {
+    setDiffs((d) => ({ ...d, [wt.path]: { ...(d[wt.path] || {}), loading: true, error: null } }));
+    try {
+      const [u, s] = await Promise.all([
+        window.lorica.git.diff(wt.path, null),
+        window.lorica.git.diffStaged(wt.path, null),
+      ]);
+      setDiffs((d) => ({
+        ...d,
+        [wt.path]: {
+          unstaged: u?.success ? (u.data || '') : '',
+          staged: s?.success ? (s.data || '') : '',
+          loading: false,
+          error: (!u?.success && u?.error) || (!s?.success && s?.error) || null,
+        },
+      }));
+    } catch (e) {
+      setDiffs((d) => ({ ...d, [wt.path]: { ...(d[wt.path] || {}), loading: false, error: String(e?.message || e) } }));
+    }
+  }, []);
+
+  const toggleDiff = (wt) => {
+    const isOpen = !!expanded[wt.path];
+    setExpanded((e) => ({ ...e, [wt.path]: !isOpen }));
+    // Lazy-load on first open. Re-fetch if the diff was previously
+    // loaded but the user just clicked open again (cheap insurance
+    // against stale data after a merge/switch).
+    if (!isOpen) fetchDiff(wt);
+  };
+
   const openInProject = (wt) => {
     if (!wt.path) return;
     if (typeof onSwitchProject === 'function') {
@@ -188,6 +228,15 @@ export default function WorktreesPanel({ state, dispatch, onSwitchProject }) {
                         <FolderOpen size={10} />
                         Open
                       </button>
+                      <button
+                        onClick={() => toggleDiff(wt)}
+                        disabled={busy}
+                        className="flex items-center gap-1 px-2 py-1 rounded bg-sky-400/15 border border-sky-400/40 text-[10px] text-sky-200 hover:bg-sky-400/25 disabled:opacity-40"
+                        title="Show uncommitted-changes diff for this worktree"
+                      >
+                        <GitCompare size={10} />
+                        {expanded[wt.path] ? 'Hide diff' : 'Diff'}
+                      </button>
                       {!wt.isMain && (
                         <>
                           <button
@@ -211,6 +260,9 @@ export default function WorktreesPanel({ state, dispatch, onSwitchProject }) {
                         </>
                       )}
                     </div>
+                    {expanded[wt.path] && (
+                      <WorktreeDiffBlock entry={diffs[wt.path]} />
+                    )}
                   </div>
                 );
               })}
@@ -274,6 +326,86 @@ export default function WorktreesPanel({ state, dispatch, onSwitchProject }) {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// Wave 54 — read-only inline diff renderer. We don't reach for the
+// existing DiffViewer component because that one expects to manage
+// its own state machine (file pick, refresh button, status header) —
+// for this case we just want "show me what's there, syntax-coloured
+// by ± and @@".
+function WorktreeDiffBlock({ entry }) {
+  if (!entry) return null;
+  if (entry.loading) {
+    return (
+      <div className="mt-2 flex items-center gap-2 text-[10px] text-lorica-textDim px-2 py-2 bg-lorica-bg/40 rounded border border-lorica-border">
+        <Loader2 size={10} className="animate-spin" />
+        Loading diff…
+      </div>
+    );
+  }
+  if (entry.error) {
+    return (
+      <div className="mt-2 flex items-center gap-2 text-[10px] text-red-300 px-2 py-2 bg-red-500/10 rounded border border-red-500/30">
+        <AlertTriangle size={10} />
+        {entry.error}
+      </div>
+    );
+  }
+  const unstaged = (entry.unstaged || '').trim();
+  const staged = (entry.staged || '').trim();
+  if (!unstaged && !staged) {
+    return (
+      <div className="mt-2 text-[10px] text-lorica-textDim px-2 py-2 bg-lorica-bg/40 rounded border border-lorica-border">
+        Working tree is clean.
+      </div>
+    );
+  }
+  return (
+    <div className="mt-2 space-y-2">
+      {staged && (
+        <div>
+          <div className="text-[9px] uppercase tracking-widest text-emerald-300 mb-1">Staged</div>
+          <DiffText text={staged} />
+        </div>
+      )}
+      {unstaged && (
+        <div>
+          <div className="text-[9px] uppercase tracking-widest text-amber-300 mb-1">Unstaged</div>
+          <DiffText text={unstaged} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DiffText({ text }) {
+  // Cap at ~6k lines for safety — git can produce massive diffs and
+  // rendering 50k <div>s would stutter the panel. The cutoff is
+  // generous; anything beyond it the user should open the worktree
+  // in-IDE for a proper review.
+  const MAX = 6000;
+  const lines = text.split('\n');
+  const truncated = lines.length > MAX;
+  const slice = truncated ? lines.slice(0, MAX) : lines;
+  return (
+    <div className="bg-lorica-bg/60 rounded border border-lorica-border overflow-x-auto max-h-72">
+      <pre className="text-[10px] font-mono leading-snug">
+        {slice.map((line, i) => {
+          let cls = 'text-lorica-text';
+          if (line.startsWith('+++') || line.startsWith('---')) cls = 'text-lorica-textDim';
+          else if (line.startsWith('@@')) cls = 'text-sky-300';
+          else if (line.startsWith('+')) cls = 'text-emerald-300';
+          else if (line.startsWith('-')) cls = 'text-red-300';
+          return <div key={i} className={`px-2 ${cls}`}>{line || ' '}</div>;
+        })}
+        {truncated && (
+          <div className="px-2 py-1 text-amber-300 italic">
+            … truncated at {MAX.toLocaleString()} lines — open the worktree to see the rest.
+          </div>
+        )}
+      </pre>
     </div>
   );
 }

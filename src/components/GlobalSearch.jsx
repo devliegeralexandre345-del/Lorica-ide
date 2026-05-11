@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { rerankSemanticHits } from '../utils/aiSemanticRerank';
 import { expandQuery } from '../utils/aiQueryExpand';
+import { answerCodebaseQuestion } from '../utils/aiCodebaseAnswer';
 
 // Two modes sharing one panel:
 //   exact    — substring search via cmd_search_in_files
@@ -51,6 +52,13 @@ export default function GlobalSearch({ state, dispatch, onFileOpen }) {
   const [reranking, setReranking] = useState(false);
   const [rerankFallback, setRerankFallback] = useState(null); // null | string reason
   const rerankAbortRef = useRef(null);
+  // Wave 56 — "Ask the codebase" synthesised answer. Runs over the
+  // current `semanticHits` after a search completes, so the answer is
+  // grounded in the same cosine/reranked set the user is looking at.
+  const [askAnswer, setAskAnswer] = useState(null); // string | null
+  const [asking, setAsking] = useState(false);
+  const [askError, setAskError] = useState(null);
+  const askAbortRef = useRef(null);
 
   const provider = state.aiProvider || 'anthropic';
   const aiApiKey = provider === 'anthropic'
@@ -226,6 +234,43 @@ export default function GlobalSearch({ state, dispatch, onFileOpen }) {
 
   // Abort any in-flight rerank when this panel unmounts.
   useEffect(() => () => rerankAbortRef.current?.abort(), []);
+
+  // Wave 56 — "Ask the codebase": synthesize an answer over the
+  // currently-shown semantic hits. Cheap because it's just one extra
+  // round-trip; reuses the same hits the user can already see.
+  const askCodebase = useCallback(async () => {
+    if (!query.trim() || !semanticHits || semanticHits.length === 0) return;
+    askAbortRef.current?.abort();
+    askAbortRef.current = new AbortController();
+    setAsking(true);
+    setAskAnswer(null);
+    setAskError(null);
+    try {
+      const answer = await answerCodebaseQuestion({
+        question: query,
+        hits: semanticHits,
+        provider,
+        apiKey: aiApiKey,
+        model: provider === 'ollama' ? state.aiOllamaModel
+          : provider === 'openrouter' ? state.aiOpenRouterModel
+          : undefined,
+        ollamaBaseUrl: state.aiOllamaUrl,
+        signal: askAbortRef.current.signal,
+      });
+      setAskAnswer(answer);
+    } catch (e) {
+      if (e.name !== 'AbortError') setAskError(e.message || String(e));
+    } finally {
+      setAsking(false);
+    }
+  }, [query, semanticHits, provider, aiApiKey, state.aiOllamaUrl, state.aiOllamaModel, state.aiOpenRouterModel]);
+
+  // Reset the answer block when the hits change — otherwise users see a
+  // stale answer from a previous search above fresh result rows.
+  useEffect(() => { setAskAnswer(null); setAskError(null); }, [semanticHits]);
+
+  // Abort any in-flight ask when this panel unmounts.
+  useEffect(() => () => askAbortRef.current?.abort(), []);
 
   // ----------------------------------------------------------------
   // Index build / clear
@@ -674,13 +719,36 @@ export default function GlobalSearch({ state, dispatch, onFileOpen }) {
 
             {semanticHits && !semanticLoading && (
               <div className="py-1">
-                <div className="px-3 py-1 text-[10px] text-lorica-textDim">
-                  {semanticHits.length} résultat{semanticHits.length !== 1 ? 's' : ''} — {
-                    semanticHits.some((h) => h.rerankScore != null)
-                      ? 'reclassés par l\'IA'
-                      : 'triés par similarité'
-                  }
+                <div className="px-3 py-1 text-[10px] text-lorica-textDim flex items-center gap-2">
+                  <span>
+                    {semanticHits.length} résultat{semanticHits.length !== 1 ? 's' : ''} — {
+                      semanticHits.some((h) => h.rerankScore != null)
+                        ? 'reclassés par l\'IA'
+                        : 'triés par similarité'
+                    }
+                  </span>
+                  {canRerank && semanticHits.length > 0 && (
+                    <button
+                      onClick={askCodebase}
+                      disabled={asking}
+                      className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded bg-sky-500/15 border border-sky-500/40 text-[10px] text-sky-300 hover:bg-sky-500/25 disabled:opacity-40"
+                      title="Synthesize a one-paragraph answer to your question from the top results"
+                    >
+                      {asking ? <Loader2 size={9} className="animate-spin" /> : <Brain size={9} />}
+                      Ask the codebase
+                    </button>
+                  )}
                 </div>
+                {askError && (
+                  <div className="mx-3 my-1 text-[10px] text-red-300 bg-red-500/10 border border-red-500/30 rounded px-2 py-1">
+                    {askError}
+                  </div>
+                )}
+                {askAnswer && (
+                  <div className="mx-3 my-2 p-2 rounded border border-sky-500/30 bg-sky-500/5 text-[11px] text-lorica-text whitespace-pre-wrap leading-relaxed">
+                    {askAnswer}
+                  </div>
+                )}
 
                 {semanticHits.map((hit, i) => {
                   const hasRerank = hit.rerankScore != null;

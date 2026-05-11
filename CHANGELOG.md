@@ -3,7 +3,74 @@
 All notable changes to Lorica IDE. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — Waves 6-52
+## [Unreleased] — Waves 6-57
+
+Waves 53-57 (2026-05-09 yet-more-final) extend the inline-rewrite
+preset catalog (12 → 18), add an inline worktree diff viewer, add an
+AI hover-doc lookup with per-session cache, and wire a project-wide
+"Ask the codebase" answer button into GlobalSearch with file:line
+citations — plus 16 tests across 2 new files. Build is **316 KiB**
+main bundle (stable vs Wave 52).
+
+### Added — Wave 53 (Inline rewrite presets v3)
+
+- `QUICK_PROMPTS` in `InlineAIEditPrompt.jsx` extends from 12 to 18.
+  New presets, ordered roughly by usage frequency: "Convert callbacks
+  to promises", "Narrow the types", "Remove dead code", "Replace
+  magic numbers with constants", "Translate comments to English",
+  "Convert to functional style".
+
+### Added — Wave 54 (Worktree diff viewer)
+
+- **`WorktreesPanel.jsx`** grows a per-worktree "Diff" button. On
+  first click, fetches `cmd_git_diff` + `cmd_git_diff_staged` against
+  the worktree's path (no new Rust — worktree paths ARE valid project
+  paths from git's POV).
+- Staged and unstaged diffs are rendered in separate labelled blocks.
+  Lines coloured by prefix (`+` emerald, `-` red, `@@` sky). 6k-line
+  truncation cap so big diffs don't stutter the panel.
+
+### Added — Wave 55 (AI hover-doc lookup)
+
+- **`aiHoverDoc.js`** + **`HoverDocModal.jsx`**: identifier → one
+  short paragraph explaining what it is and what it does in context.
+  Auto-fills from the active selection on open.
+- Module-scoped cache keyed by `${file}::${identifier}` survives
+  re-renders but not session boundaries (intentional — stale docs
+  after the underlying code changes would be worse than re-fetching).
+- Surfaced via command palette ("Look up identifier (AI hover doc)")
+  rather than a real CodeMirror hover provider, because that would
+  require modifying Editor.jsx internals (forbidden per LEDGER).
+- Lazy chunk: `hover-doc`.
+
+### Added — Wave 56 ("Ask the codebase")
+
+- **`aiCodebaseAnswer.js`**: pure helper `formatHits` chunks the
+  top-K semantic-search hits into a budgeted user message (40 lines
+  per snippet, 12k char total cap), and `answerCodebaseQuestion`
+  asks the AI for a one-paragraph answer with `path:line` citations.
+- **`GlobalSearch.jsx`** grows an "Ask the codebase" button that
+  surfaces once a semantic search has results. Answer renders above
+  the result list, auto-clears when hits change so users never see
+  stale answers paired with fresh results.
+
+### Tests — Wave 57
+
+- `tests/aiHoverDoc.test.js` — 8 cases on the cache primitives
+  (`__cacheKey` derivation, `getCachedHoverDoc` read paths,
+  `clearHoverDocCache` wipe).
+- `tests/aiCodebaseAnswer.test.js` — 8 cases on `formatHits`
+  (header formatting, multi-hit joining, snippet truncation,
+  total-char budget, missing-field fallbacks).
+- Total: **302 across 24 files** (was 286 / 22).
+
+### Bundle impact (Waves 53-57)
+
+- main.bundle.js: **316 KiB** stable. Lazy chunks added: `hover-doc`.
+
+---
+
+## [Unreleased pre-57] — Waves 6-52
 
 Waves 48-52 (2026-05-09 absolute final-final) add AI refactor
 suggestions (3 alternatives per selection with rationale), a Ctrl+E

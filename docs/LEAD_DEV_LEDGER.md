@@ -69,6 +69,49 @@ _Append-only. Most recent at the top._
 
 ## Bilan log
 
+### 2026-05-09 (yet-more-final) — Waves 53-57 ninth 5-wave push
+
+User: keep going. Ninth batch.
+
+| Wave | Result |
+|---|---|
+| **53. Inline rewrite presets v3** | ✅ `QUICK_PROMPTS` 12 → 18 in InlineAIEditPrompt. Added: callbacks→promises, narrow types, remove dead code, replace magic numbers, translate comments→EN, convert to functional. Ordered by frequency from usage gut-feel. |
+| **54. Worktree diff viewer** | ✅ WorktreesPanel grows a "Diff" button per worktree. Uses existing `cmd_git_diff` + `cmd_git_diff_staged` against the worktree's path (no new Rust). Syntax-coloured pre block with 6k-line truncation cap. Staged + Unstaged shown separately. |
+| **55. AI hover-doc lookup** | ✅ `aiHoverDoc.js` + `HoverDocModal`. Identifier → one paragraph explanation. Module-scoped cache survives re-renders but not session boundaries. Surfaced via command palette to avoid touching Editor.jsx for a real CM hover provider. |
+| **56. "Ask the codebase"** | ✅ `aiCodebaseAnswer.js` formats the top-K semantic-search hits (40 lines each, 12k total cap) + asks for a one-paragraph answer with `path:line` citations. GlobalSearch grows an "Ask the codebase" button that surfaces once results land. Answer auto-clears when hits change. |
+| **57. Tests + cleanup** | ✅ `aiHoverDoc.test.js` (8 cases) + `aiCodebaseAnswer.test.js` (8 cases on formatHits). Reducer flag. Command palette entry. Lazy chunk `hover-doc`. |
+
+**Verification matrix**
+
+- `npm test` ✅ **302 / 302 across 24 files** (was 286 / 22)
+- `npm run build` ✅ green, main.bundle **316 KiB** (stable)
+- `cargo check` ✅ 0 warnings
+
+**Key trade-offs**
+
+- Hover-doc via command palette instead of a real CM hover: the latter
+  is invasive (Editor.jsx is off-limits) and a sticky overlay would
+  fight CodeMirror's own tooltip layer. The modal sacrifices the
+  zero-keystroke trigger for a clean architectural separation.
+- "Ask the codebase" reuses the existing semantic hits set rather
+  than running its own retrieval. Tradeoff: the answer quality is
+  bounded by whatever the cosine search surfaced; we don't double up
+  on retrieval cost. If the user wants better retrieval, the AI
+  expand toggle from Wave 46 already broadens the search.
+- Worktree diff fetches both staged + unstaged in parallel. We don't
+  cache because the user just clicked Diff to see CURRENT state.
+  Re-opening re-fetches — cheap insurance against staleness.
+
+**What's open for Wave 58+**
+
+See `deepseek.md` "What's open" section. Top candidates:
+- Codemirror chunk lazy-split (still deferred — needs careful test)
+- Extension settings popover
+- Hover-doc as real CM hover (needs an Editor.jsx escape hatch first)
+- Persistent recent-files w/ TTL decay
+- Live Share v3 — file-tree presence
+- LSP hover passthrough with AI fallback
+
 ### 2026-05-09 (absolute final-final) — Waves 48-52 eighth 5-wave push
 
 User: keep going until 100% of what I wanted is implemented. Eighth batch.
