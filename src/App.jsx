@@ -212,6 +212,13 @@ export default function App() {
   // browser (AnnotationsPanel) and (later) the inline editor gutter.
   const annotationsApi = useAnnotations(state.projectPath);
 
+  // Real-time collaboration — Wave 11.5. The hook owns the Yjs+WebRTC
+  // session lifecycle; the panel just renders state.
+  // Declared HERE (not after the useMemo below) because the useMemo's
+  // dep array reads `collab?.reviewNotes` eagerly at render time and
+  // would TDZ-throw otherwise.
+  const collab = useCollabSession();
+
   // Wave 29 — merge live-collab review notes into the annotations
   // stream the editor receives, so peers' notes pin visually at the
   // exact (file, line) they were posted on. Each review note is
@@ -246,9 +253,6 @@ export default function App() {
     }
     return out;
   }, [collab?.reviewNotes, state.projectPath]);
-  // Real-time collaboration — Wave 11.5. The hook owns the Yjs+WebRTC
-  // session lifecycle; the panel just renders state.
-  const collab = useCollabSession();
 
   // Load persistent agent identity + semantic-types store on project change.
   useEffect(() => {
