@@ -6,6 +6,7 @@ use std::process::Command;
 use tokio::process::Command as AsyncCommand;
 use dirs;
 
+use crate::cmd_ext::CommandExt as _;
 use crate::filesystem::CmdResult;
 
 // ======================================================
@@ -51,9 +52,9 @@ pub struct DebugOutput {
 fn find_binary(binary_name: &str) -> Option<String> {
     // First try which/where in PATH
     let cmd = if cfg!(target_os = "windows") {
-        Command::new("where").arg(binary_name).output()
+        Command::new("where").no_window().arg(binary_name).output()
     } else {
-        Command::new("which").arg(binary_name).output()
+        Command::new("which").no_window().arg(binary_name).output()
     };
     
     if let Ok(output) = cmd {
@@ -911,6 +912,7 @@ pub async fn cmd_install_extension(id: String) -> CmdResult<String> {
     let flag = if cfg!(target_os = "windows") { "/C" } else { "-c" };
 
     let output = AsyncCommand::new(shell)
+        .no_window()
         .args(&[flag, &install_cmd])
         .output()
         .await
@@ -986,6 +988,7 @@ pub fn cmd_debug_run(config: DebugConfig) -> CmdResult<DebugOutput> {
             // to `node` with a note if neither is on PATH.
             let finder = if cfg!(target_os = "windows") { "where" } else { "which" };
             let has = |bin: &str| std::process::Command::new(finder)
+                .no_window()
                 .arg(bin).output()
                 .map(|o| o.status.success())
                 .unwrap_or(false);
@@ -1068,6 +1071,7 @@ pub fn cmd_debug_run(config: DebugConfig) -> CmdResult<DebugOutput> {
             log::info!("Compiling {:?} with {} → {:?}", src_abs, compiler, out_path);
 
             let compile = Command::new(compiler)
+                .no_window()
                 .args(&compile_args)
                 .current_dir(&cwd)
                 .output();
@@ -1114,7 +1118,7 @@ pub fn cmd_debug_run(config: DebugConfig) -> CmdResult<DebugOutput> {
     };
 
     let mut command = Command::new(&cmd);
-    command.args(&args).current_dir(&cwd);
+    command.no_window().args(&args).current_dir(&cwd);
 
     for (k, v) in &config.env {
         command.env(k, v);

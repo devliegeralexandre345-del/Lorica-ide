@@ -30,7 +30,7 @@ import { parseVoiceCommand, executeVoiceCommand } from '../utils/voiceCommands';
 // reconciliations while text streams into the LAST message. Stream updates
 // only re-render the tail row, which is where the work belongs.
 const AgentMessageRow = React.memo(function AgentMessageRow({
-  msg, isStreaming, onApply, projectPath, onApprove, onReject,
+  msg, isStreaming, onApply, projectPath, onApprove, onApproveAlways, onReject,
   onSaveToBrain, onEditUser, isLastUser,
 }) {
   if (msg.role === 'user') {
@@ -67,6 +67,7 @@ const AgentMessageRow = React.memo(function AgentMessageRow({
             key={tc.id}
             toolCall={tc}
             onApprove={onApprove}
+            onApproveAlways={onApproveAlways}
             onReject={onReject}
           />
         ))}
@@ -98,6 +99,7 @@ const AgentMessageRow = React.memo(function AgentMessageRow({
     prev.isStreaming === next.isStreaming &&
     prev.onApply === next.onApply &&
     prev.onApprove === next.onApprove &&
+    prev.onApproveAlways === next.onApproveAlways &&
     prev.onReject === next.onReject &&
     prev.onSaveToBrain === next.onSaveToBrain &&
     prev.onEditUser === next.onEditUser &&
@@ -816,6 +818,7 @@ export default function AgentCopilot({ state, dispatch, agent, activeFile, proje
                 isStreaming={isStreaming}
                 onApply={handleApplyCode}
                 onApprove={agent.approveToolCall}
+                onApproveAlways={agent.approveToolCallAlways}
                 onReject={agent.rejectToolCall}
                 onSaveToBrain={handleSaveToBrain}
                 onEditUser={handleEditUser}
@@ -948,7 +951,7 @@ export default function AgentCopilot({ state, dispatch, agent, activeFile, proje
                 const input = u.input_tokens ?? u.prompt_tokens ?? 0;
                 const output = u.output_tokens ?? u.completion_tokens ?? 0;
                 const total = u.total_tokens ?? (input + output);
-                const model = state.agentConfig?.model || (state.aiProvider === 'anthropic' ? 'claude-sonnet-4-20250514' : 'deepseek-chat');
+                const model = state.agentConfig?.model || (state.aiProvider === 'anthropic' ? 'claude-sonnet-4-20250514' : 'deepseek-v4-flash');
                 const { cost } = estimateCost(model, u);
                 return (
                   <span title={`Model: ${model}\nInput: ${input.toLocaleString()} tokens\nOutput: ${output.toLocaleString()} tokens`}>

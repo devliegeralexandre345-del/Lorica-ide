@@ -1,5 +1,5 @@
 // src/hooks/useAgent.js
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { buildToolsForPermissions, NON_DESTRUCTIVE_TOOLS } from '../utils/agentTools';
 import { buildBrainPreamble } from '../utils/projectBrain';
@@ -15,7 +15,9 @@ const DEEPSEEK_ENDPOINT = 'https://api.deepseek.com/v1/chat/completions';
 // Default models per provider (overridable via state.agentConfig.model)
 const DEFAULT_MODELS = {
   anthropic: 'claude-sonnet-4-20250514',
-  deepseek: 'deepseek-chat',
+  // V4 Flash supersedes deepseek-chat — cheaper, faster, and the legacy
+  // alias is slated for removal by DeepSeek anyway.
+  deepseek: 'deepseek-v4-flash',
   ollama: 'llama3.1:8b',
 };
 
@@ -72,6 +74,12 @@ async function robustFetch(url, opts, preferNative) {
 export function useAgent(state, dispatch) {
   const abortRef = useRef(null);
   const approvalRef = useRef({});
+  // Tool names the user opted to auto-approve for the rest of the session.
+  // Populated when the user clicks "Toujours approuver" instead of plain
+  // "Approuver" on a pending tool call. Cleared when the agent session is
+  // reset (AGENT_CLEAR / new chat) so consent never silently carries
+  // across unrelated projects.
+  const sessionApprovedToolsRef = useRef(new Set());
   const lastUserMessageRef = useRef(null);
   // Stream buffering — avoid dispatching per token (freezes UI).
   // Throttled to ~80ms (≈12 fps) which is plenty for reading and leaves the
@@ -96,6 +104,16 @@ export function useAgent(state, dispatch) {
   }, [flushStream]);
 
   const approveToolCall = useCallback((id) => {
+    approvalRef.current[id]?.resolve(true);
+    delete approvalRef.current[id];
+  }, []);
+
+  // "Approve this call AND every future call of the same tool name in
+  // this session." Used by the AgentToolBlock's "Toujours approuver"
+  // button so the user doesn't have to re-confirm read_file / list_dir
+  // / etc. dozens of times during a single chat.
+  const approveToolCallAlways = useCallback((id, toolName) => {
+    if (toolName) sessionApprovedToolsRef.current.add(toolName);
     approvalRef.current[id]?.resolve(true);
     delete approvalRef.current[id];
   }, []);
@@ -125,8 +143,15 @@ export function useAgent(state, dispatch) {
   // Execute a single tool call (provider-agnostic)
   async function executeTool(toolCall, config, projectPath) {
     const isDestructive = !NON_DESTRUCTIVE_TOOLS.has(toolCall.name);
+    // Skip the approval gate when:
+    //   1. YOLO mode is on (config.autoApprove), OR
+    //   2. The user already clicked "Toujours approuver" for this tool
+    //      type during the current session.
+    // (2) is what makes the chat usable without YOLO — otherwise even
+    // read-only-feeling actions like write_file would prompt every turn.
+    const sessionApproved = sessionApprovedToolsRef.current.has(toolCall.name);
 
-    if (isDestructive && !config.autoApprove) {
+    if (isDestructive && !config.autoApprove && !sessionApproved) {
       if (toolCall.name === 'write_file' && toolCall.input?.path) {
         try {
           const r = await window.lorica.fs.readFile(toolCall.input.path);
@@ -963,5 +988,22 @@ You have direct access to the user's codebase via tools. Be concise, precise, an
     await runAgentLoop(last.userMessage, last.activeFile, last.displayMessage);
   }, [state.agentMessages, dispatch, runAgentLoop]);
 
-  return { sendMessage, approveToolCall, rejectToolCall, stop, retryLastMessage };
+  // Reset the session-approved-tools set whenever the agent message
+  // history is cleared (new chat, /reset, /clear). Tying it to the
+  // history length lets us avoid threading an "onClear" callback all
+  // the way through.
+  useEffect(() => {
+    if (state.agentMessages.length === 0) {
+      sessionApprovedToolsRef.current = new Set();
+    }
+  }, [state.agentMessages.length]);
+
+  return {
+    sendMessage,
+    approveToolCall,
+    approveToolCallAlways,
+    rejectToolCall,
+    stop,
+    retryLastMessage,
+  };
 }

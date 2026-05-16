@@ -39,6 +39,10 @@ function captureSession(state) {
     showAIPanel: state.showAIPanel,
     showInstantPreview: state.showInstantPreview,
     showMinimap: state.showMinimap,
+    // Performance HUD visibility — without this, toggling the FPS chip
+    // on (Alt+Shift+P or via Settings) would silently revert at every
+    // relaunch, which made the feature look broken.
+    showPerformanceHUD: state.showPerformanceHUD,
 
     // Behavior toggles the user sets in Settings — previously not
     // persisted, which is why checkboxes in Settings seemed to "forget"
@@ -105,7 +109,16 @@ export function useSession(state, dispatch, fs) {
         case 'showMinimap':      dispatch({ type: 'SET_MINIMAP', value }); break;
         case 'autoSave':         dispatch({ type: 'SET_AUTO_SAVE', value }); break;
         case 'autoSaveDelay':    dispatch({ type: 'SET_AUTO_SAVE_DELAY', delay: value }); break;
-        case 'autoLockMinutes':  dispatch({ type: 'SET_AUTO_LOCK_MINUTES', minutes: value }); break;
+        // Reducer handles `SET_AUTO_LOCK`, not `SET_AUTO_LOCK_MINUTES`.
+        // The mismatched name made restore silently drop the value, so
+        // a user setting "30 min" lost it every relaunch.
+        case 'autoLockMinutes':  dispatch({ type: 'SET_AUTO_LOCK', minutes: value }); break;
+        case 'showPerformanceHUD':
+          // Stored value is a boolean; only flip when it differs from
+          // the default-false initial state so we don't toggle on each
+          // restore.
+          if (value) dispatch({ type: 'TOGGLE_PERFORMANCE_HUD' });
+          break;
         // Toggle-style actions: only dispatch when the stored value
         // differs from the default-false initial state, otherwise we'd
         // accidentally flip it off on restore.
@@ -125,7 +138,8 @@ export function useSession(state, dispatch, fs) {
     };
     const restoreKeys = [
       'theme', 'showFileTree', 'showTerminal', 'showAIPanel',
-      'showInstantPreview', 'showMinimap', 'blameEnabled',
+      'showInstantPreview', 'showMinimap', 'showPerformanceHUD',
+      'blameEnabled',
       'aiInlineEnabled', 'aiProvider',
       'aiOllamaUrl', 'aiOllamaModel',
       'aiOpenRouterModel',
@@ -184,6 +198,7 @@ export function useSession(state, dispatch, fs) {
     state.autoSave,
     state.autoSaveDelay,
     state.autoLockMinutes,
+    state.showPerformanceHUD,
     state.heatmapEnabled,
     state.heatmapRange,
     state.semanticAutoEnabled,

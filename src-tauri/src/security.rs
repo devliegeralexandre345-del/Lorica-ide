@@ -454,6 +454,33 @@ pub fn cmd_lock_vault(state: tauri::State<AppState>) -> CmdResult<bool> {
     CmdResult::ok(true)
 }
 
+/// Wipe the vault entirely. Used by the "Forgot password / Reset vault"
+/// escape hatch on the lock screen — without this, a user who forgets
+/// their master password is locked out forever (the vault is by design
+/// not recoverable without the key). All stored secrets are lost; the
+/// frontend MUST confirm twice before calling this.
+#[tauri::command]
+pub fn cmd_reset_vault(state: tauri::State<AppState>) -> CmdResult<bool> {
+    let mut vault = crate::state::lock_or_recover(&state.vault);
+
+    // Audit BEFORE deletion so the trail records the reset even if the
+    // file system op below fails partway through.
+    vault.add_audit("VAULT_RESET", "Vault wiped via forgot-password reset");
+
+    // Drop the in-memory key so post-reset code can't accidentally
+    // re-use it against a stale (or new) vault file.
+    vault.derived_key = None;
+
+    // Delete the vault file. Treat "already gone" as success — the
+    // user-visible outcome is the same.
+    if vault.vault_path.exists() {
+        if let Err(e) = fs::remove_file(&vault.vault_path) {
+            return CmdResult::err(format!("Failed to delete vault: {}", e));
+        }
+    }
+    CmdResult::ok(true)
+}
+
 #[tauri::command]
 pub fn cmd_add_secret(key: String, value: String, state: tauri::State<AppState>) -> CmdResult<bool> {
     let vault = crate::state::lock_or_recover(&state.vault);

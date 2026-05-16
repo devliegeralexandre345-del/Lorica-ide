@@ -113,6 +113,9 @@ const security = {
   initVault: (masterPassword) => safeInvoke('cmd_init_vault', { masterPassword }),
   unlockVault: (masterPassword) => safeInvoke('cmd_unlock_vault', { masterPassword }),
   lockVault: () => safeInvoke('cmd_lock_vault'),
+  // Forgot-password escape hatch: wipes vault.enc so the user can
+  // start over. All stored secrets are lost; the caller MUST confirm.
+  resetVault: () => safeInvoke('cmd_reset_vault'),
   addSecret: (key, value) => safeInvoke('cmd_add_secret', { key, value }),
   getSecret: (key) => safeInvoke('cmd_get_secret', { key }),
   deleteSecret: (key) => safeInvoke('cmd_delete_secret', { key }),

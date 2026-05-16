@@ -7,6 +7,8 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 use url::Url;
 
+use crate::cmd_ext::CommandExt as _;
+
 static SERVER_PORT: AtomicU16 = AtomicU16::new(0);
 
 // FIX: Structure pour gérer l'état du serveur avec timeout et arrêt propre
@@ -259,6 +261,7 @@ pub fn open_url(url: String) -> Result<(), String> {
         // empty title first and then the URL. We still route through cmd
         // because Rust stdlib has no direct equivalent for `start`.
         std::process::Command::new("cmd")
+            .no_window()
             .args(["/C", "start", "", &safe_url])
             .spawn()
             .map_err(|e| format!("Failed to open URL: {}", e))?;

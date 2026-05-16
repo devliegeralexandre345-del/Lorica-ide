@@ -5,6 +5,7 @@ use std::io::{Read, Write};
 use std::thread;
 use tauri::Emitter;
 
+use crate::cmd_ext::CommandExt as _;
 use crate::filesystem::CmdResult;
 use crate::state::AppState;
 
@@ -233,7 +234,7 @@ pub fn cmd_run_command(command: String, cwd: Option<String>) -> CmdResult<Comman
     let shell_flag = if cfg!(target_os = "windows") { "/C" } else { "-c" };
 
     let mut cmd = std::process::Command::new(shell);
-    cmd.arg(shell_flag).arg(&command);
+    cmd.no_window().arg(shell_flag).arg(&command);
 
     if let Some(dir) = &cwd {
         cmd.current_dir(dir);

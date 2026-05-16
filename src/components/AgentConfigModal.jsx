@@ -19,8 +19,10 @@ const MODELS = {
     { value: 'claude-3-5-haiku-20241022', label: 'Claude Haiku 3.5 (plus rapide)' },
   ],
   deepseek: [
-    { value: 'deepseek-chat', label: 'DeepSeek Chat (V3)' },
-    { value: 'deepseek-reasoner', label: 'DeepSeek Reasoner (R1 - chain-of-thought)' },
+    { value: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash (rapide, recommandé)' },
+    { value: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro (plus intelligent — promo)' },
+    { value: 'deepseek-chat', label: 'DeepSeek Chat (legacy — alias V4 Flash)' },
+    { value: 'deepseek-reasoner', label: 'DeepSeek Reasoner (legacy — alias V4 Flash thinking)' },
   ],
 };
 

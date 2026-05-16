@@ -20,6 +20,8 @@ use std::process::Command;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
+use crate::cmd_ext::CommandExt as _;
+
 const GITHUB_RELEASES_URL: &str =
     "https://api.github.com/repos/devliegeralexandre345-del/Lorica-ide/releases/latest";
 
@@ -325,14 +327,47 @@ pub async fn download_and_install_update(
 }
 
 #[cfg(target_os = "windows")]
-fn launch_installer(path_str: &str, _path: &std::path::Path) -> Result<(), String> {
-    // `cmd /C start "" "<path>"` detaches the child so the installer survives
-    // our process exiting — needed because the installer will want to
-    // overwrite our binary.
-    Command::new("cmd")
-        .args(["/C", "start", "", path_str])
-        .spawn()
-        .map_err(|e| format!("Failed to launch installer: {}", e))?;
+fn launch_installer(path_str: &str, path: &std::path::Path) -> Result<(), String> {
+    // Discrete update: launch the installer in silent mode so the user
+    // doesn't have to click through wizard pages. The flag set depends
+    // on the installer kind — Tauri can produce either NSIS (`.exe`)
+    // or MSI bundles.
+    //
+    // NSIS (`.exe`):
+    //   `/S`        — silent mode (no UI)
+    //   `/UPDATE`   — Tauri NSIS template: gracefully closes the running
+    //                 Lorica.exe, installs over it, restarts the app
+    //   `/NCRC`     — skip CRC check (Tauri's bundles ship without one
+    //                 and the flag is a no-op otherwise; cheap insurance)
+    //
+    // MSI (`.msi`):
+    //   `/quiet /norestart` — fully unattended, don't reboot the box.
+    //   Routed via `msiexec` because .msi files aren't executable on
+    //   their own.
+    //
+    // Both flows are detached so the installer survives our process
+    // exiting — required since the installer needs to overwrite our
+    // binary. `no_window()` suppresses the helper console flash.
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|s| s.to_ascii_lowercase())
+        .unwrap_or_default();
+
+    if ext == "msi" {
+        Command::new("msiexec")
+            .no_window()
+            .args(["/i", path_str, "/quiet", "/norestart"])
+            .spawn()
+            .map_err(|e| format!("Failed to launch MSI installer: {}", e))?;
+    } else {
+        // NSIS (.exe) — the common Tauri bundle.
+        Command::new(path_str)
+            .no_window()
+            .args(["/S", "/UPDATE", "/NCRC"])
+            .spawn()
+            .map_err(|e| format!("Failed to launch NSIS installer: {}", e))?;
+    }
     Ok(())
 }
 

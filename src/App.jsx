@@ -656,7 +656,12 @@ Suggest the best resolution and explain why. Output ONLY the replacement code in
   if (state.isLocked) {
     return (
       <Suspense fallback={LazyFallback}>
-        <LockScreen onUnlock={security.unlock} onInit={security.initVault} vaultInitialized={state.vaultInitialized} />
+        <LockScreen
+          onUnlock={security.unlock}
+          onInit={security.initVault}
+          onReset={security.resetVault}
+          vaultInitialized={state.vaultInitialized}
+        />
       </Suspense>
     );
   }

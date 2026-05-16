@@ -1,3 +1,4 @@
+pub mod cmd_ext;
 pub mod filesystem;
 pub mod security;
 pub mod terminal;
@@ -54,6 +55,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             security::cmd_init_vault,
             security::cmd_unlock_vault,
             security::cmd_lock_vault,
+            security::cmd_reset_vault,
             security::cmd_add_secret,
             security::cmd_get_secret,
             security::cmd_delete_secret,

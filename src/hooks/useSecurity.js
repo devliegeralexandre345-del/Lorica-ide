@@ -94,6 +94,26 @@ export function useSecurity(state, dispatch) {
     return result;
   }, [dispatch]);
 
-  return { unlock, lock, initVault };
+  // "Forgot password" path: wipe vault.enc and drop back to the
+  // create-vault screen. Stored secrets are gone, but the user can
+  // start over without restarting the IDE (which used to be the only
+  // way to escape a forgotten-password lock).
+  const resetVault = useCallback(async () => {
+    const result = await window.lorica.security.resetVault();
+    if (result.success) {
+      // Vault no longer exists → init mode. Stay locked so the lock
+      // screen flips to the creation form rather than the editor.
+      dispatch({ type: 'SET_VAULT_STATE', initialized: false, unlocked: false });
+      try {
+        await window.lorica.security.addAuditEntry(
+          'VAULT_RESET',
+          'User triggered forgot-password reset',
+        );
+      } catch { /* audit is best-effort */ }
+    }
+    return result;
+  }, [dispatch]);
+
+  return { unlock, lock, initVault, resetVault };
 }
 

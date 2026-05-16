@@ -10,6 +10,7 @@ use tokio::sync::mpsc::{channel, Sender};
 use tokio::sync::{oneshot, Mutex as TokioMutex};
 use uuid::Uuid;
 
+use crate::cmd_ext::CommandExt as _;
 use crate::filesystem::CmdResult;
 
 // Maximum time we wait for an LSP response before giving up. Generous
@@ -406,7 +407,7 @@ impl LspManager {
 
         // Spawn the LSP server process
         let mut cmd = AsyncCommand::new(&command);
-        cmd.args(&args);
+        cmd.no_window().args(&args);
 
         cmd.stdin(Stdio::piped())
            .stdout(Stdio::piped())

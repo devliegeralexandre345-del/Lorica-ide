@@ -4,6 +4,13 @@
 
 IDE nouvelle génération construit avec **Tauri 2 + Rust** (backend) et **React + CodeMirror** (frontend).
 
+> Pourquoi Lorica plutôt qu'un fork de VS Code ? Parce que **l'IA est
+> au cœur**, pas un plugin. Parce que **rien ne quitte ta machine**
+> sans que tu choisisses. Parce que c'est **du Rust natif**, pas
+> Electron — boot rapide, RAM modeste, GPU pas réquisitionné. Et
+> parce que tout est **opt-in** : si tu veux juste un éditeur, c'est
+> un éditeur. Si tu veux un agent qui modifie ton repo, il est là.
+
 ---
 
 ## 🆕 Nouveautés v2.3.0
@@ -42,16 +49,51 @@ Cette release transforme Lorica d'un **IDE avec des features IA** en un **IDE co
 - **⏱️ Focus Timer** (`Ctrl+Alt+F`) — Pomodoro 25/5 + stats today/week/month/total.
 - **🔎 Instant Preview** — Auto-route JSON/YAML/TOML/CSV/XML/URL/regex/SQL/HTML iframe/Markdown TOC.
 
-### Polish
+### Polish & qualité de vie
 
 - **⌨️ Keyboard cheatsheet** (`?`) — searchable, catégorisée.
 - **🛡️ Error boundaries** — crash localisé, jamais l'app entière.
 - **🎛️ Settings feature grid** — toggle global pour toutes les features opt-in.
 - **💡 Ambient HUD** — pill discret qui surface agent streaming / next-edit / swarm / auto-fix / heatmap.
-- **⚙️ Performance HUD** (`Alt+Shift+P`) — FPS / heap / % live.
-- **💾 Session restore** — projet, tabs, layout, thème restaurés au boot.
+- **⚙️ Performance HUD** (`Alt+Shift+P`) — FPS / heap / latence IA. Toggle direct dans Settings, persisté entre relaunches.
+- **💾 Session restore** — projet, tabs, layout, thème, et préférences d'auto-lock restaurés au boot.
+
+### AI providers
+
+- **🤖 Anthropic** — Claude Sonnet 4 (défaut), Opus 4, Haiku 3.5.
+- **🚀 DeepSeek V4** — Flash (rapide, défaut) et Pro (raisonnement profond, promo lancement).
+- **🦙 Ollama** — modèles locaux (llama3.1, etc.) sans clé API.
+- **🌐 OpenRouter** — accès unifié à des dizaines de modèles via une seule clé.
+
+### Sécurité & UX agent
+
+- **🔓 "Toujours approuver"** — clique une fois pour ce type d'outil, l'agent enchaîne sans re-demander. Plus besoin de YOLO mode pour avoir un workflow fluide.
+- **🔑 Reset vault** — bouton "Mot de passe oublié" sur l'écran de lock. Plus besoin de redémarrer l'IDE quand tu ne te souviens plus du master password.
+- **🔕 Auto-lock désactivé par défaut** — opt-in via Settings (2/5/10/30 min). Plus de surprise au retour de pause.
+- **🤫 Silent install Windows** — l'updater NSIS s'exécute sans fenêtre wizard, ferme/réinstalle/relance Lorica tout seul.
+- **🚫 Zéro console.exe qui flash** — toutes les commandes système (git, npm, LSP, DAP, terminal agent) tournent en background sans flash noir.
 
 **[→ Release notes complètes v2.3.0](https://github.com/devliegeralexandre345-del/Lorica-ide/releases/tag/v2.3.0)**
+
+---
+
+## 🛣️ Roadmap
+
+| Prochaine release | Focus |
+|---|---|
+| **v2.3.5** | Optimisations frontend — boot < 600 ms, bundle gzip < 800 KiB |
+| **v2.4** | Updates incrémentaux à la VS Code — pas de réinstall complet pour un changement de JS |
+| **v2.5** | Optimisations backend Rust — streaming file tree, search parallèle |
+| **v3.0** | Marketplace d'extensions avec SDK TypeScript public |
+| **v4.0** | Dev à distance — SSH / WSL / devcontainer |
+| **v5.0** | App mobile compagnon pour approuver les actions agent à distance |
+| **v6.0** | Project Brain v2 — mémoire long-terme avec graphe de connaissances |
+| **v7.0** | Moteur de refactor cross-file (rename, extract, move) avec preview |
+
+Le plan détaillé jusqu'à v10 est dans `docs/roadmap/` (en local).
+Les patches mineurs sortent en `vX.Y.0Z` (ex: `v2.3.01`), les optims
+en `vX.Y.5`. Voir `docs/roadmap/00-versioning-rules.md` pour la
+convention complète.
 
 ---
 
@@ -143,8 +185,9 @@ Lorica est **local-first** et respecte le RGPD par conception :
 
 - **Zéro télémétrie.** Aucun analytics, aucun endpoint Lorica, aucun tracker embarqué.
 - **Toutes tes données restent sur ta machine** — code, fichiers, settings, historique, index semantic.
-- **Les clés API (Anthropic, DeepSeek…) sont chiffrées** localement avec Argon2id + ChaCha20-Poly1305.
-- **Les features IA sont opt-in.** Tant que tu n'entres pas de clé API, aucune donnée ne quitte ton ordinateur. Quand tu utilises l'IA, tes prompts vont **directement** au provider (Anthropic / DeepSeek) — il n'y a pas de serveur Lorica intermédiaire.
+- **Les clés API (Anthropic, DeepSeek, OpenRouter…) sont chiffrées** localement avec Argon2id + ChaCha20-Poly1305.
+- **Les features IA sont opt-in.** Tant que tu n'entres pas de clé API, aucune donnée ne quitte ton ordinateur. Quand tu utilises l'IA, tes prompts vont **directement** au provider (Anthropic / DeepSeek / OpenRouter / Ollama local) — il n'y a pas de serveur Lorica intermédiaire.
+- **Ollama local** disponible si tu ne veux strictement rien envoyer en dehors de ta machine.
 
 📄 **Politique de confidentialité complète : [PRIVACY.md](./PRIVACY.md)**
 — détaille chaque transfert de données, tes droits RGPD, comment tout supprimer.
@@ -162,6 +205,9 @@ Lorica est **local-first** et respecte le RGPD par conception :
 | Terminal | portable-pty |
 | File watch | notify |
 | Large files | mmap + piece table |
+| Semantic search | fastembed (ONNX) + bincode index |
+| Collab | Yjs + y-codemirror + y-webrtc |
+| AI providers | Anthropic, DeepSeek V4, Ollama, OpenRouter |
 
 ---
 
@@ -207,20 +253,68 @@ npm run tauri:build
 
 ## Raccourcis clavier
 
+Les essentiels — appuie sur `?` dans l'IDE pour la cheatsheet
+complète, searchable et catégorisée.
+
+### Navigation
+
 | Raccourci | Action |
 |-----------|--------|
-| `Ctrl+P` | Command Palette |
+| `Ctrl+P` | Omnibar (fichiers / commandes / symboles / semantic / agent) |
+| `Ctrl+Shift+F` | Recherche globale dans le projet |
+| `Ctrl+E` | Recent files switcher |
+| `Ctrl+B` | Toggle sidebar |
+| `Ctrl+\`` | Toggle terminal |
+| `Ctrl+Shift+G` | Git panel |
+
+### Édition & fichiers
+
+| Raccourci | Action |
+|-----------|--------|
 | `Ctrl+S` | Sauvegarder |
 | `Ctrl+Shift+S` | Tout sauvegarder |
-| `Ctrl+B` | Toggle Sidebar |
-| `Ctrl+\`` | Toggle Terminal |
-| `Ctrl+Shift+A` | Toggle AI Copilot |
-| `Ctrl+Shift+G` | Git Panel |
-| `Ctrl+Shift+F` | Recherche globale |
-| `Ctrl+K → Z` | Zen Mode |
-| `Ctrl+\` | Split Editor |
-| `Ctrl+L` | Verrouiller l'IDE |
-| `Escape` | Fermer / Quitter Zen |
+| `Ctrl+\` | Split editor |
+| `Ctrl+M` / `Ctrl+;` | Toggle bookmark / suivant |
+| `Ctrl+Shift+V` | Clipboard history |
+
+### IA
+
+| Raccourci | Action |
+|-----------|--------|
+| `Ctrl+K` | Inline AI edit (sélection → décrire le changement) |
+| `Ctrl+Shift+A` | Agent Copilot (et multi-agent swarm review) |
+| `Ctrl+Alt+X` | Auto-fix loop (erreur terminal → fix avec escalation) |
+| `Ctrl+Alt+W` | Swarm dev (décomposer feature → worktrees parallèles) |
+| `Ctrl+Alt+P` | PR Ready ? (7 checks IA avant push) |
+
+### Diagnostics & visualisation
+
+| Raccourci | Action |
+|-----------|--------|
+| `Ctrl+Alt+B` | Toggle git blame gutter |
+| `Ctrl+Alt+G` | Code heatmap (churn + bus factor) |
+| `Ctrl+Alt+Y` | Semantic types |
+| `Ctrl+Shift+N` | Code canvas (graphe dépendances) |
+| `Ctrl+Alt+T` | Time scrub (rewind temporel) |
+| `Alt+Shift+P` | Performance HUD (FPS / heap / latence IA) |
+
+### Outils dev
+
+| Raccourci | Action |
+|-----------|--------|
+| `Ctrl+Alt+S` | Sandbox (Web Worker isolé) |
+| `Ctrl+Alt+H` | API tester |
+| `Ctrl+Alt+R` | Regex builder |
+| `Ctrl+Alt+F` | Focus timer Pomodoro |
+
+### App
+
+| Raccourci | Action |
+|-----------|--------|
+| `Ctrl+K → Z` | Zen mode |
+| `Ctrl+L` | Verrouiller l'IDE (si auto-lock activé) |
+| `?` | Cheatsheet complète |
+| `Escape` | Fermer modal / quitter Zen |
 
 ---
 
@@ -263,3 +357,24 @@ lorica/
 ├── tailwind.config.js
 └── package.json
 ```
+
+---
+
+## 🐛 Issues & retours
+
+Tu trouves un bug ? Tu as une idée ? Tu veux discuter d'une feature ?
+
+- **Bugs / problèmes** : [Issues GitHub](https://github.com/devliegeralexandre345-del/Lorica-ide/issues/new) — décris le problème, ta version, ton OS. Les patches mineurs (`vX.Y.0Z`) sortent vite quand le bug est clair.
+- **Idées de features** : ouvre une issue avec le tag `enhancement`. Si ça matche un major prévu (voir roadmap plus haut), ça sera priorisé.
+- **Question** : [Discussions GitHub](https://github.com/devliegeralexandre345-del/Lorica-ide/discussions) plutôt qu'une issue.
+
+Lorica est maintenu solo en early stage — les retours détaillés
+sont précieux. Capture d'écran, étapes de repro, ligne de log =
+fix beaucoup plus rapide.
+
+---
+
+## 📄 Licence
+
+[MIT](./LICENSE) — fais-en ce que tu veux. Si Lorica t'aide,
+un ⭐ sur GitHub fait toujours plaisir.

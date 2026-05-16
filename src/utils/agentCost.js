@@ -14,9 +14,16 @@ export const PRICES = {
   'claude-3-5-haiku-20241022':   { input: 0.80,  output: 4.00 },
   'claude-sonnet-4-20250514':    { input: 3.00,  output: 15.00 },
   'claude-opus-4-20250514':      { input: 15.00, output: 75.00 },
-  // DeepSeek
-  'deepseek-chat':               { input: 0.27,  output: 1.10 },
-  'deepseek-reasoner':           { input: 0.55,  output: 2.19 },
+  // DeepSeek V4 — current generation. V4 Pro pricing reflects the
+  // promo discount active through 2026-05-31; bump back to list rate
+  // after that date if the discount ends.
+  'deepseek-v4-flash':           { input: 0.14,  output: 0.28 },
+  'deepseek-v4-pro':             { input: 0.435, output: 0.87 },
+  // DeepSeek V3 legacy aliases — kept for sessions that pinned a
+  // model before V4 shipped. The provider now routes these to V4
+  // Flash (non-thinking / thinking modes), so price = V4 Flash.
+  'deepseek-chat':               { input: 0.14,  output: 0.28 },
+  'deepseek-reasoner':           { input: 0.14,  output: 0.28 },
 };
 
 // Compute a cost estimate from a usage object. Returns { cost, currency }.

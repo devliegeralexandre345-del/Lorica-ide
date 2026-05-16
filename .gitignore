@@ -4,17 +4,29 @@ node_modules/
 # Build output
 dist/
 src-tauri/target/
+src-tauri/target-check/
 
 # Environment
 .env
 .env.local
 
-# Docs internes (non nécessaires dans le repo public)
-MIGRATION_GUIDE.md
-NEXUS_ENGINE_ARCHITECTURE.md
-SPOTIFY_OAUTH_FIXES.md
-implementation_plan.md
-todo_checklist.md
+# Docs internes (non nécessaires dans le repo public).
+#
+# Rule: every .md is ignored by default, EXCEPT the ones GitHub
+# surfaces on the project page (README, LICENSE.md, CHANGELOG,
+# SECURITY, PRIVACY, etc.). That way new docs you draft locally
+# (roadmaps, briefs, scratchpads…) stay out of the public repo
+# unless you explicitly un-ignore them here.
+*.md
+!/README.md
+!/CHANGELOG.md
+!/SECURITY.md
+!/PRIVACY.md
+!/CONTRIBUTING.md
+!/CODE_OF_CONDUCT.md
+!/LICENSE.md
+
+# Misc internal scratch
 rename_script.ps1
 
 # Brainstorm / outils

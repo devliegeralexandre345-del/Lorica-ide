@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, X, Key, Moon, Palette, Sun, Clock, Shield, Save, Map, Brain, Keyboard, Edit, AlertTriangle, Check, XCircle, Sparkles, Info, Rocket, Github, RotateCcw, Users, Mic } from 'lucide-react';
+import { Settings as SettingsIcon, X, Key, Moon, Palette, Sun, Clock, Shield, Save, Map, Brain, Keyboard, Edit, AlertTriangle, Check, XCircle, Sparkles, Info, Rocket, Github, RotateCcw, Users, Mic, Zap } from 'lucide-react';
 import { THEMES } from '../utils/themes';
 import { DEFAULT_SHORTCUTS, getAllShortcuts, loadCustomShortcuts, saveCustomShortcuts, isValidShortcut, findConflicts, eventToShortcut } from '../utils/keymap';
 import { APP_VERSION } from '../version';
@@ -799,6 +799,34 @@ export default function Settings({ state, dispatch, actions }) {
               </button>
               <span className="text-xs text-lorica-textDim">
                 {state.showMinimap !== false ? 'Visible' : 'Masquée'}
+              </span>
+            </div>
+          </div>
+
+          {/* Performance HUD — direct visibility toggle. Distinct from
+              the `performanceHUD` entry in the Features grid below: that
+              one only controls whether the toggle command appears in
+              the Omnibar, while THIS toggle actually shows/hides the
+              floating chip with FPS / heap / AI latency. Persisted via
+              useSession so it survives a relaunch. */}
+          <div>
+            <label className="flex items-center gap-2 text-xs font-semibold text-lorica-text mb-2">
+              <Zap size={14} className="text-lorica-accent" />
+              Performance HUD (FPS / mémoire / latence)
+            </label>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => dispatch({ type: 'TOGGLE_PERFORMANCE_HUD' })}
+                className={`relative w-10 h-5 rounded-full transition-colors cursor-pointer ${
+                  state.showPerformanceHUD ? 'bg-lorica-accent' : 'bg-lorica-border'
+                }`}
+              >
+                <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+                  state.showPerformanceHUD ? 'translate-x-5' : 'translate-x-0.5'
+                }`} />
+              </button>
+              <span className="text-xs text-lorica-textDim">
+                {state.showPerformanceHUD ? 'Visible' : 'Masqué'} · raccourci Alt+Shift+P
               </span>
             </div>
           </div>

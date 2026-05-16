@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::process::Command;
 use std::thread;
 
+use crate::cmd_ext::CommandExt as _;
 use crate::filesystem::CmdResult;
 
 // ======================================================
@@ -112,6 +113,7 @@ fn validate_branch_name(name: &str) -> Result<(), String> {
 
 fn run_git(project_path: &str, args: &[&str]) -> Result<String, String> {
     let output = Command::new("git")
+        .no_window()
         .current_dir(project_path)
         .args(args)
         .output()

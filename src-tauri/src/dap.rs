@@ -9,6 +9,7 @@ use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::Mutex as TokioMutex;
 use uuid::Uuid;
 
+use crate::cmd_ext::CommandExt as _;
 use crate::filesystem::CmdResult;
 
 // ======================================================
@@ -184,7 +185,7 @@ impl DapManager {
     /// silently failed on every Windows install).
     fn find_on_path(bin: &str) -> Option<String> {
         let finder = if cfg!(target_os = "windows") { "where" } else { "which" };
-        let output = std::process::Command::new(finder).arg(bin).output().ok()?;
+        let output = std::process::Command::new(finder).no_window().arg(bin).output().ok()?;
         if !output.status.success() { return None; }
         let first_line = String::from_utf8_lossy(&output.stdout)
             .lines()
@@ -328,8 +329,8 @@ impl DapManager {
 
         // Spawn the DAP adapter process
         let mut cmd = AsyncCommand::new(&command);
-        cmd.args(&args);
-        
+        cmd.no_window().args(&args);
+
         if let Some(cwd) = &config.cwd {
             cmd.current_dir(cwd);
         }

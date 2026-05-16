@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import {
   FileText, Pencil, FolderOpen, Plus, Trash2, Terminal,
-  Search, Globe, Check, X, Loader2, ChevronDown, ChevronRight, Sparkles
+  Search, Globe, Check, X, Loader2, ChevronDown, ChevronRight, Sparkles, CheckCheck,
 } from 'lucide-react';
 
 const TOOL_ICONS = {
@@ -65,7 +65,7 @@ function InlineDiff({ oldContent, newContent }) {
   );
 }
 
-export default function AgentToolBlock({ toolCall, onApprove, onReject }) {
+export default function AgentToolBlock({ toolCall, onApprove, onApproveAlways, onReject }) {
   const [showDiff, setShowDiff] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const Icon = TOOL_ICONS[toolCall.name] || FileText;
@@ -157,15 +157,28 @@ export default function AgentToolBlock({ toolCall, onApprove, onReject }) {
             </div>
           )}
 
-          {/* Approve / Reject buttons */}
+          {/* Approve / Reject buttons.
+              "Toujours approuver" remembers this tool type for the
+              rest of the session so the user isn't re-prompted for
+              every read_file / write_file the agent makes — that was
+              the main reason people had to enable YOLO mode. */}
           {isPending && (
-            <div className="flex items-center gap-2 mt-2">
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
               <button
                 onClick={() => onApprove(toolCall.id)}
                 className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-green-900/20 border border-green-500/40 text-green-400 hover:bg-green-900/40 transition-colors"
               >
                 <Check size={10} /> Approuver
               </button>
+              {onApproveAlways && (
+                <button
+                  onClick={() => onApproveAlways(toolCall.id, toolCall.name)}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-emerald-900/20 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/40 transition-colors"
+                  title={`Approuver maintenant et auto-approuver « ${label} » pour le reste de cette session`}
+                >
+                  <CheckCheck size={10} /> Toujours
+                </button>
+              )}
               <button
                 onClick={() => onReject(toolCall.id)}
                 className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-red-900/20 border border-red-500/40 text-red-400 hover:bg-red-900/40 transition-colors"

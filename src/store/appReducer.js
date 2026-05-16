@@ -40,7 +40,11 @@ export const initialState = {
   vaultInitialized: false,
   vaultUnlocked: false,
   securityAlerts: [],
-  autoLockMinutes: 5,
+  // 0 = auto-lock disabled. Default off: surprise auto-locks combined
+  // with a forgotten master password forced users to restart the IDE
+  // just to escape the lock screen. Users who want the security trade
+  // can opt in from Settings → Security.
+  autoLockMinutes: 0,
 
   // AI (legacy copilot — conservé pour compatibilité)
   aiMessages: [],

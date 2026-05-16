@@ -1,12 +1,18 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Lock, Unlock, ShieldCheck, Eye, EyeOff } from 'lucide-react';
+import { Lock, Unlock, ShieldCheck, Eye, EyeOff, AlertTriangle } from 'lucide-react';
 
-export default function LockScreen({ onUnlock, onInit, vaultInitialized }) {
+export default function LockScreen({ onUnlock, onInit, onReset, vaultInitialized }) {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isInit, setIsInit] = useState(!vaultInitialized);
+  // Two-step confirm for the forgot-password reset. First click shows
+  // an inline warning + "Confirmer" button; only the second click
+  // actually wipes the vault. Prevents a slip from destroying all the
+  // user's stored secrets.
+  const [resetArmed, setResetArmed] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const inputRef = useRef(null);
 
   useEffect(() => {
@@ -117,6 +123,63 @@ export default function LockScreen({ onUnlock, onInit, vaultInitialized }) {
           >
             Create a new vault
           </button>
+        )}
+
+        {/* Forgot-password reset. Only offered when the vault already
+            exists AND the user is on the unlock screen — there's no
+            point showing it during initial creation. */}
+        {vaultInitialized && !isInit && onReset && (
+          <div className="mt-3 pt-3 border-t border-lorica-border/40">
+            {!resetArmed ? (
+              <button
+                onClick={() => { setResetArmed(true); setError(''); }}
+                className="w-full text-center text-[11px] text-lorica-textDim hover:text-amber-400 transition-colors"
+              >
+                Mot de passe oublié ? Réinitialiser le vault
+              </button>
+            ) : (
+              <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 space-y-2">
+                <div className="flex items-start gap-2 text-[11px] text-amber-200">
+                  <AlertTriangle size={14} className="shrink-0 mt-0.5 text-amber-400" />
+                  <span>
+                    La réinitialisation supprime définitivement tous les
+                    secrets stockés (clés API, etc.). Cette action est
+                    irréversible.
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={async () => {
+                      setResetting(true);
+                      const result = await onReset();
+                      setResetting(false);
+                      if (result?.success) {
+                        // Drop back into the "create a new vault" flow.
+                        setResetArmed(false);
+                        setIsInit(true);
+                        setPassword('');
+                        setConfirmPassword('');
+                        setError('');
+                      } else {
+                        setError(result?.error || 'Reset failed');
+                      }
+                    }}
+                    disabled={resetting}
+                    className="flex-1 py-1.5 rounded-md bg-amber-500/30 border border-amber-500/60 text-amber-100 text-[11px] font-semibold hover:bg-amber-500/40 transition-colors disabled:opacity-50"
+                  >
+                    {resetting ? 'Réinitialisation…' : 'Confirmer la suppression'}
+                  </button>
+                  <button
+                    onClick={() => setResetArmed(false)}
+                    disabled={resetting}
+                    className="flex-1 py-1.5 rounded-md border border-lorica-border text-[11px] text-lorica-textDim hover:text-lorica-text transition-colors disabled:opacity-50"
+                  >
+                    Annuler
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>
