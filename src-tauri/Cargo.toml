@@ -1,6 +1,12 @@
 [package]
 name = "lorica"
-version = "2.3.0"
+# Cargo + Tauri's config schema both enforce strict semver
+# (no leading zeros), so this stays "2.3.1" even though the public
+# tag / artifact names are "v2.3.01" / "Lorica_2.3.01_*". The UI's
+# displayed version comes from src/version.js (APP_VERSION =
+# "2.3.01"); `is_newer_version` in updater.rs normalizes both
+# representations to [2,3,1] so the auto-updater compares correctly.
+version = "2.3.1"
 description = "Lorica — Secure, AI-Powered, Native IDE"
 authors = ["Lorica Team"]
 edition = "2021"

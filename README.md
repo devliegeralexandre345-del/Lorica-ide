@@ -15,6 +15,11 @@ IDE nouvelle génération construit avec **Tauri 2 + Rust** (backend) et **React
 
 ## 🆕 Nouveautés v2.3.0
 
+> **Dernière version : v2.3.01** — hotfix pour la compatibilité
+> DeepSeek thinking-mode (round-trip de `reasoning_content` sur
+> les tours multi-turn). Les liens de téléchargement ci-dessous
+> pointent automatiquement sur la dernière release.
+
 Cette release transforme Lorica d'un **IDE avec des features IA** en un **IDE construit autour de l'IA**. Tout est natif, local-first, commit-friendly.
 
 ### Paradigme
@@ -103,11 +108,11 @@ convention complète.
 
 | Plateforme | Format | Lien |
 |------------|--------|------|
-| 🪟 Windows | Installateur `.msi` | [Télécharger](https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/Lorica_2.3.0_x64_en-US.msi) |
-| 🪟 Windows | Executable `.exe` | [Télécharger](https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/Lorica_2.3.0_x64-setup.exe) |
-| 🐧 Linux | Package `.deb` (Debian/Ubuntu) | [Télécharger](https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/Lorica_2.3.0_amd64.deb) |
-| 🐧 Linux | Package `.rpm` (Fedora/RHEL) | [Télécharger](https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/Lorica-2.3.0-1.x86_64.rpm) |
-| 🐧 Linux | `.AppImage` (universel) | [Télécharger](https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/Lorica_2.3.0_amd64.AppImage) |
+| 🪟 Windows | Installateur `.msi` | [Télécharger](https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/Lorica_2.3.01_x64_en-US.msi) |
+| 🪟 Windows | Executable `.exe` | [Télécharger](https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/Lorica_2.3.01_x64-setup.exe) |
+| 🐧 Linux | Package `.deb` (Debian/Ubuntu) | [Télécharger](https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/Lorica_2.3.01_amd64.deb) |
+| 🐧 Linux | Package `.rpm` (Fedora/RHEL) | [Télécharger](https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/Lorica-2.3.01-1.x86_64.rpm) |
+| 🐧 Linux | `.AppImage` (universel) | [Télécharger](https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/Lorica_2.3.01_amd64.AppImage) |
 
 > Les liens ci-dessus pointent vers la **dernière release**. Pour une version spécifique, rendez-vous sur la [page des releases](https://github.com/devliegeralexandre345-del/Lorica-ide/releases).
 
@@ -155,26 +160,26 @@ winget install --source winget Lorica
 > défaut les binaires sans signature Microsoft-partner. Lorica n'a pas
 > encore cette signature (coût + reputation requise). Vérifier l'intégrité
 > du fichier téléchargé reste possible via le SHA-256 :
-> `Get-FileHash Lorica_2.3.0_x64_en-US.msi`
+> `Get-FileHash Lorica_2.3.01_x64_en-US.msi`
 > à comparer avec le hash publié dans les
 > [release notes](https://github.com/devliegeralexandre345-del/Lorica-ide/releases).
 
 **Debian / Ubuntu**
 ```bash
-wget https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/Lorica_2.3.0_amd64.deb
-sudo dpkg -i Lorica_2.3.0_amd64.deb
+wget https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/Lorica_2.3.01_amd64.deb
+sudo dpkg -i Lorica_2.3.01_amd64.deb
 ```
 
 **Fedora / RHEL**
 ```bash
-sudo rpm -i https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/Lorica-2.3.0-1.x86_64.rpm
+sudo rpm -i https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/Lorica-2.3.01-1.x86_64.rpm
 ```
 
 **AppImage (toutes distros Linux)**
 ```bash
-wget https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/Lorica_2.3.0_amd64.AppImage
-chmod +x Lorica_2.3.0_amd64.AppImage
-./Lorica_2.3.0_amd64.AppImage
+wget https://github.com/devliegeralexandre345-del/Lorica-ide/releases/latest/download/Lorica_2.3.01_amd64.AppImage
+chmod +x Lorica_2.3.01_amd64.AppImage
+./Lorica_2.3.01_amd64.AppImage
 ```
 
 ---
