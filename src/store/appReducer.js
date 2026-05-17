@@ -439,6 +439,19 @@ export function appReducer(state, action) {
       }
       return { ...state, agentMessages: msgs };
     }
+    // Attach the model's reasoning chain-of-thought to the last
+    // assistant message. DeepSeek thinking-mode requires it to be
+    // round-tripped on every subsequent turn; without it the next
+    // request 400s. Stored as a plain string; the UI may render it
+    // in a collapsible block (future polish).
+    case 'AGENT_SET_REASONING': {
+      const msgs = [...state.agentMessages];
+      const last = msgs[msgs.length - 1];
+      if (last && last.role === 'assistant') {
+        msgs[msgs.length - 1] = { ...last, reasoningContent: action.text || null };
+      }
+      return { ...state, agentMessages: msgs };
+    }
     case 'AGENT_ADD_TOOL_CALL': {
       const msgs = [...state.agentMessages];
       const last = msgs[msgs.length - 1];

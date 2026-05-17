@@ -425,7 +425,10 @@ export function useAgent(state, dispatch) {
     if (flushTimerRef.current) { clearTimeout(flushTimerRef.current); flushTimerRef.current = null; }
     if (streamBufRef.current) flushStream();
 
-    return { textContent, toolUses, stopReason, usage };
+    // Anthropic doesn't use the OpenAI `reasoning_content` field
+    // (extended thinking is a separate content-block type). Return null
+    // so call sites can destructure the same shape for both providers.
+    return { textContent, reasoningContent: null, toolUses, stopReason, usage };
   }
 
   // --- OpenAI/DeepSeek SSE parser ---
@@ -435,6 +438,16 @@ export function useAgent(state, dispatch) {
     let buffer = '';
 
     let textContent = '';
+    // DeepSeek's reasoning models (deepseek-reasoner, deepseek-v4-pro
+    // in thinking mode) stream chain-of-thought as `delta.reasoning_content`
+    // alongside the regular `delta.content`. The protocol REQUIRES this
+    // field to be echoed back on the next request's assistant message —
+    // omitting it produces a 400 "The reasoning_content in the thinking
+    // mode must be passed back to the API". Capture it here and round-
+    // trip it via the history entry. We deliberately do NOT stream it
+    // into the visible chat bubble (it's the model's scratchpad, not
+    // its answer); the UI may surface it in a collapsible block later.
+    let reasoningContent = '';
     const toolUses = [];
     const toolByIndex = {};
     let finishReason = null;
@@ -467,6 +480,14 @@ export function useAgent(state, dispatch) {
         if (delta.content) {
           textContent += delta.content;
           queueStreamAppend(delta.content);
+        }
+
+        // Reasoning chain-of-thought (DeepSeek thinking mode). Accumulate
+        // but don't dispatch to the chat stream — only the final answer
+        // (`content`) is user-visible. The full reasoning ships back to
+        // the API on the next turn via the history entry below.
+        if (delta.reasoning_content) {
+          reasoningContent += delta.reasoning_content;
         }
 
         if (delta.tool_calls) {
@@ -525,8 +546,17 @@ export function useAgent(state, dispatch) {
     if (flushTimerRef.current) { clearTimeout(flushTimerRef.current); flushTimerRef.current = null; }
     if (streamBufRef.current) flushStream();
 
+    // Persist reasoning_content onto the assistant message so the next
+    // turn (which rebuilds history from state.agentMessages) can ship
+    // it back to DeepSeek. Skipped when empty so non-thinking models
+    // don't accumulate a dead field.
+    if (reasoningContent) {
+      dispatch({ type: 'AGENT_SET_REASONING', text: reasoningContent });
+    }
+
     return {
       textContent,
+      reasoningContent: reasoningContent || null,
       toolUses,
       stopReason: finishReason === 'tool_calls' ? 'tool_use' : finishReason,
       usage,
@@ -677,6 +707,12 @@ You have direct access to the user's codebase via tools. Be concise, precise, an
         history.push({
           role: 'assistant',
           content: msg.content || '',
+          // Preserve reasoning chain-of-thought across multi-turn rebuilds
+          // (when state.agentMessages is replayed at the start of every
+          // send). Without this, a stored thinking-mode turn would be
+          // sent back without its reasoning_content and DeepSeek would
+          // 400 on the next request.
+          reasoningContent: msg.reasoningContent || null,
           toolCalls: (msg.toolCalls || []).map((tc) => ({ id: tc.id, name: tc.name, input: tc.input || {} })),
         });
       } else if (msg.role === 'tool_results') {
@@ -757,6 +793,15 @@ You have direct access to the user's codebase via tools. Be concise, precise, an
               apiMessages.push({ role: 'user', content: h.content });
             } else if (h.role === 'assistant') {
               const msg = { role: 'assistant', content: h.content || '' };
+              // DeepSeek thinking-mode contract: when the previous turn
+              // returned a `reasoning_content`, it MUST be echoed back
+              // on the next assistant message, otherwise the API throws
+              // 400 "The reasoning_content in the thinking mode must be
+              // passed back to the API". Pass it through verbatim — the
+              // server uses it as part of the cache key / context.
+              if (h.reasoningContent) {
+                msg.reasoning_content = h.reasoningContent;
+              }
               if (h.toolCalls && h.toolCalls.length > 0) {
                 msg.tool_calls = h.toolCalls.map((tc) => ({
                   id: tc.id,
@@ -858,6 +903,9 @@ You have direct access to the user's codebase via tools. Be concise, precise, an
             // Emit assistant message
             dispatch({ type: 'AGENT_ADD_MESSAGE', message: { role: 'assistant', content: '', toolCalls: [] } });
             if (textContent) dispatch({ type: 'AGENT_APPEND_STREAM', text: textContent });
+            if (msg.reasoning_content) {
+              dispatch({ type: 'AGENT_SET_REASONING', text: msg.reasoning_content });
+            }
 
             const toolUses = [];
             for (const tc of msg.tool_calls || []) {
@@ -871,6 +919,10 @@ You have direct access to the user's codebase via tools. Be concise, precise, an
             history.push({
               role: 'assistant',
               content: textContent,
+              // Non-streaming response also carries reasoning_content for
+              // DeepSeek thinking-mode models. Same round-trip rule as the
+              // streaming path — must be echoed back on the next turn.
+              reasoningContent: msg.reasoning_content || null,
               toolCalls: toolUses.map((tu) => ({ id: tu.id, name: tu.name, input: tu.input })),
             });
 
@@ -925,11 +977,14 @@ You have direct access to the user's codebase via tools. Be concise, precise, an
           break;
         }
 
-        const { textContent, toolUses, stopReason, usage } = await parseStreamFn(response);
+        const { textContent, reasoningContent, toolUses, stopReason, usage } = await parseStreamFn(response);
 
         history.push({
           role: 'assistant',
           content: textContent,
+          // Stored for DeepSeek thinking-mode round-trip. Anthropic
+          // ignores it (different protocol for extended thinking).
+          reasoningContent: reasoningContent || null,
           toolCalls: toolUses.map((tu) => ({ id: tu.id, name: tu.name, input: tu.input || {} })),
         });
 
